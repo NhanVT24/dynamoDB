@@ -13,7 +13,8 @@
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:init": "npm run db:init -w @supermarket/api",
-    "db:seed": "npm run db:seed -w @supermarket/api"
+    "db:seed": "npm run db:seed -w @supermarket/api",
+    "db:localize": "npm run db:localize -w @supermarket/api"
   },
   "devDependencies": {
     "concurrently": "^9.2.0"

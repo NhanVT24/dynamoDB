@@ -12,5 +12,5 @@ export const env = z.object({
   AWS_ACCESS_KEY_ID: z.string().default("local"),
   AWS_SECRET_ACCESS_KEY: z.string().default("local"),
   DYNAMODB_ENDPOINT: z.string().optional(),
-  DYNAMODB_TABLE_NAME: z.string().default("SupermarketShopping")
+  DYNAMODB_TABLE_NAME: z.string().default("MarketplaceProducts")
 }).parse(process.env);

@@ -1,3 +1,3 @@
 export const keys = {
-  shoppingItem: (id) => ({ PK: `SHOPPING_ITEM#${id}`, SK: "DETAIL" })
+  product: (id) => ({ PK: `PRODUCT#${id}`, SK: "DETAIL" })
 };

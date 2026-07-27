@@ -8,11 +8,13 @@
     "start": "node src/server.js",
     "typecheck": "node --check src/server.js",
     "db:init": "node src/scripts/create-table.js",
-    "db:seed": "node src/scripts/seed.js"
+    "db:seed": "node src/scripts/seed.js",
+    "db:localize": "node src/scripts/localize-products.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.850.0",
     "@aws-sdk/lib-dynamodb": "^3.850.0",
+    "@aws-sdk/util-dynamodb": "^3.996.7",
     "@fastify/cors": "^11.0.1",
     "dotenv": "^17.2.0",
     "fastify": "^5.4.0",

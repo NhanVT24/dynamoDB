@@ -1,17 +1,19 @@
 import "./styles.css";
 
 export const metadata = {
-  title: "Quản lý mua sắm siêu thị",
-  description: "Dự án học DynamoDB với CRUD mua sắm"
+  title: "Admin quản lý sản phẩm",
+  description: "Trang admin quản lý sản phẩm với Next.js, Node.js và DynamoDB"
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="vi">
       <body>
-        <header>
-          <strong>Siêu thị Dynamo</strong>
-          <span>Next.js / Node.js / DynamoDB</span>
+        <header className="topbar">
+          <div>
+            <strong>Admin sản phẩm</strong>
+            <span>DynamoDB Product Management</span>
+          </div>
         </header>
         <main>{children}</main>
       </body>

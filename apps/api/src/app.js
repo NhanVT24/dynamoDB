@@ -25,7 +25,7 @@ export async function buildApp() {
   await app.register(learningRoutes, { prefix: "/api/learning" });
 
   app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof ZodError) {
+    if (error instanceof ZodError || Array.isArray(error.issues)) {
       return reply.code(400).send({ message: "Invalid request", issues: error.issues });
     }
     if (error instanceof Error && error.name === "ConditionalCheckFailedException") {
