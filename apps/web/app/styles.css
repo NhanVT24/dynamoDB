@@ -55,6 +55,10 @@ button.danger:hover { background: #fff0f2; }
 .pill:hover { background: #ffe8dc; }
 .pill.done { background: #eaf8f2; color: var(--success); border-color: #bfe7d6; }
 .pill.done:hover { background: #ddf3ea; }
+.quantityControl { display: inline-grid; grid-template-columns: 34px minmax(34px, auto) 34px; align-items: center; gap: 6px; }
+.quantityControl strong { text-align: center; }
+.iconButton { min-width: 34px; min-height: 32px; padding: 0; background: white; color: var(--accent); border: 1px solid #ffc7b5; font-size: 18px; line-height: 1; }
+.iconButton:hover { background: #fff4e8; }
 .listPanel { min-width: 0; }
 .tableWrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; background: white; }

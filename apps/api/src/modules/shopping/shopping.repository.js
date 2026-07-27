@@ -10,6 +10,7 @@ import { db } from "../../db/client.js";
 import { keys } from "../../db/keys.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
+const INCREMENTABLE_FIELDS = new Set(["quantity"]);
 
 function encodeCursor(key) {
   return Buffer.from(JSON.stringify(key)).toString("base64url");
@@ -30,7 +31,6 @@ export async function createShoppingItem(input) {
     updatedAt: now
   };
 
-  // DynamoDB CREATE: PutCommand tạo mặt hàng mới.
   await db.send(new PutCommand({
     TableName,
     Item: {
@@ -46,7 +46,6 @@ export async function createShoppingItem(input) {
 }
 
 export async function getShoppingItem(id) {
-  // DynamoDB READ: GetCommand đọc một mặt hàng theo primary key.
   const result = await db.send(new GetCommand({
     TableName,
     Key: keys.shoppingItem(id),
@@ -56,10 +55,49 @@ export async function getShoppingItem(id) {
   return result.Item ?? null;
 }
 
+export async function incrementItemValue(id, field, incrementBy = 1) {
+  if (!INCREMENTABLE_FIELDS.has(field)) {
+    throw new Error(`Field "${field}" is not allowed for increment.`);
+  }
+
+  const isDecrease = incrementBy < 0;
+  const conditionExpression = isDecrease
+    ? "attribute_exists(PK) AND #field >= :minBeforeDecrease"
+    : "attribute_exists(PK)";
+  const expressionAttributeValues = {
+    ":zero": 0,
+    ":one": 1,
+    ":incrementBy": incrementBy,
+    ":updatedAt": new Date().toISOString()
+  };
+
+  if (isDecrease) {
+    expressionAttributeValues[":minBeforeDecrease"] = Math.abs(incrementBy) + 1;
+  }
+
+  const result = await db.send(new UpdateCommand({
+    TableName,
+    Key: keys.shoppingItem(id),
+    UpdateExpression: [
+      "SET #field = if_not_exists(#field, :zero) + :incrementBy",
+      "updatedAt = :updatedAt",
+      "#version = if_not_exists(#version, :zero) + :one"
+    ].join(", "),
+    ConditionExpression: conditionExpression,
+    ExpressionAttributeNames: {
+      "#field": field,
+      "#version": "version"
+    },
+    ExpressionAttributeValues: expressionAttributeValues,
+    ReturnValues: "ALL_NEW"
+  }));
+
+  return result.Attributes;
+}
+
 export async function listShoppingItems(limit = 50, cursor) {
   const ExclusiveStartKey = cursor ? decodeCursor(cursor) : undefined;
 
-  // DynamoDB LIST: ScanCommand liệt kê một trang mặt hàng mua sắm.
   const result = await db.send(new ScanCommand({
     TableName,
     FilterExpression: "entityType = :type",
@@ -103,15 +141,17 @@ export async function listShoppingItemsByPage(page = 1, limit = 10) {
     cursor = result.nextCursor;
 
     if (currentPage === page) break;
-    if (!cursor) return {
-      items: [],
-      page,
-      limit,
-      hasNextPage: false,
-      hasPreviousPage: page > 1,
-      nextPage: null,
-      previousPage: page > 1 ? page - 1 : null
-    };
+    if (!cursor) {
+      return {
+        items: [],
+        page,
+        limit,
+        hasNextPage: false,
+        hasPreviousPage: page > 1,
+        nextPage: null,
+        previousPage: page > 1 ? page - 1 : null
+      };
+    }
 
     currentPage += 1;
   }
@@ -148,7 +188,6 @@ export async function updateShoppingItem(id, patch, version) {
     setters.push("#GSI1PK = :GSI1PK");
   }
 
-  // DynamoDB UPDATE: UpdateCommand sửa mặt hàng và tăng version.
   const result = await db.send(new UpdateCommand({
     TableName,
     Key: keys.shoppingItem(id),
@@ -163,7 +202,6 @@ export async function updateShoppingItem(id, patch, version) {
 }
 
 export async function deleteShoppingItem(id) {
-  // DynamoDB DELETE: DeleteCommand xóa mặt hàng.
   await db.send(new DeleteCommand({
     TableName,
     Key: keys.shoppingItem(id),

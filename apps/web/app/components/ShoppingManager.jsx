@@ -17,7 +17,7 @@ const commandNotes = [
   ["Thêm", "POST /api/shopping-items", "PutCommand"],
   ["Đọc một dòng", "GET /api/shopping-items/:id", "GetCommand"],
   ["Tải theo trang", "GET /api/shopping-items?page=2&limit=5", "ScanCommand + cursor nội bộ"],
-  ["Đọc tất cả", "GET /api/shopping-items/all", "ScanCommand lặp cursor"],
+  ["Tăng/giảm", "PATCH /api/shopping-items/:id/increment", "UpdateCommand ADD-like expression"],
   ["Sửa", "PATCH /api/shopping-items/:id", "UpdateCommand"],
   ["Xóa", "DELETE /api/shopping-items/:id", "DeleteCommand"]
 ];
@@ -112,6 +112,25 @@ export default function ShoppingManager() {
     }
   }
 
+  async function incrementQuantity(item, incrementBy) {
+    setBusy(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/shopping-items/${item.id}/increment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field: "quantity", incrementBy })
+      });
+      if (!response.ok) throw new Error(incrementBy > 0 ? "Tăng số lượng thất bại" : "Giảm số lượng thất bại");
+      const updated = await response.json();
+      setItems((current) => current.map((row) => row.id === updated.id ? updated : row));
+      setStatus(`${incrementBy > 0 ? "Tăng" : "Giảm"} số lượng "${updated.name}" bằng incrementItemValue.`);
+    } catch (error) {
+      setStatus(error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function resetForm() {
     setEditingId("");
     setEditingVersion(0);
@@ -189,8 +208,8 @@ export default function ShoppingManager() {
         <p className="eyebrow">DYNAMODB SUPERMARKET LAB</p>
         <h1>Quản lý mua sắm siêu thị</h1>
         <p>
-          Danh sách được tải từng trang bằng cursor của DynamoDB để tránh kéo quá nhiều item cùng lúc.
-          Mỗi thao tác đều đi qua một command rõ ràng.
+          Danh sách được tải theo số trang. Nút tăng/giảm số lượng dùng hàm incrementItemValue
+          để cập nhật quantity trực tiếp bằng UpdateCommand.
         </p>
       </section>
 
@@ -276,7 +295,13 @@ export default function ShoppingManager() {
                       </td>
                       <td className="productName">{item.name}</td>
                       <td>{item.category}</td>
-                      <td>{item.quantity}</td>
+                      <td>
+                        <div className="quantityControl">
+                          <button type="button" className="iconButton" onClick={() => incrementQuantity(item, -1)} disabled={busy || item.quantity <= 1}>-</button>
+                          <strong>{item.quantity}</strong>
+                          <button type="button" className="iconButton" onClick={() => incrementQuantity(item, 1)} disabled={busy}>+</button>
+                        </div>
+                      </td>
                       <td>{item.priceLabel ?? defaultPriceLabel(item.unitPrice)}</td>
                       <td className="price">{currency(item.quantity * item.unitPrice)}</td>
                       <td>v{item.version}</td>
@@ -297,7 +322,7 @@ export default function ShoppingManager() {
             <form className="pageJump" onSubmit={(event) => { event.preventDefault(); loadItems(pageInput); }}>
               <span>Trang</span>
               <input value={pageInput} onChange={(event) => setPageInput(event.target.value)} type="number" min="1" />
-              
+              <button type="submit" disabled={busy}>Đi tới</button>
             </form>
             <button type="button" onClick={() => loadItems(page + 1)} disabled={busy || !hasNextPage}>
               {hasNextPage ? "Sau" : "Hết trang"}

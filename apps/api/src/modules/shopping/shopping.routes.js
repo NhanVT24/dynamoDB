@@ -4,6 +4,7 @@ import {
   deleteShoppingItem,
   getShoppingItem,
   getShoppingItemAll,
+  incrementItemValue,
   listShoppingItemsByPage,
   listShoppingItems,
   updateShoppingItem
@@ -54,6 +55,16 @@ export const shoppingRoutes = async (app) => {
     }).parse(request.body);
     const { version, ...patch } = body;
     return updateShoppingItem(id, patch, version);
+  });
+
+  app.patch("/:id/increment", async (request) => {
+    const { id } = paramsSchema.parse(request.params);
+    const body = z.object({
+      field: z.enum(["quantity"]).default("quantity"),
+      incrementBy: z.coerce.number().int().min(-999).max(999)
+    }).parse(request.body);
+
+    return incrementItemValue(id, body.field, body.incrementBy);
   });
 
   app.delete("/:id", async (request, reply) => {
