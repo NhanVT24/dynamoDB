@@ -1,0 +1,21 @@
+{
+  "name": "student-management-dynamodb",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n WEB,API -c cyan,green \"npm run dev -w @student/web\" \"npm run dev -w @student/api\"",
+    "dev:web": "npm run dev -w @student/web",
+    "dev:api": "npm run dev -w @student/api",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:init": "npm run db:init -w @student/api",
+    "db:seed": "npm run db:seed -w @student/api"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0"
+  }
+}
