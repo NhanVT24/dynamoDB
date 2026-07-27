@@ -10,7 +10,8 @@ try {
   await rawDb.send(new DescribeTableCommand({ TableName: env.DYNAMODB_TABLE_NAME }));
   console.log(`Table ${env.DYNAMODB_TABLE_NAME} already exists.`);
 } catch (error) {
-  if ((error as Error).name !== "ResourceNotFoundException") throw error;
+  if (error.name !== "ResourceNotFoundException") throw error;
+
   await rawDb.send(new CreateTableCommand({
     TableName: env.DYNAMODB_TABLE_NAME,
     BillingMode: "PAY_PER_REQUEST",
@@ -33,6 +34,7 @@ try {
       Projection: { ProjectionType: "ALL" }
     }]
   }));
+
   await waitUntilTableExists(
     { client: rawDb, maxWaitTime: 30 },
     { TableName: env.DYNAMODB_TABLE_NAME }

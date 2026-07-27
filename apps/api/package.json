@@ -1,14 +1,14 @@
 {
-  "name": "@student/api",
+  "name": "@supermarket/api",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js",
-    "typecheck": "tsc --noEmit",
-    "db:init": "tsx src/scripts/create-table.ts",
-    "db:seed": "tsx src/scripts/seed.ts"
+    "dev": "node --watch src/server.js",
+    "build": "node --check src/server.js",
+    "start": "node src/server.js",
+    "typecheck": "node --check src/server.js",
+    "db:init": "node src/scripts/create-table.js",
+    "db:seed": "node src/scripts/seed.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.850.0",
@@ -18,9 +18,5 @@
     "fastify": "^5.4.0",
     "zod": "^4.0.5"
   },
-  "devDependencies": {
-    "@types/node": "^24.0.15",
-    "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
-  }
+  "devDependencies": {}
 }

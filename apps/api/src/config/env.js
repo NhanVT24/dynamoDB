@@ -1,5 +1,10 @@
-import "dotenv/config";
+import { config } from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: resolve(__dirname, "../../../../.env"), quiet: true });
 
 export const env = z.object({
   PORT: z.coerce.number().default(4000),
@@ -7,5 +12,5 @@ export const env = z.object({
   AWS_ACCESS_KEY_ID: z.string().default("local"),
   AWS_SECRET_ACCESS_KEY: z.string().default("local"),
   DYNAMODB_ENDPOINT: z.string().optional(),
-  DYNAMODB_TABLE_NAME: z.string().default("StudentManagement")
+  DYNAMODB_TABLE_NAME: z.string().default("SupermarketShopping")
 }).parse(process.env);

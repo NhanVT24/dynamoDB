@@ -1,19 +1,19 @@
 {
-  "name": "student-management-dynamodb",
+  "name": "supermarket-shopping-dynamodb",
   "private": true,
   "workspaces": [
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently -n WEB,API -c cyan,green \"npm run dev -w @student/web\" \"npm run dev -w @student/api\"",
-    "dev:web": "npm run dev -w @student/web",
-    "dev:api": "npm run dev -w @student/api",
+    "dev": "concurrently -n WEB,API -c cyan,green \"npm run dev -w @supermarket/web\" \"npm run dev -w @supermarket/api\"",
+    "dev:web": "npm run dev -w @supermarket/web",
+    "dev:api": "npm run dev -w @supermarket/api",
     "build": "npm run build --workspaces",
-    "typecheck": "npm run typecheck --workspaces",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:init": "npm run db:init -w @student/api",
-    "db:seed": "npm run db:seed -w @student/api"
+    "db:init": "npm run db:init -w @supermarket/api",
+    "db:seed": "npm run db:seed -w @supermarket/api"
   },
   "devDependencies": {
     "concurrently": "^9.2.0"
