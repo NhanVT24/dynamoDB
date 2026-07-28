@@ -5,7 +5,6 @@ import {
   getShoppingItem,
   getShoppingItemAll,
   incrementItemValue,
-  listShoppingItemsByPage,
   listShoppingItems,
   updateShoppingItem
 } from "./shopping.repository.js";
@@ -20,7 +19,6 @@ const paramsSchema = z.object({ id: z.uuid() });
 
 const listQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(12),
-  page: z.coerce.number().int().min(1).optional(),
   cursor: z.string().optional(),
   category: z.string().optional(),
   status: z.enum(shoppingStatuses).optional(),
@@ -40,10 +38,6 @@ export const shoppingRoutes = async (app) => {
       status: query.status,
       search: query.search
     };
-
-    if (query.page) {
-      return listShoppingItemsByPage(query.page, query.limit, filters);
-    }
 
     return listShoppingItems(query.limit, query.cursor, filters);
   });

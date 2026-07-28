@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-const pageSize = 3;
+const pageSize = 5;
 const fallbackCategories = ["Thoi trang", "Dien tu", "Gia dung", "Me va be", "Lam dep", "Bach hoa"];
 const fallbackStatuses = ["active", "low_stock", "out_of_stock"];
 const emptyForm = {
@@ -40,8 +40,7 @@ const statusLabels = {
 const commandNotes = [
   ["Thêm", "PutItemCommand"],
   ["Đọc", "GetItemCommand"],
-  ["Lọc danh mục", "QueryCommand trên GSI1"],
-  ["Phân trang", "ScanCommand/QueryCommand + LastEvaluatedKey"],
+  ["Phân trang", "ScanCommand + LastEvaluatedKey"],
   ["Tăng tồn", "UpdateItemCommand"],
   ["Sửa", "UpdateItemCommand"],
   ["Xóa", "DeleteItemCommand"]
@@ -88,7 +87,7 @@ async function readApiError(response, fallback) {
       return data.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
     }
     return data.message ?? fallback;
-  } catch (_error) {
+  } catch {
     return fallback;
   }
 }
@@ -100,9 +99,9 @@ export default function ShoppingManager() {
   const [statuses] = useState(fallbackStatuses);
   const [filters, setFilters] = useState({ category: "all", status: "", search: "" });
   const [stockDrafts, setStockDrafts] = useState({});
-  const [page, setPage] = useState(1);
-  const [pageInput, setPageInput] = useState("1");
-  const [totalPages, setTotalPages] = useState(1);
+  const [cursorHistory, setCursorHistory] = useState([null]);
+  const [cursorIndex, setCursorIndex] = useState(0);
+  const [nextCursor, setNextCursor] = useState(null);
   const [hasNextPage, setHasNextPage] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
@@ -124,7 +123,7 @@ export default function ShoppingManager() {
       if (!response.ok) return;
       const data = await response.json();
       setCategories(data.categories ?? fallbackCategories);
-    } catch (_error) {
+    } catch {
       setCategories(fallbackCategories);
     }
   }
@@ -145,14 +144,13 @@ export default function ShoppingManager() {
     }
   }
 
-  async function loadItems(targetPage = page, nextFilters = filters) {
+  async function loadItems(targetCursor = null, nextFilters = filters, nextIndex = 0, nextHistory = cursorHistory) {
     setBusy(true);
     try {
-      const normalizedPage = Math.max(1, Number(targetPage) || 1);
       const params = new URLSearchParams({
-        limit: String(pageSize),
-        page: String(normalizedPage)
+        limit: String(pageSize)
       });
+      if (targetCursor) params.set("cursor", targetCursor);
       if (nextFilters.category !== "all") params.set("category", nextFilters.category);
       if (nextFilters.status) params.set("status", nextFilters.status);
       if (nextFilters.search.trim()) params.set("search", nextFilters.search.trim());
@@ -162,11 +160,11 @@ export default function ShoppingManager() {
 
       const data = await response.json();
       setItems(data.items ?? []);
-      setPage(data.page ?? normalizedPage);
-      setPageInput(String(data.page ?? normalizedPage));
-      setTotalPages(data.totalPages ?? 1);
+      setCursorHistory(nextHistory);
+      setCursorIndex(nextIndex);
+      setNextCursor(data.nextCursor ?? null);
       setHasNextPage(Boolean(data.hasNextPage));
-      setMessage(`Đã tải trang ${data.page ?? normalizedPage}`);
+      setMessage(`Đã tải ${data.items?.length ?? 0} sản phẩm`);
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -176,7 +174,7 @@ export default function ShoppingManager() {
 
   useEffect(() => {
     loadMeta();
-    loadItems(1, filters);
+    loadItems(null, filters, 0, [null]);
     loadSummary(filters);
   }, []);
 
@@ -188,6 +186,14 @@ export default function ShoppingManager() {
     setEditingId("");
     setEditingVersion(0);
     setForm(emptyForm);
+  }
+
+  function resetPagination() {
+    const history = [null];
+    setCursorHistory(history);
+    setCursorIndex(0);
+    setNextCursor(null);
+    return history;
   }
 
   function startEdit(item) {
@@ -214,10 +220,21 @@ export default function ShoppingManager() {
   function updateFilter(field, value) {
     const nextFilters = { ...filters, [field]: value };
     setFilters(nextFilters);
-    setPage(1);
-    setPageInput("1");
-    loadItems(1, nextFilters);
+    const history = resetPagination();
+    loadItems(null, nextFilters, 0, history);
     loadSummary(nextFilters);
+  }
+
+  function goNextPage() {
+    if (!nextCursor) return;
+    const history = [...cursorHistory, nextCursor];
+    loadItems(nextCursor, filters, history.length - 1, history);
+  }
+
+  function goPreviousPage() {
+    if (cursorIndex === 0) return;
+    const previousIndex = cursorIndex - 1;
+    loadItems(cursorHistory[previousIndex], filters, previousIndex, cursorHistory);
   }
 
   async function readItem(item) {
@@ -296,7 +313,8 @@ export default function ShoppingManager() {
 
       setMessage(editingId ? "Đã lưu thay đổi sản phẩm" : "Đã thêm sản phẩm mới");
       resetForm();
-      await loadItems(1, filters);
+      const history = resetPagination();
+      await loadItems(null, filters, 0, history);
       await loadSummary(filters);
     } catch (error) {
       setMessage(error.message);
@@ -315,7 +333,8 @@ export default function ShoppingManager() {
       if (!response.ok) throw new Error(await readApiError(response, "Xóa sản phẩm thất bại"));
       if (editingId === item.id) resetForm();
       setMessage(`Đã xóa "${item.name}"`);
-      await loadItems(1, filters);
+      const history = resetPagination();
+      await loadItems(null, filters, 0, history);
       await loadSummary(filters);
     } catch (error) {
       setMessage(error.message);
@@ -448,13 +467,11 @@ export default function ShoppingManager() {
           </div>
 
           <div className="pagination">
-            <button type="button" className="secondary" onClick={() => loadItems(page - 1, filters)} disabled={busy || page === 1}>Trước</button>
-            <form onSubmit={(event) => { event.preventDefault(); loadItems(pageInput, filters); }}>
-              <span>Trang {page}/{totalPages}</span>
-              <input value={pageInput} onChange={(event) => setPageInput(event.target.value)} type="number" min="1" />
-              
-            </form>
-            <button type="button" onClick={() => loadItems(page + 1, filters)} disabled={busy || !hasNextPage}>
+            <button type="button" className="secondary" onClick={goPreviousPage} disabled={busy || cursorIndex === 0}>Trước</button>
+            <div className="paginationStatus">
+              <span>Trang {cursorIndex + 1}</span>
+            </div>
+            <button type="button" onClick={goNextPage} disabled={busy || !hasNextPage}>
               {hasNextPage ? "Sau" : "Hết trang"}
             </button>
           </div>

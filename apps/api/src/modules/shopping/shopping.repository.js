@@ -2,7 +2,6 @@ import {
   DeleteItemCommand,
   GetItemCommand,
   PutItemCommand,
-  QueryCommand,
   ScanCommand,
   UpdateItemCommand
 } from "@aws-sdk/client-dynamodb";
@@ -14,17 +13,6 @@ import { keys } from "../../db/keys.js";
 const TableName = env.DYNAMODB_TABLE_NAME;
 const INCREMENTABLE_FIELDS = new Set(["stock", "soldCount"]);
 
-/** Mã hóa LastEvaluatedKey để frontend dùng như cursor phân trang. */
-function encodeCursor(key) {
-  return Buffer.from(JSON.stringify(key)).toString("base64url");
-}
-
-/** Giải mã cursor từ frontend về đúng dạng key raw của DynamoDB. */
-function decodeCursor(cursor) {
-  return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
-}
-
-/** Chuẩn hóa text để tạo khóa phụ và tìm kiếm không phân biệt hoa thường. */
 function normalizeText(value) {
   return String(value ?? "")
     .trim()
@@ -34,14 +22,12 @@ function normalizeText(value) {
     .replace(/đ/g, "d");
 }
 
-/** Tự suy ra trạng thái bán hàng dựa trên số lượng tồn kho. */
 function deriveStatus(stock) {
   if (stock <= 0) return "out_of_stock";
   if (stock <= 10) return "low_stock";
   return "active";
 }
 
-/** Tạo khóa GSI1 để query sản phẩm theo danh mục và sắp theo trạng thái/tên. */
 function buildIndexes(product) {
   return {
     GSI1PK: `CATEGORY#${normalizeText(product.category)}`,
@@ -49,7 +35,6 @@ function buildIndexes(product) {
   };
 }
 
-/** Gộp dữ liệu mới với bản ghi hiện tại và bổ sung field suy luận. */
 function toProductRecord(input, current) {
   const stock = input.stock ?? current?.stock ?? 0;
   const status = deriveStatus(stock);
@@ -62,17 +47,110 @@ function toProductRecord(input, current) {
   };
 }
 
-/** Chuyển object JavaScript sang AttributeValue map của raw DynamoDB. */
 function toDynamoItem(item) {
   return marshall(item, { removeUndefinedValues: true });
 }
 
-/** Chuyển AttributeValue map của raw DynamoDB về object JavaScript. */
 function fromDynamoItem(item) {
   return item ? unmarshall(item) : null;
 }
 
-/** Tạo sản phẩm mới bằng PutItemCommand raw, kèm condition tránh ghi đè. */
+function encodeCursor(payload) {
+  return Buffer.from(JSON.stringify(payload)).toString("base64url");
+}
+
+function decodeCursor(cursor) {
+  return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+}
+
+function matchesFilters(item, filters = {}) {
+  if (!item || item.entityType !== "PRODUCT") return false;
+  if (filters.category && filters.category !== "all" && item.category !== filters.category) return false;
+  if (filters.status && item.status !== filters.status) return false;
+
+  if (filters.search) {
+    const search = normalizeText(filters.search);
+    const haystack = [
+      item.name,
+      item.description,
+      item.brand,
+      item.sku,
+      item.category
+    ]
+      .filter(Boolean)
+      .map(normalizeText)
+      .join(" ");
+
+    if (!haystack.includes(search)) return false;
+  }
+
+  return true;
+}
+
+async function scanUntilEnough(limit, cursor, filters = {}) {
+  const results = [];
+  let state = cursor
+    ? decodeCursor(cursor)
+    : { lastKey: null, scannedCount: 0 };
+  const batchSize = Math.max(limit * 3);
+
+  while (results.length < limit) {
+    const result = await rawDb.send(new ScanCommand({
+      TableName,
+      Limit: batchSize,
+      ExclusiveStartKey: state.lastKey ?? undefined
+    }));
+
+    const rawItems = result.Items ?? [];
+
+    for (const [index, rawItem] of rawItems.entries()) {
+      const item = fromDynamoItem(rawItem);
+      if (!matchesFilters(item, filters)) continue;
+
+      results.push(item);
+      if (results.length === limit) {
+        const itemCursor = {
+          PK: rawItem.PK,
+          SK: rawItem.SK
+        };
+        const hasMoreItemsInCurrentBatch = index < rawItems.length - 1;
+        const hasMoreItemsInNextBatch = Boolean(result.LastEvaluatedKey);
+        const nextCursor = hasMoreItemsInCurrentBatch || hasMoreItemsInNextBatch
+          ? encodeCursor({
+            lastKey: itemCursor,
+            scannedCount: state.scannedCount + (result.ScannedCount ?? 0)
+          })
+          : null;
+
+        return {
+          items: results,
+          nextCursor,
+          scannedCount: state.scannedCount + (result.ScannedCount ?? 0)
+        };
+      }
+    }
+
+    state = {
+      lastKey: result.LastEvaluatedKey ?? null,
+      scannedCount: state.scannedCount + (result.ScannedCount ?? 0)
+    };
+
+    if (!result.LastEvaluatedKey) {
+      return {
+        items: results,
+        nextCursor: null,
+        scannedCount: state.scannedCount
+      };
+    }
+  }
+
+  return {
+    items: results,
+    nextCursor: state.lastKey ? encodeCursor(state) : null,
+    scannedCount: state.scannedCount
+  };
+}
+
 export async function createShoppingItem(input) {
   const now = new Date().toISOString();
   const item = toProductRecord(
@@ -101,7 +179,6 @@ export async function createShoppingItem(input) {
   return item;
 }
 
-/** Đọc chi tiết một sản phẩm bằng GetItemCommand raw theo PK/SK. */
 export async function getShoppingItem(id) {
   const result = await rawDb.send(new GetItemCommand({
     TableName,
@@ -112,7 +189,6 @@ export async function getShoppingItem(id) {
   return fromDynamoItem(result.Item);
 }
 
-/** Tăng hoặc giảm tồn kho/lượt bán bằng UpdateItemCommand raw. */
 export async function incrementItemValue(id, field, incrementBy = 1) {
   if (!INCREMENTABLE_FIELDS.has(field)) {
     throw new Error(`Field "${field}" is not allowed for increment.`);
@@ -168,79 +244,18 @@ export async function incrementItemValue(id, field, incrementBy = 1) {
   return fromDynamoItem(result.Attributes);
 }
 
-/** Query sản phẩm theo danh mục bằng GSI1, sau đó lọc thêm trạng thái/từ khóa. */
-async function listByCategory(category, limit, cursor, status, search) {
-  const result = await rawDb.send(new QueryCommand({
-    TableName,
-    IndexName: "GSI1",
-    KeyConditionExpression: "GSI1PK = :pk",
-    ExpressionAttributeValues: toDynamoItem({
-      ":pk": `CATEGORY#${normalizeText(category)}`
-    }),
-    Limit: limit,
-    ExclusiveStartKey: cursor ? decodeCursor(cursor) : undefined,
-    ScanIndexForward: true
-  }));
-
-  const filteredItems = (result.Items ?? []).map(fromDynamoItem).filter((item) => {
-    const statusMatch = status ? item.status === status : true;
-    const searchMatch = search ? normalizeText(item.name).includes(normalizeText(search)) : true;
-    return item.entityType === "PRODUCT" && statusMatch && searchMatch;
-  });
-
-  return {
-    items: filteredItems,
-    nextCursor: result.LastEvaluatedKey ? encodeCursor(result.LastEvaluatedKey) : null
-  };
-}
-
-/** Scan toàn bộ sản phẩm khi không chọn danh mục cụ thể. */
-async function listAll(limit, cursor, status, search) {
-  const expressions = ["entityType = :type"];
-  const values = { ":type": "PRODUCT" };
-  const names = {};
-
-  if (status) {
-    expressions.push("#status = :status");
-    names["#status"] = "status";
-    values[":status"] = status;
-  }
-
-  if (search) {
-    expressions.push("(contains(#searchName, :search) OR contains(#name, :rawSearch))");
-    names["#searchName"] = "searchName";
-    names["#name"] = "name";
-    values[":search"] = normalizeText(search);
-    values[":rawSearch"] = search;
-  }
-
-  const result = await rawDb.send(new ScanCommand({
-    TableName,
-    FilterExpression: expressions.join(" AND "),
-    ExpressionAttributeNames: Object.keys(names).length > 0 ? names : undefined,
-    ExpressionAttributeValues: toDynamoItem(values),
-    Limit: limit,
-    ExclusiveStartKey: cursor ? decodeCursor(cursor) : undefined
-  }));
-
-  return {
-    items: (result.Items ?? []).map(fromDynamoItem),
-    nextCursor: result.LastEvaluatedKey ? encodeCursor(result.LastEvaluatedKey) : null
-  };
-}
-
-/** Liệt kê sản phẩm, ưu tiên QueryCommand khi có danh mục để đúng thiết kế GSI. */
 export async function listShoppingItems(limit = 12, cursor, filters = {}) {
-  const { category, status, search } = filters;
+  const result = await scanUntilEnough(limit, cursor, filters);
 
-  if (category && category !== "all") {
-    return listByCategory(category, limit, cursor, status, search);
-  }
-
-  return listAll(limit, cursor, status, search);
+  return {
+    items: result.items,
+    limit,
+    cursor: cursor ?? null,
+    nextCursor: result.nextCursor,
+    hasNextPage: Boolean(result.nextCursor)
+  };
 }
 
-/** Tải nhiều trang để tính dashboard tổng quan mà vẫn tôn trọng cursor DynamoDB. */
 export async function getShoppingItemAll(pageLimit = 50, maxPages = 20, filters = {}) {
   const allItems = [];
   let cursor;
@@ -260,29 +275,53 @@ export async function getShoppingItemAll(pageLimit = 50, maxPages = 20, filters 
   };
 }
 
-/** Phân trang kiểu admin theo số trang sau khi đã áp dụng filter. */
 export async function listShoppingItemsByPage(page = 1, limit = 12, filters = {}) {
-  const result = await getShoppingItemAll(100, 100, filters);
-  const totalItems = result.items.length;
+  let currentPage = 1;
+  let cursor;
+  let result = { items: [], nextCursor: null };
+
+  while (currentPage <= page) {
+    result = await listShoppingItems(limit, cursor, filters);
+
+    if (currentPage === page) {
+      break;
+    }
+
+    if (!result.nextCursor) {
+      return {
+        items: [],
+        page,
+        limit,
+        totalItems: null,
+        totalPages: null,
+        hasNextPage: false,
+        hasPreviousPage: page > 1,
+        nextPage: null,
+        previousPage: page > 1 ? page - 1 : null
+      };
+    }
+
+    cursor = result.nextCursor;
+    currentPage += 1;
+  }
+
+  const summary = await getShoppingItemAll(100, 100, filters);
+  const totalItems = summary.items.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / limit));
-  const safePage = Math.min(Math.max(1, page), totalPages);
-  const startIndex = (safePage - 1) * limit;
-  const pageItems = result.items.slice(startIndex, startIndex + limit);
 
   return {
-    items: pageItems,
-    page: safePage,
+    items: result.items,
+    page: Math.min(page, totalPages),
     limit,
     totalItems,
     totalPages,
-    hasNextPage: safePage < totalPages,
-    hasPreviousPage: safePage > 1,
-    nextPage: safePage < totalPages ? safePage + 1 : null,
-    previousPage: safePage > 1 ? safePage - 1 : null
+    hasNextPage: Boolean(result.nextCursor),
+    hasPreviousPage: page > 1,
+    nextPage: result.nextCursor ? page + 1 : null,
+    previousPage: page > 1 ? page - 1 : null
   };
 }
 
-/** Sửa sản phẩm bằng UpdateItemCommand raw và kiểm tra version chống ghi đè. */
 export async function updateShoppingItem(id, patch, version) {
   const current = await getShoppingItem(id);
   if (!current) {
@@ -349,7 +388,6 @@ export async function updateShoppingItem(id, patch, version) {
   return fromDynamoItem(result.Attributes);
 }
 
-/** Xóa một sản phẩm bằng DeleteItemCommand raw, có condition tránh xóa nhầm. */
 export async function deleteShoppingItem(id) {
   await rawDb.send(new DeleteItemCommand({
     TableName,
