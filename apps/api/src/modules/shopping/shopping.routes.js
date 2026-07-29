@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   createShoppingItem,
   deleteShoppingItem,
+  getCursorForPage,
   getShoppingItem,
   getShoppingItemAll,
   incrementItemValue,
@@ -22,7 +23,9 @@ const listQuerySchema = z.object({
   cursor: z.string().optional(),
   category: z.string().optional(),
   status: z.enum(shoppingStatuses).optional(),
-  search: z.string().trim().min(1).optional()
+  search: z.string().trim().min(1).optional(),
+  sortBy: z.enum(["price", "stock"]).optional(),
+  sortDirection: z.enum(["asc", "desc"]).optional()
 });
 
 export const shoppingRoutes = async (app) => {
@@ -36,7 +39,9 @@ export const shoppingRoutes = async (app) => {
     const filters = {
       category: query.category,
       status: query.status,
-      search: query.search
+      search: query.search,
+      sortBy: query.sortBy,
+      sortDirection: query.sortDirection
     };
 
     return listShoppingItems(query.limit, query.cursor, filters);
@@ -48,13 +53,37 @@ export const shoppingRoutes = async (app) => {
       maxPages: z.coerce.number().int().min(1).max(100).default(20),
       category: z.string().optional(),
       status: z.enum(shoppingStatuses).optional(),
-      search: z.string().trim().min(1).optional()
+      search: z.string().trim().min(1).optional(),
+      sortBy: z.enum(["price", "stock"]).optional(),
+      sortDirection: z.enum(["asc", "desc"]).optional()
     }).parse(request.query);
 
     return getShoppingItemAll(query.pageLimit, query.maxPages, {
       category: query.category,
       status: query.status,
-      search: query.search
+      search: query.search,
+      sortBy: query.sortBy,
+      sortDirection: query.sortDirection
+    });
+  });
+
+  app.get("/page-cursor", async (request) => {
+    const query = z.object({
+      page: z.coerce.number().int().min(1).default(1),
+      limit: z.coerce.number().int().min(1).max(100).default(12),
+      category: z.string().optional(),
+      status: z.enum(shoppingStatuses).optional(),
+      search: z.string().trim().min(1).optional(),
+      sortBy: z.enum(["price", "stock"]).optional(),
+      sortDirection: z.enum(["asc", "desc"]).optional()
+    }).parse(request.query);
+
+    return getCursorForPage(query.page, query.limit, {
+      category: query.category,
+      status: query.status,
+      search: query.search,
+      sortBy: query.sortBy,
+      sortDirection: query.sortDirection
     });
   });
 

@@ -18,21 +18,47 @@ try {
     AttributeDefinitions: [
       { AttributeName: "PK", AttributeType: "S" },
       { AttributeName: "SK", AttributeType: "S" },
-      { AttributeName: "GSI1PK", AttributeType: "S" },
-      { AttributeName: "GSI1SK", AttributeType: "S" }
+      { AttributeName: "category", AttributeType: "S" },
+      { AttributeName: "status", AttributeType: "S" },
+      { AttributeName: "searchName", AttributeType: "S" },
+      { AttributeName: "searchField", AttributeType: "S" },
+      { AttributeName: "updatedAt", AttributeType: "S" }
     ],
     KeySchema: [
       { AttributeName: "PK", KeyType: "HASH" },
       { AttributeName: "SK", KeyType: "RANGE" }
     ],
-    GlobalSecondaryIndexes: [{
-      IndexName: "GSI1",
-      KeySchema: [
-        { AttributeName: "GSI1PK", KeyType: "HASH" },
-        { AttributeName: "GSI1SK", KeyType: "RANGE" }
-      ],
-      Projection: { ProjectionType: "ALL" }
-    }]
+    GlobalSecondaryIndexes: [
+      {
+        IndexName: "CategoryStatusNameIndex",
+        KeySchema: [
+          { AttributeName: "category", KeyType: "HASH" },
+          { AttributeName: "status", KeyType: "RANGE" },
+          { AttributeName: "searchName", KeyType: "RANGE" },
+          { AttributeName: "PK", KeyType: "RANGE" }
+        ],
+        Projection: { ProjectionType: "ALL" }
+      },
+      {
+        IndexName: "StatusTimelineIndex",
+        KeySchema: [
+          { AttributeName: "status", KeyType: "HASH" },
+          { AttributeName: "updatedAt", KeyType: "RANGE" },
+          { AttributeName: "searchName", KeyType: "RANGE" },
+          { AttributeName: "PK", KeyType: "RANGE" }
+        ],
+        Projection: { ProjectionType: "ALL" }
+      },
+      {
+        IndexName: "SearchNameIndex",
+        KeySchema: [
+          { AttributeName: "searchField", KeyType: "HASH" },
+          { AttributeName: "searchName", KeyType: "RANGE" },
+          { AttributeName: "PK", KeyType: "RANGE" }
+        ],
+        Projection: { ProjectionType: "ALL" }
+      }
+    ]
   }));
 
   await waitUntilTableExists(

@@ -1,12 +1,12 @@
 import { z } from "zod";
 
 const categoryValues = [
-  "Thoi trang",
-  "Dien tu",
-  "Gia dung",
-  "Me va be",
-  "Lam dep",
-  "Bach hoa"
+  "Thời trang",
+  "Điện tử",
+  "Gia dụng",
+  "Mẹ và bé",
+  "Làm đẹp",
+  "Bách hóa"
 ];
 
 const statusValues = ["active", "low_stock", "out_of_stock"];
