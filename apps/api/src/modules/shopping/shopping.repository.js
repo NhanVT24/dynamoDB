@@ -63,30 +63,44 @@ function decodeCursor(cursor) {
 
 function matchesFilters(item, filters = {}) {
   if (!item || item.entityType !== "PRODUCT") return false;
-  if (filters.category && filters.category !== "all" && item.category !== filters.category) return false;
+  if (
+    filters.category &&
+    filters.category !== "all" &&
+    normalizeText(item.category) !== normalizeText(filters.category)
+  ) return false;
   if (filters.status && item.status !== filters.status) return false;
+  if (
+    filters.updatedAtFrom &&
+    String(item.updatedAt ?? item.createdAt ?? "") < String(filters.updatedAtFrom)
+  ) return false;
 
   if (filters.search) {
     const search = normalizeText(filters.search);
-    const haystack = [
-      item.name,
-      item.description,
-      item.brand,
-      item.sku,
-      item.category
-    ]
-      .filter(Boolean)
-      .map(normalizeText)
-      .join(" ");
+    const searchField = filters.searchField ?? "name";
+    if (searchField === "name") {
+      const normalizedName = normalizeText(item.name);
+      if (!normalizedName.startsWith(search)) return false;
+    } else {
+      const haystack = [item.brand]
+        .filter(Boolean)
+        .map(normalizeText)
+        .join(" ");
 
-    if (!haystack.includes(search)) return false;
+      if (!haystack.includes(search)) return false;
+    }
   }
 
   return true;
 }
 
 function sortItems(items, filters = {}) {
-  if (!filters.sortBy) return items;
+  if (!filters.sortBy) {
+    return [...items].sort((left, right) =>
+      String(right?.updatedAt ?? right?.createdAt ?? "").localeCompare(
+        String(left?.updatedAt ?? left?.createdAt ?? "")
+      )
+    );
+  }
 
   const direction = filters.sortDirection === "asc" ? 1 : -1;
   const field = filters.sortBy;
@@ -101,6 +115,45 @@ function sortItems(items, filters = {}) {
 
     return (leftValue - rightValue) * direction;
   });
+}
+
+async function listShoppingItemsBase(limit = 12, cursor, filters = {}) {
+  let result;
+
+  try {
+    if (filters.status) {
+      result = await queryStatusUpdatedAtWithSearchFilterUntilEnough(limit, cursor, filters);
+    } else if (filters.search || filters.updatedAtFrom) {
+      result = (filters.searchField ?? "name") === "brand" && filters.search
+        ? await scanBrandSearchUntilEnough(limit, cursor, filters)
+        : filters.search
+          ? await querySearchUntilEnough(limit, cursor, filters)
+          : await scanUntilEnough(limit, cursor, filters);
+    } else if (filters.category && filters.category !== "all") {
+      result = await queryCategoryStatusNameUntilEnough(limit, cursor, filters);
+    } else {
+      result = await scanUntilEnough(limit, cursor, filters);
+    }
+  } catch (error) {
+    if (
+      error?.name !== "ValidationException" &&
+      error?.name !== "ResourceNotFoundException"
+    ) {
+      throw error;
+    }
+
+    result = (filters.searchField ?? "name") === "brand" && filters.search
+      ? await scanBrandSearchUntilEnough(limit, cursor, filters)
+      : await scanUntilEnough(limit, cursor, filters);
+  }
+
+  return {
+    items: result.items,
+    limit,
+    cursor: cursor ?? null,
+    nextCursor: result.nextCursor,
+    hasNextPage: Boolean(result.nextCursor)
+  };
 }
 
 async function scanUntilEnough(limit, cursor, filters = {}) {
@@ -158,8 +211,113 @@ async function scanUntilEnough(limit, cursor, filters = {}) {
   }
 }
 
-async function queryStatusUntilEnough(limit, cursor, filters = {}) {
+async function scanBrandSearchUntilEnough(limit, cursor, filters = {}) {
   const results = [];
+  let state = cursor
+    ? decodeCursor(cursor)
+    : { lastKey: null };
+
+  while (results.length < limit) {
+    const missingItems = Math.max(0, limit - results.length);
+    if (missingItems === 0) {
+      return {
+        items: results,
+        nextCursor: state.lastKey
+          ? encodeCursor({ lastKey: state.lastKey })
+          : null
+      };
+    }
+
+    const result = await rawDb.send(new ScanCommand({
+      TableName,
+      FilterExpression: "contains(#brand, :brandValue)",
+      ExpressionAttributeNames: {
+        "#brand": "brand"
+      },
+      ExpressionAttributeValues: toDynamoItem({
+        ":brandValue": String(filters.search ?? "").trim()
+      }),
+      Limit: missingItems,
+      ExclusiveStartKey: state.lastKey ?? undefined
+    }));
+
+    const rawItems = result.Items ?? [];
+
+    for (const rawItem of rawItems) {
+      const item = fromDynamoItem(rawItem);
+      if (!matchesFilters(item, filters)) continue;
+
+      results.push(item);
+      if (results.length === limit) {
+        return {
+          items: results,
+          nextCursor: result.LastEvaluatedKey
+            ? encodeCursor({ lastKey: result.LastEvaluatedKey })
+            : null
+        };
+      }
+    }
+
+    state = {
+      lastKey: result.LastEvaluatedKey ?? null,
+    };
+
+    if (!result.LastEvaluatedKey) {
+      return {
+        items: results,
+        nextCursor: null,
+      };
+    }
+  }
+}
+
+function buildStatusTimelineExpressions(filters = {}) {
+  const search = filters.search ? normalizeText(filters.search) : null;
+  const searchField = filters.searchField ?? "name";
+  const expressionAttributeNames = {
+    "#status": "status"
+  };
+  const expressionAttributeValues = {
+    ":statusKey": filters.status
+  };
+  const keyConditionParts = ["#status = :statusKey"];
+  let filterExpression;
+
+  if (filters.updatedAtFrom) {
+    expressionAttributeNames["#updatedAt"] = "updatedAt";
+    expressionAttributeValues[":updatedAtFrom"] = filters.updatedAtFrom;
+    keyConditionParts.push("#updatedAt >= :updatedAtFrom");
+  }
+
+  if (search && searchField === "brand") {
+    expressionAttributeNames["#brand"] = "brand";
+    expressionAttributeValues[":brandValue"] = String(filters.search ?? "").trim();
+    filterExpression = "contains(#brand, :brandValue)";
+  }
+
+  return {
+    KeyConditionExpression: keyConditionParts.join(" AND "),
+    ExpressionAttributeNames: expressionAttributeNames,
+    ExpressionAttributeValues: toDynamoItem(expressionAttributeValues),
+    FilterExpression: filterExpression
+  };
+}
+
+async function queryStatusUpdatedAtWithSearchFilterUntilEnough(limit, cursor, filters = {}) {
+  if (!filters.status) {
+    if ((filters.searchField ?? "name") === "brand" && filters.search) {
+      return scanBrandSearchUntilEnough(limit, cursor, filters);
+    }
+
+    if (filters.search) {
+      return querySearchUntilEnough(limit, cursor, filters);
+    }
+
+    return scanUntilEnough(limit, cursor, filters);
+  }
+
+  const results = [];
+  const search = filters.search ? normalizeText(filters.search) : null;
   let state = cursor
     ? decodeCursor(cursor)
     : { lastKey: null };
@@ -178,13 +336,19 @@ async function queryStatusUntilEnough(limit, cursor, filters = {}) {
     const result = await rawDb.send(new QueryCommand({
       TableName,
       IndexName: "StatusTimelineIndex",
-      KeyConditionExpression: "#status = :statusKey",
+      KeyConditionExpression: "#status = :statusKey AND #updatedAt >= :updatedAtFrom",
+      // KeyConditionExpression: "status = :statusKey AND updatedAt >= :updatedAtFrom AND begins_with(searchName, :searchPrefix)",
       ExpressionAttributeNames: {
-        "#status": "status"
+        "#status": "status",
+        "#updatedAt": "updatedAt",
+        "#searchName": "searchName"
       },
       ExpressionAttributeValues: toDynamoItem({
-        ":statusKey": filters.status
+        ":statusKey": filters.status,
+        ":updatedAtFrom": filters.updatedAtFrom,
+        ":searchPrefix": search
       }),
+      FilterExpression: "begins_with(#searchName, :searchPrefix)",
       ScanIndexForward: false,
       Limit: missingItems,
       ExclusiveStartKey: state.lastKey ?? undefined
@@ -221,9 +385,35 @@ async function queryStatusUntilEnough(limit, cursor, filters = {}) {
     }
   }
 }
+function buildCategoryStatusNameQuery(filters = {}) {
+  const search = filters.search ? normalizeText(filters.search) : null;
+  const expressionParts = ["category = :categoryKey"];
+  const values = {
+    ":categoryKey": filters.category
+  };
+  const names = {};
 
-async function queryCategoryUntilEnough(limit, cursor, filters = {}) {
+  if (filters.status) {
+    expressionParts.push("#status = :statusKey");
+    names["#status"] = "status";
+    values[":statusKey"] = filters.status;
+  }
+
+  if (search) {
+    expressionParts.push("begins_with(searchName, :searchPrefix)");
+    values[":searchPrefix"] = search;
+  }
+
+  return {
+    KeyConditionExpression: expressionParts.join(" AND "),
+    ExpressionAttributeNames: Object.keys(names).length > 0 ? names : undefined,
+    ExpressionAttributeValues: toDynamoItem(values)
+  };
+}
+
+async function queryCategoryStatusNameUntilEnough(limit, cursor, filters = {}) {
   const results = [];
+  const queryInput = buildCategoryStatusNameQuery(filters);
   let state = cursor
     ? decodeCursor(cursor)
     : { lastKey: null };
@@ -242,10 +432,7 @@ async function queryCategoryUntilEnough(limit, cursor, filters = {}) {
     const result = await rawDb.send(new QueryCommand({
       TableName,
       IndexName: "CategoryStatusNameIndex",
-      KeyConditionExpression: "category = :categoryKey",
-      ExpressionAttributeValues: toDynamoItem({
-        ":categoryKey": filters.category
-      }),
+      ...queryInput,
       Limit: missingItems,
       ExclusiveStartKey: state.lastKey ?? undefined
     }));
@@ -281,6 +468,10 @@ async function queryCategoryUntilEnough(limit, cursor, filters = {}) {
 }
 
 async function querySearchUntilEnough(limit, cursor, filters = {}) {
+  if ((filters.searchField ?? "name") === "brand") {
+    return scanBrandSearchUntilEnough(limit, cursor, filters);
+  }
+
   const results = [];
   const search = normalizeText(filters.search);
   let state = cursor
@@ -351,8 +542,8 @@ export async function createShoppingItem(input) {
       entityType: "PRODUCT",
       searchName: normalizeText(input.name),
       version: 1,
-      createdAt: now,
-      updatedAt: now
+      createdAt: input.createdAt ?? now,
+      updatedAt: input.updatedAt ?? now
     },
     null
   );
@@ -433,7 +624,7 @@ export async function incrementItemValue(id, field, incrementBy = 1) {
 export async function listShoppingItems(limit = 12, cursor, filters = {}) {
   if (filters.sortBy) {
     const targetCursor = cursor ? decodeCursor(cursor) : { offset: 0 };
-    const sorted = sortItems((await getShoppingItemAll(100, 100, {
+    const sorted = sortItems((await getShoppingItemAllBase(100, 100, {
       ...filters,
       sortBy: undefined,
       sortDirection: undefined
@@ -453,60 +644,22 @@ export async function listShoppingItems(limit = 12, cursor, filters = {}) {
     };
   }
 
-  let result;
-
-  if (filters.search) {
-    try {
-      result = await querySearchUntilEnough(limit, cursor, filters);
-    } catch (error) {
-      const shouldFallback =
-        error?.name === "ResourceNotFoundException" ||
-        error?.name === "ValidationException";
-
-      if (!shouldFallback) throw error;
-      result = await scanUntilEnough(limit, cursor, filters);
-    }
-  } else if (filters.category && filters.category !== "all") {
-    try {
-      result = await queryCategoryUntilEnough(limit, cursor, filters);
-    } catch (error) {
-      const shouldFallback =
-        error?.name === "ResourceNotFoundException" ||
-        error?.name === "ValidationException";
-
-      if (!shouldFallback) throw error;
-      result = await scanUntilEnough(limit, cursor, filters);
-    }
-  } else if (filters.status) {
-    try {
-      result = await queryStatusUntilEnough(limit, cursor, filters);
-    } catch (error) {
-      const shouldFallback =
-        error?.name === "ResourceNotFoundException" ||
-        error?.name === "ValidationException";
-
-      if (!shouldFallback) throw error;
-      result = await scanUntilEnough(limit, cursor, filters);
-    }
-  } else {
-    result = await scanUntilEnough(limit, cursor, filters);
+  const baseResult = await listShoppingItemsBase(limit, cursor, filters);
+  if (!cursor) {
+    return {
+      ...baseResult,
+      items: sortItems(baseResult.items, {})
+    };
   }
 
-  return {
-    items: result.items,
-    limit,
-    cursor: cursor ?? null,
-    nextCursor: result.nextCursor,
-    hasNextPage: Boolean(result.nextCursor)
-  };
+  return baseResult;
 }
 
 export async function getCursorForPage(page = 1, limit = 12, filters = {}) {
   if (filters.sortBy) {
     const targetPage = Math.max(1, Number(page) || 1);
     const pageSize = Math.max(1, Number(limit) || 12);
-    const offset = (targetPage - 1) * pageSize;
-    const sorted = sortItems((await getShoppingItemAll(100, 100, {
+    const sorted = sortItems((await getShoppingItemAllBase(100, 100, {
       ...filters,
       sortBy: undefined,
       sortDirection: undefined
@@ -558,7 +711,7 @@ export async function getCursorForPage(page = 1, limit = 12, filters = {}) {
 
 export async function getShoppingItemAll(pageLimit = 50, maxPages = 20, filters = {}) {
   if (filters.sortBy) {
-    const unsorted = await getShoppingItemAll(pageLimit, maxPages, {
+    const unsorted = await getShoppingItemAllBase(pageLimit, maxPages, {
       ...filters,
       sortBy: undefined,
       sortDirection: undefined
@@ -571,12 +724,20 @@ export async function getShoppingItemAll(pageLimit = 50, maxPages = 20, filters 
     };
   }
 
+  const base = await getShoppingItemAllBase(pageLimit, maxPages, filters);
+  return {
+    ...base,
+    items: sortItems(base.items, {})
+  };
+}
+
+async function getShoppingItemAllBase(pageLimit = 50, maxPages = 20, filters = {}) {
   const allItems = [];
   let cursor;
   let page = 0;
 
   do {
-    const result = await listShoppingItems(pageLimit, cursor, filters);
+    const result = await listShoppingItemsBase(pageLimit, cursor, filters);
     allItems.push(...result.items);
     cursor = result.nextCursor;
     page += 1;

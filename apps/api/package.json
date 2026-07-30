@@ -8,8 +8,12 @@
     "start": "node src/server.js",
     "typecheck": "node --check src/server.js",
     "db:init": "node src/scripts/create-table.js",
+    "db:reset-table": "node src/scripts/reset-table.js",
     "db:seed": "node src/scripts/seed.js",
-    "db:localize": "node src/scripts/localize-products.js"
+    "db:reseed": "node src/scripts/reseed.js",
+    "db:localize": "node src/scripts/localize-products.js",
+    "db:test-begins-with-name": "node src/scripts/test-begins-with-name.js",
+    "db:view-raw": "node src/scripts/view-raw-data.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.850.0",

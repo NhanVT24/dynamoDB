@@ -11,6 +11,7 @@ import {
 } from "./shopping.repository.js";
 import {
   createShoppingItemSchema,
+  normalizeCategory,
   shoppingCategories,
   shoppingStatuses,
   updateShoppingItemSchema
@@ -23,6 +24,8 @@ const listQuerySchema = z.object({
   cursor: z.string().optional(),
   category: z.string().optional(),
   status: z.enum(shoppingStatuses).optional(),
+  updatedAtFrom: z.string().trim().min(1).optional(),
+  searchField: z.enum(["name", "brand"]).default("name"),
   search: z.string().trim().min(1).optional(),
   sortBy: z.enum(["price", "stock"]).optional(),
   sortDirection: z.enum(["asc", "desc"]).optional()
@@ -31,14 +34,17 @@ const listQuerySchema = z.object({
 export const shoppingRoutes = async (app) => {
   app.get("/meta", async () => ({
     categories: shoppingCategories,
-    statuses: shoppingStatuses
+    statuses: shoppingStatuses,
+    searchFields: ["name", "brand"]
   }));
 
   app.get("/", async (request) => {
     const query = listQuerySchema.parse(request.query);
     const filters = {
-      category: query.category,
+      category: normalizeCategory(query.category),
       status: query.status,
+      updatedAtFrom: query.updatedAtFrom,
+      searchField: query.searchField,
       search: query.search,
       sortBy: query.sortBy,
       sortDirection: query.sortDirection
@@ -53,14 +59,18 @@ export const shoppingRoutes = async (app) => {
       maxPages: z.coerce.number().int().min(1).max(100).default(20),
       category: z.string().optional(),
       status: z.enum(shoppingStatuses).optional(),
+      updatedAtFrom: z.string().trim().min(1).optional(),
+      searchField: z.enum(["name", "brand"]).default("name"),
       search: z.string().trim().min(1).optional(),
       sortBy: z.enum(["price", "stock"]).optional(),
       sortDirection: z.enum(["asc", "desc"]).optional()
     }).parse(request.query);
 
     return getShoppingItemAll(query.pageLimit, query.maxPages, {
-      category: query.category,
+      category: normalizeCategory(query.category),
       status: query.status,
+      updatedAtFrom: query.updatedAtFrom,
+      searchField: query.searchField,
       search: query.search,
       sortBy: query.sortBy,
       sortDirection: query.sortDirection
@@ -73,14 +83,18 @@ export const shoppingRoutes = async (app) => {
       limit: z.coerce.number().int().min(1).max(100).default(12),
       category: z.string().optional(),
       status: z.enum(shoppingStatuses).optional(),
+      updatedAtFrom: z.string().trim().min(1).optional(),
+      searchField: z.enum(["name", "brand"]).default("name"),
       search: z.string().trim().min(1).optional(),
       sortBy: z.enum(["price", "stock"]).optional(),
       sortDirection: z.enum(["asc", "desc"]).optional()
     }).parse(request.query);
 
     return getCursorForPage(query.page, query.limit, {
-      category: query.category,
+      category: normalizeCategory(query.category),
       status: query.status,
+      updatedAtFrom: query.updatedAtFrom,
+      searchField: query.searchField,
       search: query.search,
       sortBy: query.sortBy,
       sortDirection: query.sortDirection

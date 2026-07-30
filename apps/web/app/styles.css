@@ -17,3 +17,8 @@ body {
   color: #0f172a;
   font-family: 'Roboto', sans-serif;
 }
+
+.emptyPage {
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+
+}

@@ -13,6 +13,16 @@ const fallbackCategories = [
   "Bách hóa"
 ];
 const fallbackStatuses = ["active", "low_stock", "out_of_stock"];
+const fallbackSearchFields = ["name", "brand"];
+
+const categoryLabels = {
+  "Thoi trang": "Th\u1eddi trang",
+  "Dien tu": "\u0110i\u1ec7n t\u1eed",
+  "Gia dung": "Gia d\u1ee5ng",
+  "Me va be": "M\u1eb9 v\u00e0 b\u00e9",
+  "Lam dep": "L\u00e0m \u0111\u1eb9p",
+  "Bach hoa": "B\u00e1ch h\u00f3a"
+};
 
 const emptyForm = {
   name: "",
@@ -28,6 +38,11 @@ const statusLabels = {
   active: "Active",
   low_stock: "Low stock",
   out_of_stock: "Out of stock"
+};
+
+const searchFieldLabels = {
+  name: "Product name",
+  brand: "Brand"
 };
 
 const commandNotes = [
@@ -169,12 +184,13 @@ const formPanelStyle = {
 };
 
 const columnStyles = {
-  product: { width: "32%" },
-  category: { width: "13%" },
-  price: { width: "17%" },
-  stock: { width: "14%" },
-  status: { width: "12%" },
-  actions: { width: "12%" }
+  product: { width: "26%" },
+  category: { width: "12%" },
+  price: { width: "16%" },
+  stock: { width: "12%" },
+  updatedAt: { width: "14%" },
+  status: { width: "10%" },
+  actions: { width: "10%" }
 };
 
 const inputClassName = "h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
@@ -209,24 +225,59 @@ function computeSalePrice(basePrice, discountPercent) {
   return Math.max(1000, Math.round(basePrice * (100 - boundedDiscount) / 100));
 }
 
+function formatDateTime(value) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "short",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
 function statusLabel(status) {
   return statusLabels[status] ?? status;
 }
 
+function normalizeCategoryValue(category) {
+  const normalized = String(category ?? "").trim().toLowerCase();
+
+  if (!normalized || normalized === "all") return "all";
+  if (normalized.includes("thoi trang") || normalized.includes("thá") || normalized.includes("thÃ¡")) return "Thoi trang";
+  if (normalized.includes("dien tu") || normalized.includes("iá»‡n") || normalized.includes("Ã¡Â»â€¡n")) return "Dien tu";
+  if (normalized.includes("gia dung") || normalized.includes("dá»¥ng") || normalized.includes("dÃ¡Â»Â¥ng")) return "Gia dung";
+  if (normalized.includes("me va be") || normalized.includes("máº¹") || normalized.includes("mÃ¡ÂºÂ¹")) return "Me va be";
+  if (normalized.includes("lam dep") || normalized.includes("lÃ m") || normalized.includes("Ã£Â m")) return "Lam dep";
+  if (normalized.includes("bach hoa") || normalized.includes("bÃ¡ch") || normalized.includes("bÃ£Â¡ch")) return "Bach hoa";
+
+  return category;
+}
+
+function categoryLabel(category) {
+  return categoryLabels[normalizeCategoryValue(category)] ?? category;
+}
+
+function toUpdatedAtFromIso(dateValue) {
+  if (!dateValue) return "";
+  return `${dateValue}T00:00:00.000Z`;
+}
+
+function fromUpdatedAtFromIso(dateValue) {
+  if (!dateValue) return "";
+  return String(dateValue).slice(0, 10);
+}
+
 function matchesClientFilters(item, filters = {}) {
   if (!item) return false;
-  if (filters.category && filters.category !== "all" && item.category !== filters.category) return false;
+  if (filters.category && filters.category !== "all" && normalizeCategoryValue(item.category) !== normalizeCategoryValue(filters.category)) return false;
   if (filters.status && item.status !== filters.status) return false;
 
   if (filters.search?.trim()) {
     const search = filters.search.trim().toLowerCase();
-    const haystack = [
-      item.name,
-      item.description,
-      item.brand,
-      item.sku,
-      item.category
-    ]
+    const searchField = filters.searchField ?? "name";
+    const haystack = (
+      searchField === "brand"
+        ? [item.brand]
+        : [item.name, item.description, item.brand, item.sku, item.category]
+    )
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -285,7 +336,8 @@ export default function ShoppingManager() {
   const [allItems, setAllItems] = useState([]);
   const [categories, setCategories] = useState(fallbackCategories);
   const [statuses] = useState(fallbackStatuses);
-  const [filters, setFilters] = useState({ category: "all", status: "", search: "", sort: "stock:desc" });
+  const [searchFields, setSearchFields] = useState(fallbackSearchFields);
+  const [filters, setFilters] = useState({ category: "all", status: "", updatedAtFrom: "", searchField: "name", search: "", sort: "" });
   const [cursorHistory, setCursorHistory] = useState([null]);
   const [cursorIndex, setCursorIndex] = useState(0);
   const [nextCursor, setNextCursor] = useState(null);
@@ -299,6 +351,7 @@ export default function ShoppingManager() {
   const [searchDraft, setSearchDraft] = useState("");
   const stockHoldTimeoutRef = useRef(null);
   const stockHoldIntervalRef = useRef(null);
+  const filtersRef = useRef(filters);
 
   const previewBasePrice = parseFormattedNumber(form.basePriceInput);
   const previewDiscount = Math.min(99, Math.max(0, Number(form.discountPercent) || 0));
@@ -312,22 +365,31 @@ export default function ShoppingManager() {
     return { totalProducts, lowStock, outOfStock, inventoryValue };
   }, [allItems]);
 
+  const brandSuggestions = useMemo(() => (
+    [...new Set(allItems.map((item) => item.brand).filter(Boolean))]
+      .sort((left, right) => String(left).localeCompare(String(right)))
+  ), [allItems]);
+
   async function loadMeta() {
     try {
       const response = await fetch(`${apiUrl}/api/shopping-items/meta`);
       if (!response.ok) return;
       const data = await response.json();
-      setCategories(data.categories ?? fallbackCategories);
+      setCategories((data.categories ?? fallbackCategories).map(normalizeCategoryValue));
+      setSearchFields(data.searchFields ?? fallbackSearchFields);
     } catch {
-      setCategories(fallbackCategories);
+      setCategories(fallbackCategories.map(normalizeCategoryValue));
+      setSearchFields(fallbackSearchFields);
     }
   }
 
   async function loadSummary(nextFilters = filters) {
     try {
       const params = new URLSearchParams({ pageLimit: "50", maxPages: "10" });
-      if (nextFilters.category !== "all") params.set("category", nextFilters.category);
+      if (normalizeCategoryValue(nextFilters.category) !== "all") params.set("category", normalizeCategoryValue(nextFilters.category));
       if (nextFilters.status) params.set("status", nextFilters.status);
+      if (nextFilters.updatedAtFrom) params.set("updatedAtFrom", nextFilters.updatedAtFrom);
+      if (nextFilters.searchField && nextFilters.searchField !== "name") params.set("searchField", nextFilters.searchField);
       if (nextFilters.search.trim()) params.set("search", nextFilters.search.trim());
       if (nextFilters.sort) {
         const [sortBy, sortDirection] = nextFilters.sort.split(":");
@@ -349,8 +411,10 @@ export default function ShoppingManager() {
     try {
       const params = new URLSearchParams({ limit: String(pageSize) });
       if (targetCursor) params.set("cursor", targetCursor);
-      if (nextFilters.category !== "all") params.set("category", nextFilters.category);
+      if (normalizeCategoryValue(nextFilters.category) !== "all") params.set("category", normalizeCategoryValue(nextFilters.category));
       if (nextFilters.status) params.set("status", nextFilters.status);
+      if (nextFilters.updatedAtFrom) params.set("updatedAtFrom", nextFilters.updatedAtFrom);
+      if (nextFilters.searchField && nextFilters.searchField !== "name") params.set("searchField", nextFilters.searchField);
       if (nextFilters.search.trim()) params.set("search", nextFilters.search.trim());
       if (nextFilters.sort) {
         const [sortBy, sortDirection] = nextFilters.sort.split(":");
@@ -381,6 +445,10 @@ export default function ShoppingManager() {
     loadItems(null, filters, 0, [null]);
     loadSummary(filters);
   }, []);
+
+  useEffect(() => {
+    filtersRef.current = filters;
+  }, [filters]);
 
   useEffect(() => {
     setSearchDraft(filters.search);
@@ -443,7 +511,13 @@ export default function ShoppingManager() {
   }
 
   function updateFilter(field, value) {
-    const nextFilters = { ...filters, [field]: value };
+    const nextValue = field === "category"
+      ? normalizeCategoryValue(value)
+      : field === "updatedAtFrom"
+        ? toUpdatedAtFromIso(value)
+        : value;
+    const nextFilters = { ...filtersRef.current, [field]: nextValue };
+    filtersRef.current = nextFilters;
     setFilters(nextFilters);
     const history = resetPagination();
     loadItems(null, nextFilters, 0, history);
@@ -492,8 +566,10 @@ export default function ShoppingManager() {
         page: String(targetPage),
         limit: String(pageSize)
       });
-      if (filters.category !== "all") params.set("category", filters.category);
+      if (normalizeCategoryValue(filters.category) !== "all") params.set("category", normalizeCategoryValue(filters.category));
       if (filters.status) params.set("status", filters.status);
+      if (filters.updatedAtFrom) params.set("updatedAtFrom", filters.updatedAtFrom);
+      if (filters.searchField && filters.searchField !== "name") params.set("searchField", filters.searchField);
       if (filters.search.trim()) params.set("search", filters.search.trim());
       if (filters.sort) {
         const [sortBy, sortDirection] = filters.sort.split(":");
@@ -654,26 +730,54 @@ export default function ShoppingManager() {
         <StatCard label="Inventory Value" value={currency(summary.inventoryValue)} />
       </section>
 
-      <section className="grid gap-3 rounded-3xl border bg-color-blue border-white/70 bg-white/90 p-4 md:grid-cols-[minmax(280px,1.4fr)_220px_minmax(0,272px)]" style={{ ...panelStyle, ...filterGridStyle }}>
-        <input
-          className={inputClassName}
-          style={inputStyle}
-          value={searchDraft}
-          onChange={(event) => setSearchDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              updateFilter("search", searchDraft);
-            }
-          }}
-          placeholder="Search by product name"
-        />
+      <section className="grid gap-3 rounded-3xl border bg-color-blue border-white/70 bg-white/90 p-4 md:grid-cols-2 xl:grid-cols-4" style={{ ...panelStyle, ...filterGridStyle }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
+          <select
+            className={inputClassName}
+            style={{ ...inputStyle, width: "160px", flexShrink: 0 }}
+            value={filters.searchField}
+            onChange={(event) => updateFilter("searchField", event.target.value)}
+          >
+            {searchFields.map((field) => (
+              <option key={field} value={field}>{searchFieldLabels[field] ?? field}</option>
+            ))}
+          </select>
+          <input
+            className={inputClassName}
+            style={{ ...inputStyle, flex: 1 }}
+            list={filters.searchField === "brand" ? "brand-search-suggestions" : undefined}
+            value={searchDraft}
+            onChange={(event) => setSearchDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                updateFilter("search", searchDraft);
+              }
+            }}
+            placeholder={`Search by ${String(searchFieldLabels[filters.searchField] ?? filters.searchField).toLowerCase()}`}
+          />
+          {filters.searchField === "brand" ? (
+            <datalist id="brand-search-suggestions">
+              {brandSuggestions.map((brand) => (
+                <option key={brand} value={brand} />
+              ))}
+            </datalist>
+          ) : null}
+        </div>
         <select className={inputClassName} style={inputStyle} value={filters.category} onChange={(event) => updateFilter("category", event.target.value)}>
           <option value="all">All categories</option>
           {categories.map((category) => (
-            <option key={category} value={category}>{category}</option>
+            <option key={category} value={category}>{categoryLabel(category)}</option>
           ))}
         </select>
+        <input
+          className={inputClassName}
+          style={inputStyle}
+          type="date"
+          value={fromUpdatedAtFromIso(filters.updatedAtFrom)}
+          onChange={(event) => updateFilter("updatedAtFrom", event.target.value)}
+          title="Updated from date"
+        />
         <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
           <select className={inputClassName} style={{ ...inputStyle, flex: 1 }} value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
             <option value="">All statuses</option>
@@ -689,7 +793,11 @@ export default function ShoppingManager() {
             }}
             className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-base font-bold text-slate-700 transition hover:bg-slate-50"
             style={{ height: "40px", width: "40px", padding: 0, borderRadius: "10px", flexShrink: 0 }}
-            title={filters.sort.endsWith(":asc") ? "Sort stock ascending" : "Sort stock descending"}
+            title={filters.sort === ""
+              ? "Sort stock descending"
+              : filters.sort.endsWith(":asc")
+                ? "Sort stock ascending"
+                : "Sort stock descending"}
           >
             {filters.sort.endsWith(":asc") ? "↑" : "↓"}
           </button>
@@ -709,13 +817,14 @@ export default function ShoppingManager() {
           </div>
 
           <div className="flex-1 overflow-auto" style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
-            <table className="min-w-full border-separate border-spacing-0" style={{ width: "100%", minWidth: "980px", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" }}>
+            <table className="min-w-full border-separate border-spacing-0" style={{ width: "100%", minWidth: "1080px", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" }}>
               <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
                 <tr>
                   <th style={{ ...columnStyles.product, padding: "12px 16px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Product</th>
                   <th style={{ ...columnStyles.category, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Category</th>
                   <th style={{ ...columnStyles.price, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Price</th>
                   <th style={{ ...columnStyles.stock, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Inventory</th>
+                  <th style={{ ...columnStyles.updatedAt, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Updated</th>
                   <th style={{ ...columnStyles.status, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Status</th>
                   <th style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Actions</th>
                 </tr>
@@ -723,7 +832,7 @@ export default function ShoppingManager() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan="6" style={{ padding: "64px 20px", textAlign: "center", fontSize: "14px", color: "#64748b" }}>
+                    <td colSpan="7" style={{ padding: "64px 20px", textAlign: "center", fontSize: "14px", color: "#64748b" }}>
                       No products match the current filters.
                     </td>
                   </tr>
@@ -731,7 +840,12 @@ export default function ShoppingManager() {
                   const discountPercent = computeDiscountPercent(Number(item.originalPrice ?? item.price), Number(item.price));
 
                   return (
-                    <tr key={item.id} className="transition hover:bg-slate-50/80" style={{ height: "68px" }}>
+                    <tr
+                      key={item.id}
+                      onDoubleClick={() => startEdit(item)}
+                      className={`cursor-pointer transition hover:bg-slate-50/80 ${editingId === item.id ? "bg-blue-50/80" : ""}`}
+                      style={{ height: "68px" }}
+                    >
                       <td style={{ ...columnStyles.product, padding: "12px 16px" }} className="border-b border-slate-100 align-middle">
                         <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: "10px" }}>
                           <img src={item.imageUrl} alt={item.name} style={{ width: "40px", height: "40px", borderRadius: "12px", border: "1px solid #e2e8f0", objectFit: "cover", flexShrink: 0 }} />
@@ -743,7 +857,7 @@ export default function ShoppingManager() {
                           </div>
                         </div>
                       </td>
-                      <td style={{ ...columnStyles.category, padding: "12px 10px", fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} className="border-b border-slate-100 text-slate-600">{item.category}</td>
+                      <td style={{ ...columnStyles.category, padding: "12px 10px", fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} className="border-b border-slate-100 text-slate-600">{categoryLabel(item.category)}</td>
                       <td style={{ ...columnStyles.price, padding: "12px 10px" }} className="border-b border-slate-100">
                         <strong className="block text-sm font-semibold text-slate-900" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currency(item.price)}</strong>
                         <small style={{ marginTop: "2px", fontSize: "12px" }} className="block text-slate-500">
@@ -782,6 +896,9 @@ export default function ShoppingManager() {
                             +
                           </button>
                         </div>
+                      </td>
+                      <td style={{ ...columnStyles.updatedAt, padding: "12px 10px", fontSize: "12px" }} className="border-b border-slate-100 text-slate-600">
+                        {formatDateTime(item.updatedAt ?? item.createdAt)}
                       </td>
                       <td style={{ ...columnStyles.status, padding: "12px 10px" }} className="border-b border-slate-100">
                         <span className={`inline-flex min-h-8 items-center justify-center rounded-full px-3 text-xs font-bold ${badgeClassName(item.status)}`} style={{ minWidth: "96px", whiteSpace: "nowrap" }}>
@@ -846,7 +963,7 @@ export default function ShoppingManager() {
             <span>Category</span>
             <select className={inputClassName} style={inputStyle} value={form.category} onChange={(event) => updateField("category", event.target.value)}>
               {categories.map((category) => (
-                <option key={category} value={category}>{category}</option>
+                <option key={category} value={category}>{categoryLabel(category)}</option>
               ))}
             </select>
           </Field>
