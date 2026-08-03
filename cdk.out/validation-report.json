@@ -8,34 +8,6 @@
       "conclusion": "success",
       "violations": [
         {
-          "ruleName": "F3033",
-          "description": "Cors.AllowMethods.4: length 7 exceeds maximum 6",
-          "severity": "warning",
-          "ruleMetadata": {
-            "category": "Schema"
-          },
-          "violatingConstructs": [
-            {
-              "constructPath": "SupermarketApiLocalStack/SupermarketApiFunction/FunctionUrl/Resource",
-              "constructFqn": "aws-cdk-lib.aws_lambda.CfnUrl",
-              "libraryVersion": "2.263.0",
-              "cloudFormationResource": {
-                "templatePath": "SupermarketApiLocalStack.template.json",
-                "logicalId": "SupermarketApiFunctionFunctionUrl11223C11",
-                "propertyPaths": [
-                  "Properties.Cors.AllowMethods.4"
-                ]
-              },
-              "stackTraces": [
-                "...WrappedClass.addFunctionUrl in aws-cdk-lib...",
-                "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:93:40)",
-                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
-                "...node internals, ts-node, ts-node..."
-              ]
-            }
-          ]
-        },
-        {
           "ruleName": "W2531",
           "description": "Runtime: Runtime 'nodejs20.x' was deprecated on '2026-04-30'. Creation was disabled on '2027-02-01' and update on '2027-03-03'. Please consider updating to 'nodejs24.x'",
           "severity": "warning",
@@ -56,35 +28,7 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:62:28)",
-                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
-                "...node internals, ts-node, ts-node..."
-              ]
-            }
-          ]
-        },
-        {
-          "ruleName": "W3030",
-          "description": "Cors.AllowMethods.4: 'OPTIONS' is not one of ['GET', 'PUT', 'HEAD', 'POST', 'PATCH', 'DELETE', '*']",
-          "severity": "warning",
-          "ruleMetadata": {
-            "category": "Schema"
-          },
-          "violatingConstructs": [
-            {
-              "constructPath": "SupermarketApiLocalStack/SupermarketApiFunction/FunctionUrl/Resource",
-              "constructFqn": "aws-cdk-lib.aws_lambda.CfnUrl",
-              "libraryVersion": "2.263.0",
-              "cloudFormationResource": {
-                "templatePath": "SupermarketApiLocalStack.template.json",
-                "logicalId": "SupermarketApiFunctionFunctionUrl11223C11",
-                "propertyPaths": [
-                  "Properties.Cors.AllowMethods.4"
-                ]
-              },
-              "stackTraces": [
-                "...WrappedClass.addFunctionUrl in aws-cdk-lib...",
-                "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:93:40)",
+                "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:63:28)",
                 "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]

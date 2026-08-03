@@ -30,7 +30,7 @@ const listQuerySchema = z.object({
   updatedAtFrom: z.string().trim().min(1).optional(),
   searchField: z.enum(["name", "brand"]).default("name"),
   search: z.string().trim().min(1).optional(),
-  sortBy: z.enum(["price", "stock"]).optional(),
+  sortBy: z.enum(["price", "stock", "updatedAt"]).optional(),
   sortDirection: z.enum(["asc", "desc"]).optional()
 });
 
@@ -71,7 +71,7 @@ export const shoppingRoutes = async (app: FastifyInstance) => {
       updatedAtFrom: z.string().trim().min(1).optional(),
       searchField: z.enum(["name", "brand"]).default("name"),
       search: z.string().trim().min(1).optional(),
-      sortBy: z.enum(["price", "stock"]).optional(),
+      sortBy: z.enum(["price", "stock", "updatedAt"]).optional(),
       sortDirection: z.enum(["asc", "desc"]).optional()
     }).parse(request.query);
 
@@ -95,7 +95,7 @@ export const shoppingRoutes = async (app: FastifyInstance) => {
       updatedAtFrom: z.string().trim().min(1).optional(),
       searchField: z.enum(["name", "brand"]).default("name"),
       search: z.string().trim().min(1).optional(),
-      sortBy: z.enum(["price", "stock"]).optional(),
+      sortBy: z.enum(["price", "stock", "updatedAt"]).optional(),
       sortDirection: z.enum(["asc", "desc"]).optional()
     }).parse(request.query);
 

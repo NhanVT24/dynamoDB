@@ -37,7 +37,7 @@ type ShoppingFilters = {
   updatedAtFrom?: string;
   searchField?: "name" | "brand";
   search?: string;
-  sortBy?: "price" | "stock";
+  sortBy?: "price" | "stock" | "updatedAt";
   sortDirection?: "asc" | "desc";
 };
 
@@ -136,6 +136,19 @@ function sortItems(items: ProductRecord[], filters: ShoppingFilters = {}) {
 
   const direction = filters.sortDirection === "asc" ? 1 : -1;
   const field = filters.sortBy;
+
+  if (field === "updatedAt") {
+    return [...items].sort((left, right) => {
+      const leftValue = String(left?.updatedAt ?? left?.createdAt ?? "");
+      const rightValue = String(right?.updatedAt ?? right?.createdAt ?? "");
+
+      if (leftValue === rightValue) {
+        return String(left?.name ?? "").localeCompare(String(right?.name ?? ""));
+      }
+
+      return leftValue.localeCompare(rightValue) * direction;
+    });
+  }
 
   return [...items].sort((left, right) => {
     const leftValue = Number(left?.[field] ?? 0);

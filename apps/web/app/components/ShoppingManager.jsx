@@ -32,7 +32,6 @@ const emptyForm = {
   basePriceInput: "1.000",
   discountPercent: "0",
   description: "",
-  featured: false
 };
 
 const statusLabels = {
@@ -155,6 +154,15 @@ const secondaryButtonStyle = {
   color: "#334155",
   fontSize: "14px",
   fontWeight: 600
+};
+
+const deleteOverlayStyle = {
+  animation: "deleteOverlayFade 180ms ease-out"
+};
+
+const deleteModalStyle = {
+  boxShadow: "0 24px 80px rgba(15, 23, 42, 0.22)",
+  animation: "deleteModalPop 220ms cubic-bezier(0.22, 1, 0.36, 1)"
 };
 
 const gridPanelsStyle = {
@@ -347,6 +355,7 @@ export default function ShoppingManager() {
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [editingVersion, setEditingVersion] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [message, setMessage] = useState("Loading product data...");
   const [busy, setBusy] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
@@ -506,8 +515,7 @@ export default function ShoppingManager() {
       stock: String(item.stock ?? 0),
       basePriceInput: formatNumberInput(item.originalPrice ?? item.price),
       discountPercent: String(computeDiscountPercent(Number(item.originalPrice ?? item.price), Number(item.price))),
-      description: item.description ?? "",
-      featured: Boolean(item.featured)
+      description: item.description ?? ""
     });
     setMessage(`Editing "${item.name}"`);
   }
@@ -645,8 +653,7 @@ export default function ShoppingManager() {
       location: "TP.HCM",
       description: form.description.trim() || `Product ${normalizedName} was quickly created from the admin page.`,
       rating: 4.8,
-      soldCount: 0,
-      featured: Boolean(form.featured)
+      soldCount: 0
     };
 
     try {
@@ -693,16 +700,23 @@ export default function ShoppingManager() {
     }
   }
 
-  async function removeItem(item) {
-    const confirmed = window.confirm(`Delete product "${item.name}"?`);
-    if (!confirmed) return;
+  function requestDelete(item) {
+    setDeleteTarget(item);
+  }
 
+  function cancelDelete() {
+    if (busy) return;
+    setDeleteTarget(null);
+  }
+
+  async function removeItem(item) {
     setBusy(true);
     try {
       const response = await fetch(`${apiUrl}/api/shopping-items/${item.id}`, { method: "DELETE" });
       if (!response.ok) throw new Error(await readApiError(response, "Failed to delete product"));
       if (editingId === item.id) resetForm();
       setMessage(`Deleted "${item.name}"`);
+      setDeleteTarget(null);
       const history = resetPagination();
       await loadItems(null, filters, 0, history);
       await loadSummary(filters);
@@ -715,6 +729,47 @@ export default function ShoppingManager() {
 
   return (
     <div className="grid gap-5" style={pageGridStyle}>
+      {deleteTarget ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm"
+          style={deleteOverlayStyle}
+          onClick={cancelDelete}
+        >
+          <div
+            className="w-full max-w-md rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
+            style={deleteModalStyle}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-xl font-bold text-rose-600">
+              !
+            </div>
+            <h2 className="mt-4 text-xl font-semibold text-slate-900">Delete product?</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              You are about to delete <strong>{deleteTarget.name}</strong>. This action cannot be undone.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelDelete}
+                disabled={busy}
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ ...secondaryButtonStyle, height: "44px", padding: "0 20px" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => removeItem(deleteTarget)}
+                disabled={busy}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-rose-600 px-5 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {busy ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <section className="flex flex-col gap-4 rounded-[28px] border border-white/70 bg-white/80 p-5 backdrop-blur md:flex-row md:items-center md:justify-between" style={heroStyle}>
         <div>
           <p className="m-0 text-sm uppercase tracking-[0.25em] text-slate-500" style={{ margin: 0, fontSize: "13px", letterSpacing: "0.25em", color: "#64748b" }}>
@@ -788,6 +843,17 @@ export default function ShoppingManager() {
               <option key={item} value={item}>{statusLabel(item)}</option>
             ))}
           </select>
+          <select
+            className={inputClassName}
+            style={{ ...inputStyle, flex: 1 }}
+            value={filters.sort}
+            onChange={(event) => updateFilter("sort", event.target.value)}
+            title="Sort products"
+          >
+            <option value="">Newest first</option>
+            <option value="updatedAt:asc">Oldest first</option>
+            <option value="stock:desc">Stock high to low</option>
+          </select>
           <button
             type="button"
             onClick={() => {
@@ -795,7 +861,7 @@ export default function ShoppingManager() {
               updateFilter("sort", `stock:${direction === "asc" ? "desc" : "asc"}`);
             }}
             className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-base font-bold text-slate-700 transition hover:bg-slate-50"
-            style={{ height: "40px", width: "40px", padding: 0, borderRadius: "10px", flexShrink: 0 }}
+            style={{ display: "none", height: "40px", width: "40px", padding: 0, borderRadius: "10px", flexShrink: 0 }}
             title={filters.sort === ""
               ? "Sort stock descending"
               : filters.sort.endsWith(":asc")
@@ -911,7 +977,7 @@ export default function ShoppingManager() {
                       <td style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-100">
                         <div style={{ display: "flex", flexWrap: "nowrap", gap: "6px", width: "100%" }}>
                           <button type="button" onClick={() => startEdit(item)} disabled={busy} className={`${actionButtonClassName} bg-blue-50 text-blue-700 hover:bg-blue-100`} style={{ flex: "1 1 0", minWidth: "48px", padding: "0 8px" }}>Edit</button>
-                          <button type="button" onClick={() => removeItem(item)} disabled={busy} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ flex: "1 1 0", minWidth: "58px", padding: "0 8px" }}>Delete</button>
+                          <button type="button" onClick={() => requestDelete(item)} disabled={busy} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ flex: "1 1 0", minWidth: "58px", padding: "0 8px" }}>Delete</button>
                         </div>
                       </td>
                     </tr>
@@ -1039,11 +1105,6 @@ export default function ShoppingManager() {
             <textarea className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100" style={textareaStyle} value={form.description} onChange={(event) => updateField("description", event.target.value)} placeholder="Optional short note for the product..." />
           </Field>
 
-          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
-            <input type="checkbox" checked={form.featured} onChange={(event) => updateField("featured", event.target.checked)} />
-            Mark as featured product
-          </label>
-
           <div style={{ marginTop: "auto", display: "flex", flexWrap: "wrap", gap: "12px", paddingTop: "8px" }}>
             <button disabled={busy} type="submit" className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" style={primaryButtonStyle}>
               {editingId ? "Save Changes" : "Create Product"}
@@ -1065,6 +1126,28 @@ export default function ShoppingManager() {
           </div>
         ))}
       </section>
+
+      <style jsx>{`
+        @keyframes deleteOverlayFade {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+
+        @keyframes deleteModalPop {
+          from {
+            opacity: 0;
+            transform: translateY(16px) scale(0.96);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+      `}</style>
     </div>
   );
 }

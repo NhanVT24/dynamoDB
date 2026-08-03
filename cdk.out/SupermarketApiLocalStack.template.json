@@ -198,7 +198,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-000000000000-ap-southeast-1",
-     "S3Key": "f88be995edf996e578f0578c1ef861697bf4b5b3673cb1059e61f121f5102159.zip"
+     "S3Key": "328cb8ed51375810f09fad130e6cfc2dad5a3634b06a51968875129ebc6fff93.zip"
     },
     "Environment": {
      "Variables": {
@@ -224,59 +224,221 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.f88be995edf996e578f0578c1ef861697bf4b5b3673cb1059e61f121f5102159",
+    "aws:asset:path": "asset.328cb8ed51375810f09fad130e6cfc2dad5a3634b06a51968875129ebc6fff93",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
   },
-  "SupermarketApiFunctionFunctionUrl11223C11": {
-   "Type": "AWS::Lambda::Url",
+  "SupermarketApiGatewayD32A94E9": {
+   "Type": "AWS::ApiGateway::RestApi",
    "Properties": {
-    "AuthType": "NONE",
-    "Cors": {
-     "AllowHeaders": [
-      "Content-Type"
+    "Name": "SupermarketApiGateway"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Resource"
+   }
+  },
+  "SupermarketApiGatewayCloudWatchRole631E5CDD": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "apigateway.amazonaws.com"
+       }
+      }
      ],
-     "AllowMethods": [
-      "GET",
-      "POST",
-      "PATCH",
-      "DELETE",
-      "OPTIONS"
-     ],
-     "AllowOrigins": [
-      "http://localhost:3000"
-     ]
+     "Version": "2012-10-17"
     },
-    "TargetFunctionArn": {
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+       ]
+      ]
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/CloudWatchRole/Resource"
+   }
+  },
+  "SupermarketApiGatewayAccountD21119A3": {
+   "Type": "AWS::ApiGateway::Account",
+   "Properties": {
+    "CloudWatchRoleArn": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketApiGatewayCloudWatchRole631E5CDD",
       "Arn"
      ]
     }
    },
+   "DependsOn": [
+    "SupermarketApiGatewayD32A94E9"
+   ],
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
    "Metadata": {
-    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/FunctionUrl/Resource"
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Account"
    }
   },
-  "SupermarketApiFunctioninvokefunctionurlF21BDBE0": {
-   "Type": "AWS::Lambda::Permission",
+  "SupermarketApiGatewayDeployment3BDE3851a8ac2cad9401903528298561a563f0ec": {
+   "Type": "AWS::ApiGateway::Deployment",
    "Properties": {
-    "Action": "lambda:InvokeFunctionUrl",
-    "FunctionName": {
+    "Description": "Automatically created by the RestApi construct",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "DependsOn": [
+    "SupermarketApiGatewayproxyANY40C8E0D5",
+    "SupermarketApiGatewayproxyOPTIONSF7D54AE3",
+    "SupermarketApiGatewayproxyAD8FA136",
+    "SupermarketApiGatewayANYD1BFDEB8",
+    "SupermarketApiGatewayOPTIONSB0C25086"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Deployment/Resource",
+    "aws:cdk:do-not-refactor": true
+   }
+  },
+  "SupermarketApiGatewayDeploymentStageprodFB640302": {
+   "Type": "AWS::ApiGateway::Stage",
+   "Properties": {
+    "DeploymentId": {
+     "Ref": "SupermarketApiGatewayDeployment3BDE3851a8ac2cad9401903528298561a563f0ec"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    },
+    "StageName": "prod"
+   },
+   "DependsOn": [
+    "SupermarketApiGatewayAccountD21119A3"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/DeploymentStage.prod/Resource"
+   }
+  },
+  "SupermarketApiGatewayOPTIONSB0C25086": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
-      "Arn"
+      "SupermarketApiGatewayD32A94E9",
+      "RootResourceId"
      ]
     },
-    "FunctionUrlAuthType": "NONE",
-    "Principal": "*"
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/invoke-function-url"
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Default/OPTIONS/Resource"
    }
   },
-  "SupermarketApiFunctioninvokefunctionCE533BB8": {
+  "SupermarketApiGatewayproxyAD8FA136": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Fn::GetAtt": [
+      "SupermarketApiGatewayD32A94E9",
+      "RootResourceId"
+     ]
+    },
+    "PathPart": "{proxy+}",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Default/{proxy+}/Resource"
+   }
+  },
+  "SupermarketApiGatewayproxyOPTIONSF7D54AE3": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayproxyAD8FA136"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Default/{proxy+}/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayproxyANYApiPermissionSupermarketApiLocalStackSupermarketApiGateway47B6030DANYproxyAC08E0B9": {
    "Type": "AWS::Lambda::Permission",
    "Properties": {
     "Action": "lambda:InvokeFunction",
@@ -286,31 +448,33 @@
       "Arn"
      ]
     },
-    "InvokedViaFunctionUrl": true,
-    "Principal": "*"
-   },
-   "Metadata": {
-    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/invoke-function"
-   }
-  },
-  "SupermarketApiFunctionPublicInvokeFunctionUrl762903B6": {
-   "Type": "AWS::Lambda::Permission",
-   "Properties": {
-    "Action": "lambda:InvokeFunctionUrl",
-    "FunctionName": {
-     "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
-      "Arn"
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:000000000000:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/*"
+      ]
      ]
-    },
-    "FunctionUrlAuthType": "NONE",
-    "Principal": "*"
+    }
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/PublicInvokeFunctionUrl"
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Default/{proxy+}/ANY/ApiPermission.SupermarketApiLocalStackSupermarketApiGateway47B6030D.ANY..{proxy+}"
    }
   },
-  "SupermarketApiFunctionPublicInvokeViaFunctionUrl2A2A8B19": {
+  "SupermarketApiGatewayproxyANYApiPermissionTestSupermarketApiLocalStackSupermarketApiGateway47B6030DANYproxyCE4706E5": {
    "Type": "AWS::Lambda::Permission",
    "Properties": {
     "Action": "lambda:InvokeFunction",
@@ -320,17 +484,181 @@
       "Arn"
      ]
     },
-    "InvokedViaFunctionUrl": true,
-    "Principal": "*"
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:000000000000:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/*"
+      ]
+     ]
+    }
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/PublicInvokeViaFunctionUrl"
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Default/{proxy+}/ANY/ApiPermission.Test.SupermarketApiLocalStackSupermarketApiGateway47B6030D.ANY..{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayproxyANY40C8E0D5": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketApiFunctionD4E09F97",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayproxyAD8FA136"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Default/{proxy+}/ANY/Resource"
+   }
+  },
+  "SupermarketApiGatewayANYApiPermissionSupermarketApiLocalStackSupermarketApiGateway47B6030DANY88193D80": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:000000000000:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Default/ANY/ApiPermission.SupermarketApiLocalStackSupermarketApiGateway47B6030D.ANY.."
+   }
+  },
+  "SupermarketApiGatewayANYApiPermissionTestSupermarketApiLocalStackSupermarketApiGateway47B6030DANYBE009F0F": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:000000000000:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Default/ANY/ApiPermission.Test.SupermarketApiLocalStackSupermarketApiGateway47B6030D.ANY.."
+   }
+  },
+  "SupermarketApiGatewayANYD1BFDEB8": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketApiFunctionD4E09F97",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Fn::GetAtt": [
+      "SupermarketApiGatewayD32A94E9",
+      "RootResourceId"
+     ]
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiGateway/Default/ANY/Resource"
    }
   },
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/z2LywrCMBBFv8V9Omor4lYFt0qra5kmUcYmE+kkipT+u7Q+VudwHznkywJmE3xKpk2TOaqhqyLqRuFTzp15Mfpgathe+Ii1s8qhrw1Ct0usIwVW2wv//Sen1g35FwfbehKhwL0i9NCVwdmhGHkIjvRr3I3WKynOKGKjwHqAkgI2STc2blBsr8awinglvg63fYr3FHvFwVi4yfSRL2C+gtnkJkRZmziSt1B++AbaqXLw8QAAAA=="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/02OQW+DMAyFf0vvwetgmnalnXbaNER3r0xwaQokCDtjCPHfp6Sd1tP77Gf5vRTS5wy2G5w40XWbdKaC5SCoW4UTH5d6tti7uoL9yX5h1ZHqsK9qhOXNWy3GWbU/2XsuaOwNs3F2VQZ7WErXUTCiFq4zeo53kVbF2RGZSRjyIIoz2HndkuyQSeFgGhSacIblPSaXxJIPJn78x1xr562oVxo6N/dkJWzvpoNgE2tcoSR2ftQUQz5Izq4O5o2K0f3Mfye3pMjrqmLL8MTYJlifXgYvq7KuJrjww3f6BI8vsN1c2Jhk9FZMT1Be9RfA8kHBbwEAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketApiLocalStack/CDKMetadata/Default"
@@ -338,6 +666,28 @@
   }
  },
  "Outputs": {
+  "SupermarketApiGatewayEndpoint7AD82610": {
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "https://",
+      {
+       "Ref": "SupermarketApiGatewayD32A94E9"
+      },
+      ".execute-api.ap-southeast-1.",
+      {
+       "Ref": "AWS::URLSuffix"
+      },
+      "/",
+      {
+       "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+      },
+      "/"
+     ]
+    ]
+   }
+  },
   "TableName": {
    "Value": "MarketplaceProducts"
   },
@@ -346,11 +696,25 @@
     "Ref": "SupermarketApiFunctionD4E09F97"
    }
   },
-  "FunctionUrl": {
+  "ApiGatewayUrl": {
    "Value": {
-    "Fn::GetAtt": [
-     "SupermarketApiFunctionFunctionUrl11223C11",
-     "FunctionUrl"
+    "Fn::Join": [
+     "",
+     [
+      "https://",
+      {
+       "Ref": "SupermarketApiGatewayD32A94E9"
+      },
+      ".execute-api.ap-southeast-1.",
+      {
+       "Ref": "AWS::URLSuffix"
+      },
+      "/",
+      {
+       "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+      },
+      "/"
+     ]
     ]
    }
   }

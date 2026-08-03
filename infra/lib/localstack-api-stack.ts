@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { Duration, CfnOutput, Stack, StackProps } from "aws-cdk-lib";
+import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
@@ -90,31 +91,14 @@ export class LocalstackApiStack extends Stack {
       ]
     }));
 
-    const functionUrl = lambdaFunction.addFunctionUrl({
-      authType: lambda.FunctionUrlAuthType.NONE,
-      cors: {
-        allowedOrigins: ["http://localhost:3000"],
-        allowedMethods: [
-          lambda.HttpMethod.GET,
-          lambda.HttpMethod.POST,
-          lambda.HttpMethod.PATCH,
-          lambda.HttpMethod.DELETE,
-          lambda.HttpMethod.OPTIONS
-        ],
-        allowedHeaders: ["Content-Type"]
+    const api = new apigateway.LambdaRestApi(this, "SupermarketApiGateway", {
+      handler: lambdaFunction,
+      proxy: true,
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: apigateway.Cors.ALL_METHODS,
+        allowHeaders: ["Content-Type"]
       }
-    });
-
-    lambdaFunction.addPermission("PublicInvokeFunctionUrl", {
-      action: "lambda:InvokeFunctionUrl",
-      principal: new iam.AnyPrincipal(),
-      functionUrlAuthType: lambda.FunctionUrlAuthType.NONE
-    });
-
-    lambdaFunction.addPermission("PublicInvokeViaFunctionUrl", {
-      action: "lambda:InvokeFunction",
-      principal: new iam.AnyPrincipal(),
-      invokedViaFunctionUrl: true
     });
 
     new CfnOutput(this, "TableName", {
@@ -125,8 +109,8 @@ export class LocalstackApiStack extends Stack {
       value: lambdaFunction.functionName
     });
 
-    new CfnOutput(this, "FunctionUrl", {
-      value: functionUrl.url
+    new CfnOutput(this, "ApiGatewayUrl", {
+      value: api.url
     });
   }
 }

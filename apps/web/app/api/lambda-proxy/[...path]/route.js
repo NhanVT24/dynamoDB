@@ -1,13 +1,17 @@
-const lambdaBaseUrl = (process.env.LOCALSTACK_LAMBDA_URL ?? "").replace(/\/$/, "");
+const upstreamBaseUrl = (
+  process.env.LOCALSTACK_API_URL ??
+  process.env.LOCALSTACK_LAMBDA_URL ??
+  ""
+).replace(/\/$/, "");
 
 function buildTargetUrl(pathSegments, requestUrl) {
-  if (!lambdaBaseUrl) {
-    throw new Error("LOCALSTACK_LAMBDA_URL is not configured");
+  if (!upstreamBaseUrl) {
+    throw new Error("LOCALSTACK_API_URL is not configured");
   }
 
   const incomingUrl = new URL(requestUrl);
   const joinedPath = Array.isArray(pathSegments) ? pathSegments.join("/") : "";
-  const targetUrl = new URL(`${lambdaBaseUrl}/${joinedPath}`);
+  const targetUrl = new URL(`${upstreamBaseUrl}/${joinedPath}`);
   targetUrl.search = incomingUrl.search;
   return targetUrl;
 }
