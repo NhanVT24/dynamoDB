@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(__dirname, "..");
 const distRoot = join(appRoot, "dist");
+const buildRoot = join(distRoot, "src");
 const lambdaRoot = join(distRoot, "lambda");
 const zipPath = join(distRoot, "lambda.zip");
 const packageJsonPath = join(appRoot, "package.json");
@@ -16,7 +17,7 @@ rmSync(lambdaRoot, { recursive: true, force: true });
 rmSync(zipPath, { force: true });
 mkdirSync(lambdaRoot, { recursive: true });
 
-cpSync(join(appRoot, "src"), join(lambdaRoot, "src"), { recursive: true });
+cpSync(buildRoot, join(lambdaRoot, "src"), { recursive: true });
 
 const lambdaPackageJson = {
   name: `${packageJson.name}-lambda`,

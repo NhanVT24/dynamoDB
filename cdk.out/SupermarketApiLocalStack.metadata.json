@@ -1,0 +1,226 @@
+{
+  "/SupermarketApiLocalStack": [
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/MarketplaceProductsTable": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MarketplaceProductsTable"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:13:19)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/TableName": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "TableName"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:120:5)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/FunctionName": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "FunctionName"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:124:5)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/FunctionUrl": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "FunctionUrl"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:128:5)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/BootstrapVersion": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "BootstrapVersion"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/CheckBootstrapVersion": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CheckBootstrapVersion"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/SupermarketApiFunction/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "SupermarketApiFunctionD4E09F97"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Function2 in aws-cdk-lib...",
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:62:28)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/SupermarketApiFunction/invoke-function-url": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "SupermarketApiFunctioninvokefunctionurlF21BDBE0"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...WrappedClass.addFunctionUrl in aws-cdk-lib...",
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:93:40)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/SupermarketApiFunction/invoke-function": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "SupermarketApiFunctioninvokefunctionCE533BB8"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...WrappedClass.addFunctionUrl in aws-cdk-lib...",
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:93:40)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/SupermarketApiFunction/PublicInvokeFunctionUrl": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "SupermarketApiFunctionPublicInvokeFunctionUrl762903B6"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...WrappedClass.addPermission in aws-cdk-lib...",
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:108:20)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/SupermarketApiFunction/PublicInvokeViaFunctionUrl": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "SupermarketApiFunctionPublicInvokeViaFunctionUrl2A2A8B19"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...WrappedClass.addPermission in aws-cdk-lib...",
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:114:20)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/CDKMetadata/Default": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CDKMetadata"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib, node internals...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/SupermarketApiFunction/ServiceRole/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "SupermarketApiFunctionServiceRoleD9490C11"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Function2 in aws-cdk-lib...",
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:62:28)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/SupermarketApiFunction/FunctionUrl/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "SupermarketApiFunctionFunctionUrl11223C11"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...WrappedClass.addFunctionUrl in aws-cdk-lib...",
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:93:40)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketApiLocalStack/SupermarketApiFunction/ServiceRole/DefaultPolicy/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "SupermarketApiFunctionServiceRoleDefaultPolicyF89B6ADA"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...WrappedClass.addToRolePolicy in aws-cdk-lib...",
+        "new LocalstackApiStack (C:\\project\\dynamoDB\\infra\\lib\\localstack-api-stack.ts:76:20)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\localstack-api.ts:7:1)",
+        "...node internals, ts-node..."
+      ]
+    }
+  ]
+}

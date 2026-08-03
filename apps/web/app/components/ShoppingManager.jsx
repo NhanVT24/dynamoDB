@@ -26,6 +26,7 @@ const categoryLabels = {
 
 const emptyForm = {
   name: "",
+  brand: "",
   category: "Thời trang",
   stock: "0",
   basePriceInput: "1.000",
@@ -500,6 +501,7 @@ export default function ShoppingManager() {
     setEditingVersion(item.version);
     setForm({
       name: item.name,
+      brand: item.brand ?? "",
       category: item.category,
       stock: String(item.stock ?? 0),
       basePriceInput: formatNumberInput(item.originalPrice ?? item.price),
@@ -626,6 +628,7 @@ export default function ShoppingManager() {
     setBusy(true);
 
     const normalizedName = form.name.trim();
+    const normalizedBrand = form.brand.trim();
     const originalPrice = Math.max(1000, parseFormattedNumber(form.basePriceInput));
     const discountPercent = Math.min(99, Math.max(0, Number(form.discountPercent) || 0));
     const price = computeSalePrice(originalPrice, discountPercent);
@@ -633,7 +636,7 @@ export default function ShoppingManager() {
     const payload = {
       name: normalizedName,
       category: form.category,
-      brand: "Unknown",
+      brand: normalizedBrand || "Unknown",
       sku: makeSku(normalizedName),
       stock: Number(form.stock),
       price,
@@ -959,14 +962,27 @@ export default function ShoppingManager() {
             <input className={inputClassName} style={inputStyle} value={form.name} onChange={(event) => updateField("name", event.target.value)} required />
           </Field>
 
-          <Field>
-            <span>Category</span>
-            <select className={inputClassName} style={inputStyle} value={form.category} onChange={(event) => updateField("category", event.target.value)}>
-              {categories.map((category) => (
-                <option key={category} value={category}>{categoryLabel(category)}</option>
-              ))}
-            </select>
-          </Field>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field>
+              <span>Brand</span>
+              <input
+                className={inputClassName}
+                style={inputStyle}
+                value={form.brand}
+                onChange={(event) => updateField("brand", event.target.value)}
+                placeholder="Apple, Nike, Samsung..."
+              />
+            </Field>
+
+            <Field>
+              <span>Category</span>
+              <select className={inputClassName} style={inputStyle} value={form.category} onChange={(event) => updateField("category", event.target.value)}>
+                {categories.map((category) => (
+                  <option key={category} value={category}>{categoryLabel(category)}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <Field>

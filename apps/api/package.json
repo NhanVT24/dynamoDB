@@ -3,18 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.js",
-    "build": "node --check src/server.js && node --check src/lambda.js && node --check scripts/package-lambda.js",
-    "start": "node src/server.js",
-    "typecheck": "node --check src/server.js && node --check src/lambda.js",
-    "package:lambda": "node scripts/package-lambda.js",
-    "db:init": "node src/scripts/create-table.js",
-    "db:reset-table": "node src/scripts/reset-table.js",
-    "db:seed": "node src/scripts/seed.js",
-    "db:reseed": "node src/scripts/reseed.js",
-    "db:localize": "node src/scripts/localize-products.js",
-    "db:test-begins-with-name": "node src/scripts/test-begins-with-name.js",
-    "db:view-raw": "node src/scripts/view-raw-data.js"
+    "dev": "tsx watch src/server.ts",
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "npm run build:ts && node scripts/package-lambda.js",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "package:lambda": "npm run build:ts && node scripts/package-lambda.js",
+    "db:init": "tsx src/scripts/create-table.ts",
+    "db:reset-table": "tsx src/scripts/reset-table.ts",
+    "db:seed": "tsx src/scripts/seed.ts",
+    "db:reseed": "tsx src/scripts/reseed.ts",
+    "db:backfill-products": "tsx src/scripts/backfill-products.ts",
+    "db:localize": "tsx src/scripts/localize-products.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.850.0",
@@ -26,5 +26,9 @@
     "fastify": "^5.4.0",
     "zod": "^4.0.5"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
 }

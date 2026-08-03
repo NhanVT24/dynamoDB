@@ -1,0 +1,9 @@
+{
+  "name": "supermarket-infra",
+  "private": true,
+  "scripts": {
+    "synth": "cdk synth",
+    "deploy:local": "cdklocal deploy --require-approval never",
+    "destroy:local": "cdklocal destroy --force"
+  }
+}

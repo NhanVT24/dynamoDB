@@ -1,0 +1,392 @@
+{
+ "Resources": {
+  "MarketplaceProductsTable": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "PK",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "SK",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "category",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "status",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "searchName",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "searchField",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "updatedAt",
+      "AttributeType": "S"
+     }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "GlobalSecondaryIndexes": [
+     {
+      "IndexName": "CategoryStatusNameIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "category",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "status",
+        "KeyType": "RANGE"
+       },
+       {
+        "AttributeName": "searchName",
+        "KeyType": "RANGE"
+       },
+       {
+        "AttributeName": "PK",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     },
+     {
+      "IndexName": "StatusTimelineIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "status",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "updatedAt",
+        "KeyType": "RANGE"
+       },
+       {
+        "AttributeName": "searchName",
+        "KeyType": "RANGE"
+       },
+       {
+        "AttributeName": "PK",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     },
+     {
+      "IndexName": "SearchNameIndex",
+      "KeySchema": [
+       {
+        "AttributeName": "searchField",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "searchName",
+        "KeyType": "RANGE"
+       },
+       {
+        "AttributeName": "PK",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     }
+    ],
+    "KeySchema": [
+     {
+      "AttributeName": "PK",
+      "KeyType": "HASH"
+     },
+     {
+      "AttributeName": "SK",
+      "KeyType": "RANGE"
+     }
+    ],
+    "TableName": "MarketplaceProducts"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/MarketplaceProductsTable"
+   }
+  },
+  "SupermarketApiFunctionServiceRoleD9490C11": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/ServiceRole/Resource"
+   }
+  },
+  "SupermarketApiFunctionServiceRoleDefaultPolicyF89B6ADA": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        "arn:aws:dynamodb:ap-southeast-1:000000000000:table/MarketplaceProducts",
+        "arn:aws:dynamodb:ap-southeast-1:000000000000:table/MarketplaceProducts/index/*"
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "SupermarketApiFunctionServiceRoleDefaultPolicyF89B6ADA",
+    "Roles": [
+     {
+      "Ref": "SupermarketApiFunctionServiceRoleD9490C11"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "SupermarketApiFunctionD4E09F97": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "x86_64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-000000000000-ap-southeast-1",
+     "S3Key": "f88be995edf996e578f0578c1ef861697bf4b5b3673cb1059e61f121f5102159.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "DYNAMODB_ENDPOINT": "http://localhost.localstack.cloud:4566",
+      "DYNAMODB_TABLE_NAME": "MarketplaceProducts"
+     }
+    },
+    "FunctionName": "supermarket-api-localstack",
+    "Handler": "src/lambda.handler",
+    "MemorySize": 256,
+    "Role": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionServiceRoleD9490C11",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "SupermarketApiFunctionServiceRoleDefaultPolicyF89B6ADA",
+    "SupermarketApiFunctionServiceRoleD9490C11"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/Resource",
+    "aws:asset:path": "asset.f88be995edf996e578f0578c1ef861697bf4b5b3673cb1059e61f121f5102159",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "SupermarketApiFunctionFunctionUrl11223C11": {
+   "Type": "AWS::Lambda::Url",
+   "Properties": {
+    "AuthType": "NONE",
+    "Cors": {
+     "AllowHeaders": [
+      "Content-Type"
+     ],
+     "AllowMethods": [
+      "GET",
+      "POST",
+      "PATCH",
+      "DELETE",
+      "OPTIONS"
+     ],
+     "AllowOrigins": [
+      "http://localhost:3000"
+     ]
+    },
+    "TargetFunctionArn": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/FunctionUrl/Resource"
+   }
+  },
+  "SupermarketApiFunctioninvokefunctionurlF21BDBE0": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunctionUrl",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "FunctionUrlAuthType": "NONE",
+    "Principal": "*"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/invoke-function-url"
+   }
+  },
+  "SupermarketApiFunctioninvokefunctionCE533BB8": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "InvokedViaFunctionUrl": true,
+    "Principal": "*"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/invoke-function"
+   }
+  },
+  "SupermarketApiFunctionPublicInvokeFunctionUrl762903B6": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunctionUrl",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "FunctionUrlAuthType": "NONE",
+    "Principal": "*"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/PublicInvokeFunctionUrl"
+   }
+  },
+  "SupermarketApiFunctionPublicInvokeViaFunctionUrl2A2A8B19": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "InvokedViaFunctionUrl": true,
+    "Principal": "*"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/SupermarketApiFunction/PublicInvokeViaFunctionUrl"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/z2LywrCMBBFv8V9Omor4lYFt0qra5kmUcYmE+kkipT+u7Q+VudwHznkywJmE3xKpk2TOaqhqyLqRuFTzp15Mfpgathe+Ii1s8qhrw1Ct0usIwVW2wv//Sen1g35FwfbehKhwL0i9NCVwdmhGHkIjvRr3I3WKynOKGKjwHqAkgI2STc2blBsr8awinglvg63fYr3FHvFwVi4yfSRL2C+gtnkJkRZmziSt1B++AbaqXLw8QAAAA=="
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketApiLocalStack/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "TableName": {
+   "Value": "MarketplaceProducts"
+  },
+  "FunctionName": {
+   "Value": {
+    "Ref": "SupermarketApiFunctionD4E09F97"
+   }
+  },
+  "FunctionUrl": {
+   "Value": {
+    "Fn::GetAtt": [
+     "SupermarketApiFunctionFunctionUrl11223C11",
+     "FunctionUrl"
+    ]
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

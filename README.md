@@ -85,4 +85,4 @@ Table dùng một bảng và một GSI:
 
 - `npm run db:seed` có kiểm tra dữ liệu cũ, nếu bảng đã có sản phẩm thì script sẽ bỏ qua.
 - Nếu Windows báo lỗi `.next/trace`, hãy dừng các tiến trình Node cũ rồi chạy lại `npm run dev`.
-- Hướng dẫn deploy riêng `apps/api` lên AWS Lambda nằm ở [docs/deploy-lambda-api.md](/D:/JAVA/Doan/dynamoDB/docs/deploy-lambda-api.md).
+- Hướng deploy chính hiện tại cho local là TypeScript CDK + LocalStack ở [docs/deploy-cdk-localstack.md](C:/project/dynamoDB/docs/deploy-cdk-localstack.md).

@@ -1,0 +1,36 @@
+{
+  "version": "54.0.0",
+  "files": {
+    "f88be995edf996e578f0578c1ef861697bf4b5b3673cb1059e61f121f5102159": {
+      "displayName": "SupermarketApiFunction/Code",
+      "source": {
+        "path": "asset.f88be995edf996e578f0578c1ef861697bf4b5b3673cb1059e61f121f5102159",
+        "packaging": "zip"
+      },
+      "destinations": {
+        "000000000000-ap-southeast-1-ddabae30": {
+          "bucketName": "cdk-hnb659fds-assets-000000000000-ap-southeast-1",
+          "objectKey": "f88be995edf996e578f0578c1ef861697bf4b5b3673cb1059e61f121f5102159.zip",
+          "region": "ap-southeast-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::000000000000:role/cdk-hnb659fds-file-publishing-role-000000000000-ap-southeast-1"
+        }
+      }
+    },
+    "edd62a3114126e5a90fe71efbdd10426ddbb2da881fa1c038135ecd2d77d6fe2": {
+      "displayName": "SupermarketApiLocalStack Template",
+      "source": {
+        "path": "SupermarketApiLocalStack.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "000000000000-ap-southeast-1-b67303b9": {
+          "bucketName": "cdk-hnb659fds-assets-000000000000-ap-southeast-1",
+          "objectKey": "edd62a3114126e5a90fe71efbdd10426ddbb2da881fa1c038135ecd2d77d6fe2.json",
+          "region": "ap-southeast-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::000000000000:role/cdk-hnb659fds-file-publishing-role-000000000000-ap-southeast-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

@@ -9,6 +9,11 @@
     "dev:web": "npm run dev -w @supermarket/web",
     "dev:api": "npm run dev -w @supermarket/api",
     "build": "npm run build --workspaces",
+    "build:lambda": "npm run package:lambda -w @supermarket/api",
+    "cdk:local:bootstrap": "cdklocal bootstrap --app \"npx ts-node --project infra/tsconfig.json infra/bin/localstack-api.ts\"",
+    "cdk:local:synth": "npm run build:lambda && cdklocal synth --app \"npx ts-node --project infra/tsconfig.json infra/bin/localstack-api.ts\"",
+    "cdk:local:deploy": "npm run build:lambda && cdklocal deploy --app \"npx ts-node --project infra/tsconfig.json infra/bin/localstack-api.ts\" --require-approval never",
+    "cdk:local:destroy": "cdklocal destroy --app \"npx ts-node --project infra/tsconfig.json infra/bin/localstack-api.ts\" --force",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
@@ -17,7 +22,12 @@
     "db:localize": "npm run db:localize -w @supermarket/api"
   },
   "devDependencies": {
-    "concurrently": "^9.2.0"
+    "@types/node": "^24.13.3",
+    "aws-cdk-lib": "^2.220.0",
+    "concurrently": "^9.2.0",
+    "constructs": "^10.4.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1098.0",
