@@ -10,6 +10,7 @@ import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../db/client.js";
 import { keys } from "../../db/keys.js";
+import { getMockShoppingItem, listMockShoppingItems } from "./shopping.mock.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 const INCREMENTABLE_FIELDS = new Set(["stock", "soldCount"]);
@@ -708,6 +709,8 @@ export async function getCursorForPage(page = 1, limit = 12, filters = {}) {
     reachedEnd: currentPage < targetPage
   };
 }
+
+export { getMockShoppingItem, listMockShoppingItems };
 
 export async function getShoppingItemAll(pageLimit = 50, maxPages = 20, filters = {}) {
   if (filters.sortBy) {

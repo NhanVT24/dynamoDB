@@ -3,8 +3,10 @@ import {
   createShoppingItem,
   deleteShoppingItem,
   getCursorForPage,
+  getMockShoppingItem,
   getShoppingItem,
   getShoppingItemAll,
+  listMockShoppingItems,
   incrementItemValue,
   listShoppingItems,
   updateShoppingItem
@@ -32,6 +34,14 @@ const listQuerySchema = z.object({
 });
 
 export const shoppingRoutes = async (app) => {
+  app.get("/demo", async () => listMockShoppingItems());
+
+  app.get("/demo/:id", async (request, reply) => {
+    const { id } = paramsSchema.parse(request.params);
+    const item = getMockShoppingItem(id);
+    return item ?? reply.code(404).send({ message: "Mock product not found" });
+  });
+
   app.get("/meta", async () => ({
     categories: shoppingCategories,
     statuses: shoppingStatuses,
