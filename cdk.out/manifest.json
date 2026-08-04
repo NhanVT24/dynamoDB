@@ -1,40 +1,40 @@
 {
   "version": "54.0.0",
   "artifacts": {
-    "SupermarketApiLocalStack.assets": {
+    "SupermarketAwsStack.assets": {
       "type": "cdk:asset-manifest",
       "properties": {
-        "file": "SupermarketApiLocalStack.assets.json",
+        "file": "SupermarketAwsStack.assets.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version"
       }
     },
-    "SupermarketApiLocalStack": {
+    "SupermarketAwsStack": {
       "type": "aws:cloudformation:stack",
-      "environment": "aws://000000000000/ap-southeast-1",
+      "environment": "aws://510935912072/ap-southeast-1",
       "properties": {
-        "templateFile": "SupermarketApiLocalStack.template.json",
+        "templateFile": "SupermarketAwsStack.template.json",
         "terminationProtection": false,
         "validateOnSynth": false,
-        "assumeRoleArn": "arn:${AWS::Partition}:iam::000000000000:role/cdk-hnb659fds-deploy-role-000000000000-ap-southeast-1",
-        "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::000000000000:role/cdk-hnb659fds-cfn-exec-role-000000000000-ap-southeast-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-000000000000-ap-southeast-1/ec56fc33397213acd8ec37d564851e15b9a68712fc69ce126f2e14a28e75b177.json",
+        "assumeRoleArn": "arn:${AWS::Partition}:iam::510935912072:role/cdk-hnb659fds-deploy-role-510935912072-ap-southeast-1",
+        "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::510935912072:role/cdk-hnb659fds-cfn-exec-role-510935912072-ap-southeast-1",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-510935912072-ap-southeast-1/c1717a4a95b5fde17ee17e2d6c9f80cbaf65af2d6808f5886c87ebba11f85e3c.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
-          "SupermarketApiLocalStack.assets"
+          "SupermarketAwsStack.assets"
         ],
         "lookupRole": {
-          "arn": "arn:${AWS::Partition}:iam::000000000000:role/cdk-hnb659fds-lookup-role-000000000000-ap-southeast-1",
+          "arn": "arn:${AWS::Partition}:iam::510935912072:role/cdk-hnb659fds-lookup-role-510935912072-ap-southeast-1",
           "requiresBootstrapStackVersion": 8,
           "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version"
         }
       },
       "dependencies": [
-        "SupermarketApiLocalStack.assets"
+        "SupermarketAwsStack.assets"
       ],
-      "additionalMetadataFile": "SupermarketApiLocalStack.metadata.json",
-      "displayName": "SupermarketApiLocalStack"
+      "additionalMetadataFile": "SupermarketAwsStack.metadata.json",
+      "displayName": "SupermarketAwsStack"
     },
     "Tree": {
       "type": "cdk:tree",

@@ -1,13 +1,17 @@
-import cors from "@fastify/cors";
-import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
-import { ZodError } from "zod";
-import { learningRoutes } from "./modules/learning/learning.routes.js";
-import { shoppingRoutes } from "./modules/shopping/shopping.routes.js";
+import { ValidationPipe } from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
+import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import { AppModule } from "./app.module.js";
+import { env } from "./config/env.js";
+import { AppExceptionFilter } from "./common/filters/app-exception.filter.js";
 
-export async function buildApp(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true });
+export async function createNestApp(): Promise<NestFastifyApplication> {
+  const adapter = new FastifyAdapter({ logger: true });
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
+    bufferLogs: true
+  });
 
-  await app.register(cors, {
+  app.enableCors({
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type"],
     origin: (origin, callback) => {
@@ -17,24 +21,46 @@ export async function buildApp(): Promise<FastifyInstance> {
         /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin) ||
         /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin);
 
-      return callback(null, allowedDevOrigin);
+      callback(null, allowedDevOrigin);
     }
   });
 
-  app.get("/health", async () => ({ status: "ok" }));
-  await app.register(shoppingRoutes, { prefix: "/api/shopping-items" });
-  await app.register(learningRoutes, { prefix: "/api/learning" });
+  app.useGlobalPipes(new ValidationPipe({
+    transform: true,
+    whitelist: false
+  }));
+  app.useGlobalFilters(new AppExceptionFilter());
+  app.setGlobalPrefix("");
 
-  app.setErrorHandler((error: Error & { issues?: unknown[] }, _request, reply: FastifyReply) => {
-    if (error instanceof ZodError || Array.isArray(error.issues)) {
-      return reply.code(400).send({ message: "Invalid request", issues: error.issues });
-    }
-    if (error instanceof Error && error.name === "ConditionalCheckFailedException") {
-      return reply.code(409).send({ message: "Record changed, missing, or condition failed" });
-    }
-    app.log.error(error);
-    return reply.code(500).send({ message: "Internal server error" });
+  const fastify = app.getHttpAdapter().getInstance();
+
+  fastify.addHook("onRequest", async (request, _reply) => {
+    request.log.info({
+      method: request.method,
+      url: request.url,
+      query: request.query,
+      params: request.params
+    }, "incoming api request");
   });
 
+  fastify.addHook("onResponse", async (request, reply) => {
+    request.log.info({
+      method: request.method,
+      url: request.url,
+      statusCode: reply.statusCode
+    }, "api response sent");
+  });
+
+  await app.init();
+  await app.getHttpAdapter().getInstance().ready();
+
+  app.enableShutdownHooks();
+
+  return app;
+}
+
+export async function startNestApp() {
+  const app = await createNestApp();
+  await app.listen({ port: env.PORT, host: "0.0.0.0" });
   return app;
 }

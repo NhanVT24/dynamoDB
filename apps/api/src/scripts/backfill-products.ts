@@ -1,7 +1,7 @@
 import { ScanCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../config/env.js";
-import { rawDb } from "../db/client.js";
+import { rawDb } from "../database/dynamodb/client.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 

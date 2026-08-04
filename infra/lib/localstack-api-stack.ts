@@ -62,7 +62,7 @@ export class LocalstackApiStack extends Stack {
 
     const lambdaFunction = new lambda.Function(this, "SupermarketApiFunction", {
       functionName: "supermarket-api-localstack",
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       architecture: lambda.Architecture.X86_64,
       handler: "src/lambda.handler",
       timeout: Duration.seconds(10),

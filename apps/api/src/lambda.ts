@@ -1,9 +1,29 @@
+import "reflect-metadata";
 import awsLambdaFastify from "@fastify/aws-lambda";
-import { buildApp } from "./app.js";
+import { createNestApp } from "./app.js";
 
-const app = await buildApp();
-const proxy = awsLambdaFastify(app);
+const app = await createNestApp();
+const proxy = awsLambdaFastify(app.getHttpAdapter().getInstance(), {
+  pathParameterUsedAsPath: "proxy"
+});
 
-await app.ready();
+export const handler = async (event: any, context: unknown) => {
+  console.log("[lambda] incoming event", {
+    path: event?.path,
+    rawPath: event?.rawPath,
+    httpMethod: event?.httpMethod,
+    routeKey: event?.routeKey,
+    stage: event?.requestContext?.stage,
+    pathParameters: event?.pathParameters,
+    queryStringParameters: event?.queryStringParameters
+  });
 
-export const handler = async (event: unknown, context: unknown) => proxy(event, context);
+  const response = await proxy(event, context);
+
+  console.log("[lambda] outgoing response", {
+    statusCode: response?.statusCode,
+    headers: response?.headers
+  });
+
+  return response;
+};

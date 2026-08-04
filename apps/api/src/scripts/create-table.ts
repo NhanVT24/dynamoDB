@@ -5,7 +5,7 @@ import {
   type CreateTableCommandInput
 } from "@aws-sdk/client-dynamodb";
 import { env } from "../config/env.js";
-import { rawDb } from "../db/client.js";
+import { rawDb } from "../database/dynamodb/client.js";
 
 const tableDefinition: CreateTableCommandInput = {
   TableName: env.DYNAMODB_TABLE_NAME,

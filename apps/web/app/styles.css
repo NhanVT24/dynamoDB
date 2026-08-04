@@ -2,23 +2,27 @@
 
 :root {
   color-scheme: light;
+  --page-bg:
+    radial-gradient(circle at top left, rgba(103, 232, 249, 0.22), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(251, 191, 36, 0.2), transparent 22%),
+    linear-gradient(180deg, #f8fafc 0%, #e0f2fe 48%, #fff7ed 100%);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top left, rgba(191, 219, 254, 0.7), transparent 28%),
-    linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  background: var(--page-bg);
   color: #0f172a;
-  font-family: 'Roboto', sans-serif;
 }
 
 .emptyPage {
-  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
-
+  background: var(--page-bg);
 }
