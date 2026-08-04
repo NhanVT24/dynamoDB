@@ -161,11 +161,6 @@ export class AwsApiStack extends Stack {
       ]
     }));
 
-    const authorizer = new apigateway.CognitoUserPoolsAuthorizer(this, "ApiCognitoAuthorizer", {
-      cognitoUserPools: [userPool],
-      authorizerName: "supermarket-cognito-authorizer"
-    });
-
     const api = new apigateway.RestApi(this, "SupermarketApiGateway", {
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
@@ -187,11 +182,7 @@ export class AwsApiStack extends Stack {
 
     api.root.addProxy({
       anyMethod: true,
-      defaultIntegration: lambdaIntegration,
-      defaultMethodOptions: {
-        authorizer,
-        authorizationType: apigateway.AuthorizationType.COGNITO
-      }
+      defaultIntegration: lambdaIntegration
     });
 
     new CfnOutput(this, "TableName", {

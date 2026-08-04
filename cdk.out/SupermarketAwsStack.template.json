@@ -394,28 +394,6 @@
     "aws:asset:property": "Code"
    }
   },
-  "ApiCognitoAuthorizer1CAC2F3D": {
-   "Type": "AWS::ApiGateway::Authorizer",
-   "Properties": {
-    "IdentitySource": "method.request.header.Authorization",
-    "Name": "supermarket-cognito-authorizer",
-    "ProviderARNs": [
-     {
-      "Fn::GetAtt": [
-       "AdminUserPoolD0AF18CF",
-       "Arn"
-      ]
-     }
-    ],
-    "RestApiId": {
-     "Ref": "SupermarketApiGatewayD32A94E9"
-    },
-    "Type": "COGNITO_USER_POOLS"
-   },
-   "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/ApiCognitoAuthorizer/Resource"
-   }
-  },
   "SupermarketApiGatewayD32A94E9": {
    "Type": "AWS::ApiGateway::RestApi",
    "Properties": {
@@ -480,7 +458,7 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Account"
    }
   },
-  "SupermarketApiGatewayDeployment3BDE38514933f5c4b9cc281b02862f0229104d49": {
+  "SupermarketApiGatewayDeployment3BDE38515eebfdcdd69869b315ec8b3ad04b0260": {
    "Type": "AWS::ApiGateway::Deployment",
    "Properties": {
     "Description": "Automatically created by the RestApi construct",
@@ -508,7 +486,7 @@
    "Type": "AWS::ApiGateway::Stage",
    "Properties": {
     "DeploymentId": {
-     "Ref": "SupermarketApiGatewayDeployment3BDE38514933f5c4b9cc281b02862f0229104d49"
+     "Ref": "SupermarketApiGatewayDeployment3BDE38515eebfdcdd69869b315ec8b3ad04b0260"
     },
     "RestApiId": {
      "Ref": "SupermarketApiGatewayD32A94E9"
@@ -978,10 +956,7 @@
   "SupermarketApiGatewayproxyANY40C8E0D5": {
    "Type": "AWS::ApiGateway::Method",
    "Properties": {
-    "AuthorizationType": "COGNITO_USER_POOLS",
-    "AuthorizerId": {
-     "Ref": "ApiCognitoAuthorizer1CAC2F3D"
-    },
+    "AuthorizationType": "NONE",
     "HttpMethod": "ANY",
     "Integration": {
      "IntegrationHttpMethod": "POST",
@@ -1042,7 +1017,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/02PzW6DMBCEnyV3x02TquqVEPVWFZH2HC1mQ5zYXmQvTSni3SsMtJz2G894f7Zy+7yTmxXcw1qVt7XRheyODOom0rPLwINFRi/gHk5d2TqwVBYyPbsPKAwKRZXTTLL7DOgzIjP8+uMZUqPR8dKaXmZ5IAvaLQPjSy8M2KIE2b02TrGmmFlyht7qEDS5XmiwssvJ4GDEmpHRqo25SL0IuxOEgBxkMhQRdnLfqBvyHgIKqHUFjHdoZZeOp80LhaThC3n9g37ot1A5Bk5qHYf+Y6IUNY7FAWtDrZ3uX6gjQxU3HSHHQI1XGPd4Q75QOZgTze40ZOTM03c7q74X8aKhm3bVEHxvuG64F45KlNfw8LV9ko8vcrO6Bq3XvnGsLcp8rL9x+VX9CQIAAA=="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/02PT2+DMAzFP0vvadbRadq1f7TbNES3c2WCy9wmMSJmHUJ894kAGyf/7Pfy7CQ6ed7qzQruYW2K29pSrruTgLmpw8WnUINDwVrBPZy7ovXguMj14eI/ILeoDJeehHX3GbBOme3w6o9nOFhCL0tpmsztkR2QXxrGSa8suLwA3b023ghx9Cw5xdpRCMS+VwROdxlbHIRYU7Zk2uiL1KuwPUMIKEHvhqLCVu8bc0PZQ0AFFZUgeIdWdxkG2VUUs/5xZww3XtQRK8utm7616E4CZTxghAwDN7XBGP+G8sXFIE40q9OSkdOaf9q563sVDx3SyJeD8b2RqpFeeS5QX8PDd/KkH1/0ZnUNROu68UIOdTbWX9CMVH7gAQAA"
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/CDKMetadata/Default"
