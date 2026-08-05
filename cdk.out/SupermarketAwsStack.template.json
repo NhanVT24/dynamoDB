@@ -16,6 +16,17 @@
    "AllowedPattern": "^[a-z0-9-]+$",
    "Description": "Globally unique domain prefix for Cognito hosted UI"
   },
+  "GoogleClientId": {
+   "Type": "String",
+   "Default": "",
+   "Description": "Google OAuth client id for Cognito social sign-in"
+  },
+  "GoogleClientSecret": {
+   "Type": "String",
+   "Default": "",
+   "Description": "Google OAuth client secret for Cognito social sign-in",
+   "NoEcho": true
+  },
   "DynamoTableName": {
    "Type": "String",
    "Default": "MarketplaceProductsDev",
@@ -152,6 +163,142 @@
     "aws:cdk:path": "SupermarketAwsStack/MarketplaceProductsTable"
    }
   },
+  "CognitoTriggerFunctionServiceRoleF8897875": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/CognitoTriggerFunction/ServiceRole/Resource"
+   }
+  },
+  "CognitoTriggerFunctionServiceRoleDefaultPolicyF6038B86": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "cognito-idp:AdminGetUser",
+        "cognito-idp:AdminLinkProviderForUser",
+        "cognito-idp:AdminListGroupsForUser",
+        "cognito-idp:ListUsers"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "CognitoTriggerFunctionServiceRoleDefaultPolicyF6038B86",
+    "Roles": [
+     {
+      "Ref": "CognitoTriggerFunctionServiceRoleF8897875"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/CognitoTriggerFunction/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "CognitoTriggerFunction313F0716": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "x86_64"
+    ],
+    "Code": {
+     "ZipFile": "\nconst {\n  CognitoIdentityProviderClient,\n  ListUsersCommand,\n  AdminLinkProviderForUserCommand,\n  AdminListGroupsForUserCommand,\n  AdminGetUserCommand\n} = require(\"@aws-sdk/client-cognito-identity-provider\");\n\nconst client = new CognitoIdentityProviderClient({});\n\nfunction normalizeEmail(email) {\n  return String(email || \"\").trim().toLowerCase();\n}\n\nfunction getAttribute(attributes, name) {\n  return (attributes || []).find((attribute) => attribute.Name === name)?.Value || \"\";\n}\n\nfunction parseProviderUserName(userName) {\n  const [providerName, ...rest] = String(userName || \"\").split(\"_\");\n  return {\n    providerName,\n    providerUserId: rest.join(\"_\")\n  };\n}\n\nasync function findExistingUserByEmail(userPoolId, email) {\n  const normalizedEmail = normalizeEmail(email);\n  if (!normalizedEmail) return null;\n\n  const response = await client.send(new ListUsersCommand({\n    UserPoolId: userPoolId,\n    Filter: `email = \"${normalizedEmail.replace(/\"/g, '\\\\\"')}\"`,\n    Limit: 10\n  }));\n\n  const users = response.Users || [];\n  return users.find((user) => String(user.Username || \"\").toLowerCase() !== \"\") || null;\n}\n\nasync function handlePreSignUp(event) {\n  if (event.triggerSource !== \"PreSignUp_ExternalProvider\") {\n    return event;\n  }\n\n  const email = normalizeEmail(event.request.userAttributes.email);\n  const { providerName, providerUserId } = parseProviderUserName(event.userName);\n\n  if (!email || !providerName || !providerUserId) {\n    event.response.autoConfirmUser = true;\n    event.response.autoVerifyEmail = true;\n    return event;\n  }\n\n  const existingUser = await findExistingUserByEmail(event.userPoolId, email);\n\n  if (existingUser && !String(existingUser.Username || \"\").startsWith(providerName + \"_\")) {\n    await client.send(new AdminLinkProviderForUserCommand({\n      UserPoolId: event.userPoolId,\n      DestinationUser: {\n        ProviderName: \"Cognito\",\n        ProviderAttributeValue: existingUser.Username\n      },\n      SourceUser: {\n        ProviderName: providerName,\n        ProviderAttributeName: \"Cognito_Subject\",\n        ProviderAttributeValue: providerUserId\n      }\n    }));\n  }\n\n  event.response.autoConfirmUser = true;\n  event.response.autoVerifyEmail = true;\n  return event;\n}\n\nasync function handleTokenGeneration(event) {\n  const user = await client.send(new AdminGetUserCommand({\n    UserPoolId: event.userPoolId,\n    Username: event.userName\n  }));\n\n  const groupsResponse = await client.send(new AdminListGroupsForUserCommand({\n    UserPoolId: event.userPoolId,\n    Username: event.userName\n  }));\n\n  const groups = (groupsResponse.Groups || []).map((group) => String(group.GroupName || \"\").toLowerCase());\n  const role = groups.includes(\"admin\") ? \"admin\" : \"viewer\";\n  const email = normalizeEmail(getAttribute(user.UserAttributes, \"email\"));\n  const displayName = getAttribute(user.UserAttributes, \"name\") || email || \"Cognito User\";\n  const identitiesRaw = getAttribute(user.UserAttributes, \"identities\");\n\n  let authProvider = \"COGNITO\";\n  if (identitiesRaw) {\n    try {\n      const identities = JSON.parse(identitiesRaw);\n      authProvider = String(identities?.[0]?.providerName || \"COGNITO\").toUpperCase();\n    } catch {}\n  }\n\n  event.response = {\n    claimsOverrideDetails: {\n      claimsToAddOrOverride: {\n        role,\n        auth_provider: authProvider,\n        principal_email: email,\n        display_name: displayName\n      },\n      groupOverrideDetails: {\n        groupsToOverride: groups.length > 0 ? groups : [\"viewer\"]\n      }\n    }\n  };\n\n  return event;\n}\n\nexports.handler = async (event) => {\n  if (event.triggerSource === \"PreSignUp_ExternalProvider\") {\n    return handlePreSignUp(event);\n  }\n\n  if (String(event.triggerSource || \"\").startsWith(\"TokenGeneration_\")) {\n    return handleTokenGeneration(event);\n  }\n\n  return event;\n};\n      "
+    },
+    "FunctionName": "supermarket-cognito-trigger",
+    "Handler": "index.handler",
+    "MemorySize": 256,
+    "Role": {
+     "Fn::GetAtt": [
+      "CognitoTriggerFunctionServiceRoleF8897875",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs24.x",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "CognitoTriggerFunctionServiceRoleDefaultPolicyF6038B86",
+    "CognitoTriggerFunctionServiceRoleF8897875"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/CognitoTriggerFunction/Resource"
+   }
+  },
+  "AdminUserPoolPreSignUpCognito816A208E": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "CognitoTriggerFunction313F0716",
+      "Arn"
+     ]
+    },
+    "Principal": "cognito-idp.amazonaws.com",
+    "SourceArn": {
+     "Fn::GetAtt": [
+      "AdminUserPoolD0AF18CF",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/AdminUserPool/PreSignUpCognito"
+   }
+  },
+  "AdminUserPoolPreTokenGenerationCognito96C4EABC": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "CognitoTriggerFunction313F0716",
+      "Arn"
+     ]
+    },
+    "Principal": "cognito-idp.amazonaws.com",
+    "SourceArn": {
+     "Fn::GetAtt": [
+      "AdminUserPoolD0AF18CF",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/AdminUserPool/PreTokenGenerationCognito"
+   }
+  },
   "AdminUserPoolD0AF18CF": {
    "Type": "AWS::Cognito::UserPool",
    "Properties": {
@@ -171,6 +318,20 @@
     ],
     "EmailVerificationMessage": "The verification code to your new account is {####}",
     "EmailVerificationSubject": "Verify your new account",
+    "LambdaConfig": {
+     "PreSignUp": {
+      "Fn::GetAtt": [
+       "CognitoTriggerFunction313F0716",
+       "Arn"
+      ]
+     },
+     "PreTokenGeneration": {
+      "Fn::GetAtt": [
+       "CognitoTriggerFunction313F0716",
+       "Arn"
+      ]
+     }
+    },
     "MfaConfiguration": "OFF",
     "Policies": {
      "PasswordPolicy": {
@@ -242,12 +403,16 @@
     ],
     "PreventUserExistenceErrors": "ENABLED",
     "SupportedIdentityProviders": [
-     "COGNITO"
+     "COGNITO",
+     "Google"
     ],
     "UserPoolId": {
      "Ref": "AdminUserPoolD0AF18CF"
     }
    },
+   "DependsOn": [
+    "GoogleIdentityProvider5AA1A9DD"
+   ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/AdminUserPool/WebClient/Resource"
    }
@@ -264,6 +429,32 @@
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/AdminUserPool/HostedUiDomain/Resource"
+   }
+  },
+  "GoogleIdentityProvider5AA1A9DD": {
+   "Type": "AWS::Cognito::UserPoolIdentityProvider",
+   "Properties": {
+    "AttributeMapping": {
+     "email": "email",
+     "name": "name"
+    },
+    "ProviderDetails": {
+     "client_id": {
+      "Ref": "GoogleClientId"
+     },
+     "client_secret": {
+      "Ref": "GoogleClientSecret"
+     },
+     "authorize_scopes": "openid email profile"
+    },
+    "ProviderName": "Google",
+    "ProviderType": "Google",
+    "UserPoolId": {
+     "Ref": "AdminUserPoolD0AF18CF"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/GoogleIdentityProvider/Resource"
    }
   },
   "SupermarketApiFunctionServiceRoleD9490C11": {
@@ -362,7 +553,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "3d47919abab1b8dfc40b3081691153643d8929fb92349d391f593917fd0abe15.zip"
+     "S3Key": "f6f7cebc6827539194c8e9a292efe369d82924ad099eb99aa9c38d51f083f0ac.zip"
     },
     "Environment": {
      "Variables": {
@@ -389,7 +580,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.3d47919abab1b8dfc40b3081691153643d8929fb92349d391f593917fd0abe15",
+    "aws:asset:path": "asset.f6f7cebc6827539194c8e9a292efe369d82924ad099eb99aa9c38d51f083f0ac",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -458,7 +649,7 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Account"
    }
   },
-  "SupermarketApiGatewayDeployment3BDE38515eebfdcdd69869b315ec8b3ad04b0260": {
+  "SupermarketApiGatewayDeployment3BDE3851c6a453779335d7aec2bb8aed938827a6": {
    "Type": "AWS::ApiGateway::Deployment",
    "Properties": {
     "Description": "Automatically created by the RestApi construct",
@@ -470,7 +661,6 @@
     "SupermarketApiGatewayproxyANY40C8E0D5",
     "SupermarketApiGatewayproxyOPTIONSF7D54AE3",
     "SupermarketApiGatewayproxyAD8FA136",
-    "SupermarketApiGatewayANYD1BFDEB8",
     "SupermarketApiGatewayGETCFBB7913",
     "SupermarketApiGatewayhealthGETB79B340F",
     "SupermarketApiGatewayhealthOPTIONSE72A4BDD",
@@ -486,7 +676,7 @@
    "Type": "AWS::ApiGateway::Stage",
    "Properties": {
     "DeploymentId": {
-     "Ref": "SupermarketApiGatewayDeployment3BDE38515eebfdcdd69869b315ec8b3ad04b0260"
+     "Ref": "SupermarketApiGatewayDeployment3BDE3851c6a453779335d7aec2bb8aed938827a6"
     },
     "RestApiId": {
      "Ref": "SupermarketApiGatewayD32A94E9"
@@ -956,7 +1146,10 @@
   "SupermarketApiGatewayproxyANY40C8E0D5": {
    "Type": "AWS::ApiGateway::Method",
    "Properties": {
-    "AuthorizationType": "NONE",
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "SupermarketApiAuthorizerF4E42BBE"
+    },
     "HttpMethod": "ANY",
     "Integration": {
      "IntegrationHttpMethod": "POST",
@@ -992,32 +1185,32 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/{proxy+}/ANY/Resource"
    }
   },
-  "SupermarketApiGatewayANYD1BFDEB8": {
-   "Type": "AWS::ApiGateway::Method",
+  "SupermarketApiAuthorizerF4E42BBE": {
+   "Type": "AWS::ApiGateway::Authorizer",
    "Properties": {
-    "AuthorizationType": "NONE",
-    "HttpMethod": "ANY",
-    "Integration": {
-     "Type": "MOCK"
-    },
-    "ResourceId": {
-     "Fn::GetAtt": [
-      "SupermarketApiGatewayD32A94E9",
-      "RootResourceId"
-     ]
-    },
+    "IdentitySource": "method.request.header.Authorization",
+    "Name": "SupermarketAwsStackSupermarketApiAuthorizer4C8EAC1A",
+    "ProviderARNs": [
+     {
+      "Fn::GetAtt": [
+       "AdminUserPoolD0AF18CF",
+       "Arn"
+      ]
+     }
+    ],
     "RestApiId": {
      "Ref": "SupermarketApiGatewayD32A94E9"
-    }
+    },
+    "Type": "COGNITO_USER_POOLS"
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/ANY/Resource"
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiAuthorizer/Resource"
    }
   },
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/02PT2+DMAzFP0vvadbRadq1f7TbNES3c2WCy9wmMSJmHUJ894kAGyf/7Pfy7CQ6ed7qzQruYW2K29pSrruTgLmpw8WnUINDwVrBPZy7ovXguMj14eI/ILeoDJeehHX3GbBOme3w6o9nOFhCL0tpmsztkR2QXxrGSa8suLwA3b023ghx9Cw5xdpRCMS+VwROdxlbHIRYU7Zk2uiL1KuwPUMIKEHvhqLCVu8bc0PZQ0AFFZUgeIdWdxkG2VUUs/5xZww3XtQRK8utm7616E4CZTxghAwDN7XBGP+G8sXFIE40q9OSkdOaf9q563sVDx3SyJeD8b2RqpFeeS5QX8PDd/KkH1/0ZnUNROu68UIOdTbWX9CMVH7gAQAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/3WQQW/CMAyFfwv3kDGYpl0LaNMO06qynZFJTTG0cZW4oK7qf5+atqyXnfw9Pyfxy1Ivn1d6MYObn5v0Ms/poJudgLmozdHG4KBAQafg5vdNWlsoOD3ozdF+wSFHlUNxSEE3r5U1Qmy7Q1OO0RXkPbFtFUGhm4Rz7IxQY87J1GEuUKsMZ5aEdfPt0cXMeWfeeYRNTmhlag2dUW65ALLTgaEzyvcUrZDUseMrpejemLN+sf8mWuVXe/AexeuoK8qv9LoyF5Q1eFRQUgaCN6h1k6CXqKSQ8w8jY7iyorZY5lwXQ4KJ2glkYYceEvRcOYPh+g+UE6edOdDoDo8M3H/fmMFHlZzY0Q+6sMBdta0KGbqHyGad+VlJWUmrLKeoz/7hunzSjy96MTt7ormrrFCBOunrL1XoQOs2AgAA"
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/CDKMetadata/Default"

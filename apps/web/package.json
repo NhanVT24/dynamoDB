@@ -8,6 +8,7 @@
     "typecheck": "next build"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.888.0",
     "next": "^15.4.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

@@ -4,6 +4,7 @@ import {
   CfnParameter,
   Duration,
   RemovalPolicy,
+  SecretValue,
   Stack,
   StackProps
 } from "aws-cdk-lib";
@@ -35,6 +36,19 @@ export class AwsApiStack extends Stack {
       default: "replace-me-supermarket-auth",
       allowedPattern: "^[a-z0-9-]+$",
       description: "Globally unique domain prefix for Cognito hosted UI"
+    });
+
+    const googleClientId = new CfnParameter(this, "GoogleClientId", {
+      type: "String",
+      default: "",
+      description: "Google OAuth client id for Cognito social sign-in"
+    });
+
+    const googleClientSecret = new CfnParameter(this, "GoogleClientSecret", {
+      type: "String",
+      default: "",
+      noEcho: true,
+      description: "Google OAuth client secret for Cognito social sign-in"
     });
 
     const dynamoTableName = new CfnParameter(this, "DynamoTableName", {
@@ -93,6 +107,157 @@ export class AwsApiStack extends Stack {
     });
     table.applyRemovalPolicy(RemovalPolicy.DESTROY);
 
+    const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
+      functionName: "supermarket-cognito-trigger",
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.X86_64,
+      handler: "index.handler",
+      timeout: Duration.seconds(10),
+      memorySize: 256,
+      code: lambda.Code.fromInline(`
+const {
+  CognitoIdentityProviderClient,
+  ListUsersCommand,
+  AdminLinkProviderForUserCommand,
+  AdminListGroupsForUserCommand,
+  AdminGetUserCommand
+} = require("@aws-sdk/client-cognito-identity-provider");
+
+const client = new CognitoIdentityProviderClient({});
+
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function getAttribute(attributes, name) {
+  return (attributes || []).find((attribute) => attribute.Name === name)?.Value || "";
+}
+
+function parseProviderUserName(userName) {
+  const [providerName, ...rest] = String(userName || "").split("_");
+  return {
+    providerName,
+    providerUserId: rest.join("_")
+  };
+}
+
+async function findExistingUserByEmail(userPoolId, email) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  const response = await client.send(new ListUsersCommand({
+    UserPoolId: userPoolId,
+    Filter: \`email = "\${normalizedEmail.replace(/"/g, '\\\\"')}"\`,
+    Limit: 10
+  }));
+
+  const users = response.Users || [];
+  return users.find((user) => String(user.Username || "").toLowerCase() !== "") || null;
+}
+
+async function handlePreSignUp(event) {
+  if (event.triggerSource !== "PreSignUp_ExternalProvider") {
+    return event;
+  }
+
+  const email = normalizeEmail(event.request.userAttributes.email);
+  const { providerName, providerUserId } = parseProviderUserName(event.userName);
+
+  if (!email || !providerName || !providerUserId) {
+    event.response.autoConfirmUser = true;
+    event.response.autoVerifyEmail = true;
+    return event;
+  }
+
+  const existingUser = await findExistingUserByEmail(event.userPoolId, email);
+
+  if (existingUser && !String(existingUser.Username || "").startsWith(providerName + "_")) {
+    await client.send(new AdminLinkProviderForUserCommand({
+      UserPoolId: event.userPoolId,
+      DestinationUser: {
+        ProviderName: "Cognito",
+        ProviderAttributeValue: existingUser.Username
+      },
+      SourceUser: {
+        ProviderName: providerName,
+        ProviderAttributeName: "Cognito_Subject",
+        ProviderAttributeValue: providerUserId
+      }
+    }));
+  }
+
+  event.response.autoConfirmUser = true;
+  event.response.autoVerifyEmail = true;
+  return event;
+}
+
+async function handleTokenGeneration(event) {
+  const user = await client.send(new AdminGetUserCommand({
+    UserPoolId: event.userPoolId,
+    Username: event.userName
+  }));
+
+  const groupsResponse = await client.send(new AdminListGroupsForUserCommand({
+    UserPoolId: event.userPoolId,
+    Username: event.userName
+  }));
+
+  const groups = (groupsResponse.Groups || []).map((group) => String(group.GroupName || "").toLowerCase());
+  const role = groups.includes("admin") ? "admin" : "viewer";
+  const email = normalizeEmail(getAttribute(user.UserAttributes, "email"));
+  const displayName = getAttribute(user.UserAttributes, "name") || email || "Cognito User";
+  const identitiesRaw = getAttribute(user.UserAttributes, "identities");
+
+  let authProvider = "COGNITO";
+  if (identitiesRaw) {
+    try {
+      const identities = JSON.parse(identitiesRaw);
+      authProvider = String(identities?.[0]?.providerName || "COGNITO").toUpperCase();
+    } catch {}
+  }
+
+  event.response = {
+    claimsOverrideDetails: {
+      claimsToAddOrOverride: {
+        role,
+        auth_provider: authProvider,
+        principal_email: email,
+        display_name: displayName
+      },
+      groupOverrideDetails: {
+        groupsToOverride: groups.length > 0 ? groups : ["viewer"]
+      }
+    }
+  };
+
+  return event;
+}
+
+exports.handler = async (event) => {
+  if (event.triggerSource === "PreSignUp_ExternalProvider") {
+    return handlePreSignUp(event);
+  }
+
+  if (String(event.triggerSource || "").startsWith("TokenGeneration_")) {
+    return handleTokenGeneration(event);
+  }
+
+  return event;
+};
+      `),
+      initialPolicy: [
+        new iam.PolicyStatement({
+          actions: [
+            "cognito-idp:AdminGetUser",
+            "cognito-idp:AdminLinkProviderForUser",
+            "cognito-idp:AdminListGroupsForUser",
+            "cognito-idp:ListUsers"
+          ],
+          resources: ["*"]
+        })
+      ]
+    });
+
     const userPool = new cognito.UserPool(this, "AdminUserPool", {
       userPoolName: "supermarket-admin-users",
       selfSignUpEnabled: true,
@@ -111,6 +276,21 @@ export class AwsApiStack extends Stack {
         requireLowercase: true,
         requireUppercase: true,
         requireSymbols: false
+      },
+      lambdaTriggers: {
+        preSignUp: cognitoTriggerFunction,
+        preTokenGeneration: cognitoTriggerFunction
+      }
+    });
+
+    const googleIdentityProvider = new cognito.UserPoolIdentityProviderGoogle(this, "GoogleIdentityProvider", {
+      userPool,
+      clientId: googleClientId.valueAsString,
+      clientSecretValue: SecretValue.unsafePlainText(googleClientSecret.valueAsString),
+      scopes: ["openid", "email", "profile"],
+      attributeMapping: {
+        email: cognito.ProviderAttribute.GOOGLE_EMAIL,
+        fullname: cognito.ProviderAttribute.GOOGLE_NAME
       }
     });
 
@@ -119,6 +299,10 @@ export class AwsApiStack extends Stack {
       authFlows: { userPassword: true, userSrp: true },
       preventUserExistenceErrors: true,
       generateSecret: false,
+      supportedIdentityProviders: [
+        cognito.UserPoolClientIdentityProvider.COGNITO,
+        cognito.UserPoolClientIdentityProvider.GOOGLE
+      ],
       oAuth: {
         flows: { authorizationCodeGrant: true },
         scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
@@ -126,6 +310,7 @@ export class AwsApiStack extends Stack {
         logoutUrls: [logoutUrl.valueAsString]
       }
     });
+    userPoolClient.node.addDependency(googleIdentityProvider);
 
     const userPoolDomain = userPool.addDomain("HostedUiDomain", {
       cognitoDomain: { domainPrefix: cognitoDomainPrefix.valueAsString }
@@ -170,6 +355,9 @@ export class AwsApiStack extends Stack {
     });
 
     const lambdaIntegration = new apigateway.LambdaIntegration(lambdaFunction);
+    const cognitoAuthorizer = new apigateway.CognitoUserPoolsAuthorizer(this, "SupermarketApiAuthorizer", {
+      cognitoUserPools: [userPool]
+    });
 
     api.root.addMethod("GET", lambdaIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
@@ -180,9 +368,10 @@ export class AwsApiStack extends Stack {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
-    api.root.addProxy({
-      anyMethod: true,
-      defaultIntegration: lambdaIntegration
+    const proxyResource = api.root.addResource("{proxy+}");
+    proxyResource.addMethod("ANY", lambdaIntegration, {
+      authorizer: cognitoAuthorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO
     });
 
     new CfnOutput(this, "TableName", {

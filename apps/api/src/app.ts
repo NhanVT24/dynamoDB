@@ -2,6 +2,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { AppModule } from "./app.module.js";
+import { isAdminRequest } from "./common/auth/cognito-groups.js";
 import { env } from "./config/env.js";
 import { AppExceptionFilter } from "./common/filters/app-exception.filter.js";
 
@@ -41,6 +42,24 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       query: request.query,
       params: request.params
     }, "incoming api request");
+  });
+
+  fastify.addHook("preHandler", async (request, reply) => {
+    const method = request.method.toUpperCase();
+    const isReadOnlyMethod = method === "GET" || method === "HEAD" || method === "OPTIONS";
+
+    if (isReadOnlyMethod) {
+      return;
+    }
+
+    if (isAdminRequest(request.headers as Record<string, unknown>)) {
+      return;
+    }
+
+    reply.status(403).send({
+      statusCode: 403,
+      message: "Chỉ tài khoản admin mới được tạo, sửa hoặc xóa dữ liệu."
+    });
   });
 
   fastify.addHook("onResponse", async (request, reply) => {

@@ -2,138 +2,302 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import ShoppingManager from "./components/ShoppingManager";
+import {
+  beginGoogleSignIn,
+  clearAuthSession,
+  confirmForgotPassword,
+  confirmSignUpWithCognito,
+  type AuthSession,
+  forgotPassword,
+  readAuthSession,
+  resendConfirmationCode,
+  signInWithCognito,
+  signOutFromCognitoHostedUi,
+  signUpWithCognito
+} from "./lib/cognito-auth";
 
-type AuthMode = "login" | "register";
-
-type MockUser = {
-  name: string;
-  email: string;
-  role: string;
-};
-
-type MockAccount = MockUser & {
-  password: string;
-};
-
-const storageKey = "mock-auth-session";
-
-const defaultAccounts: MockAccount[] = [
-  {
-    email: "admin@demo.local",
-    password: "123456",
-    name: "Demo Admin",
-    role: "Administrator"
-  }
-];
+type AuthMode = "login" | "register" | "confirm" | "forgot" | "reset";
 
 const inputClassName =
   "h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100";
 
+function PasswordField({
+  value,
+  onChange,
+  placeholder,
+  autoComplete = "current-password"
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  autoComplete?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+
+  return (
+    <div className="relative">
+      <input
+        className={`${inputClassName} pr-12`}
+        type={visible ? "text" : "password"}
+        placeholder={placeholder}
+        value={value}
+        autoComplete={autoComplete}
+        onChange={(event) => onChange(event.target.value)}
+        required
+      />
+      <button
+        type="button"
+        onClick={() => setVisible((current) => !current)}
+        aria-label={visible ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+        title={visible ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+        className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+      >
+        {visible ? (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M3 3L21 21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            <path d="M10.58 10.58A2 2 0 0 0 13.41 13.41" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            <path
+              d="M9.88 5.09A10.94 10.94 0 0 1 12 4.91C17 4.91 20.27 9.11 21 12c-.34 1.35-1.27 3.19-2.86 4.73"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M6.61 6.61C4.62 8 3.36 10.11 3 12c.73 2.89 4 7.09 9 7.09 1.51 0 2.9-.38 4.13-1.01"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        ) : (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M2.46 12C3.73 7.94 7.52 5 12 5c4.48 0 8.27 2.94 9.54 7-1.27 4.06-5.06 7-9.54 7-4.48 0-8.27-2.94-9.54-7Z"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+            />
+            <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
 export default function Home() {
   const [ready, setReady] = useState(false);
-  const [user, setUser] = useState<MockUser | null>(null);
-  const [accounts, setAccounts] = useState<MockAccount[]>(defaultAccounts);
-  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [session, setSession] = useState<AuthSession | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
-  const [message, setMessage] = useState("Bấm đăng nhập hoặc đăng ký để mở popup.");
+  const [message, setMessage] = useState("Dùng tài khoản Cognito để truy cập API admin trên AWS.");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [loginEmail, setLoginEmail] = useState(defaultAccounts[0].email);
-  const [loginPassword, setLoginPassword] = useState(defaultAccounts[0].password);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
 
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
+  const [registerConfirmPassword, setRegisterConfirmPassword] = useState("");
+
+  const [confirmEmail, setConfirmEmail] = useState("");
+  const [confirmCode, setConfirmCode] = useState("");
+
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
 
   useEffect(() => {
-    const rawSession = window.localStorage.getItem(storageKey);
-
-    if (rawSession) {
-      try {
-        setUser(JSON.parse(rawSession) as MockUser);
-      } catch {
-        window.localStorage.removeItem(storageKey);
-      }
+    const nextSession = readAuthSession();
+    if (!nextSession) {
+      clearAuthSession();
     }
 
+    setSession(nextSession);
     setReady(true);
   }, []);
 
-  function openAuthModal(mode: AuthMode) {
-    setAuthMode(mode);
-    setIsAuthOpen(true);
-    setMessage(mode === "login" ? "Popup đăng nhập đang mở." : "Popup đăng ký đang mở.");
+  function handleLogout() {
+    clearAuthSession();
+    setSession(null);
+    setMessage("Đã đăng xuất.");
+    setAuthMode("login");
   }
 
-  function closeAuthModal() {
-    setIsAuthOpen(false);
+  function handleHostedLogout() {
+    try {
+      signOutFromCognitoHostedUi();
+    } catch {
+      handleLogout();
+    }
+  }
+
+  function renderMessageTone() {
+    const lowered = message.toLowerCase();
+
+    if (
+      lowered.includes("thất bại") ||
+      lowered.includes("không") ||
+      lowered.includes("sai") ||
+      lowered.includes("hết hạn") ||
+      lowered.includes("khớp") ||
+      lowered.includes("đã được đăng ký")
+    ) {
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    }
+
+    return "border-cyan-200 bg-cyan-50 text-cyan-700";
   }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
 
-    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    try {
+      if (!loginEmail.trim() || !loginPassword.trim()) {
+        throw new Error("Hãy nhập đầy đủ email và mật khẩu.");
+      }
 
-    const account = accounts.find(
-      (item) => item.email.toLowerCase() === loginEmail.trim().toLowerCase() && item.password === loginPassword
-    );
+      const nextSession = await signInWithCognito({
+        email: loginEmail,
+        password: loginPassword
+      });
 
-    if (!account) {
+      setSession(nextSession);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : "Đăng nhập thất bại";
+      setMessage(text);
+
+      if (/xác nhận|confirm/i.test(text)) {
+        setConfirmEmail(loginEmail);
+        setAuthMode("confirm");
+      }
+    } finally {
       setIsSubmitting(false);
-      setMessage("Sai tài khoản hoặc mật khẩu. Demo mặc định: admin@demo.local / 123456");
-      return;
     }
-
-    const nextUser = {
-      name: account.name,
-      email: account.email,
-      role: account.role
-    };
-
-    setUser(nextUser);
-    window.localStorage.setItem(storageKey, JSON.stringify(nextUser));
-    setIsSubmitting(false);
-    setIsAuthOpen(false);
-    setMessage("Đăng nhập mock thành công.");
   }
 
   async function handleRegister(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
 
-    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    try {
+      if (registerPassword.length < 8) {
+        throw new Error("Mật khẩu cần ít nhất 8 ký tự.");
+      }
 
-    const normalizedEmail = registerEmail.trim().toLowerCase();
+      if (registerPassword !== registerConfirmPassword) {
+        throw new Error("Mật khẩu xác nhận không khớp.");
+      }
 
-    if (accounts.some((item) => item.email.toLowerCase() === normalizedEmail)) {
+      await signUpWithCognito({
+        email: registerEmail,
+        password: registerPassword,
+        name: registerName
+      });
+
+      setConfirmEmail(registerEmail);
+      setLoginEmail(registerEmail);
+      setLoginPassword(registerPassword);
+      setAuthMode("confirm");
+      setMessage("Tạo tài khoản thành công. Hãy kiểm tra email để lấy mã xác nhận.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Đăng ký thất bại");
+    } finally {
       setIsSubmitting(false);
-      setMessage("Email này đã tồn tại trong mock data.");
-      return;
     }
-
-    const newAccount: MockAccount = {
-      name: registerName.trim(),
-      email: normalizedEmail,
-      password: registerPassword,
-      role: "Member"
-    };
-
-    setAccounts((current) => [...current, newAccount]);
-    setLoginEmail(newAccount.email);
-    setLoginPassword(newAccount.password);
-    setRegisterName("");
-    setRegisterEmail("");
-    setRegisterPassword("");
-    setAuthMode("login");
-    setIsSubmitting(false);
-    setMessage("Đăng ký mock thành công. Bạn có thể đăng nhập ngay.");
   }
 
-  function handleLogout() {
-    setUser(null);
-    window.localStorage.removeItem(storageKey);
-    setMessage("Đã đăng xuất khỏi phiên mock.");
+  async function handleConfirm(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      if (!confirmCode.trim()) {
+        throw new Error("Hãy nhập mã xác nhận.");
+      }
+
+      await confirmSignUpWithCognito({
+        email: confirmEmail,
+        code: confirmCode
+      });
+
+      setAuthMode("login");
+      setMessage("Xác nhận tài khoản thành công. Bạn có thể đăng nhập ngay.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Xác nhận tài khoản thất bại");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleForgotPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      if (!forgotEmail.trim()) {
+        throw new Error("Hãy nhập email để nhận mã đặt lại mật khẩu.");
+      }
+
+      await forgotPassword(forgotEmail);
+      setAuthMode("reset");
+      setMessage("Đã gửi mã đặt lại mật khẩu tới email của bạn.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không thể bắt đầu đặt lại mật khẩu");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleResetPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      if (resetPassword.length < 8) {
+        throw new Error("Mật khẩu mới cần ít nhất 8 ký tự.");
+      }
+
+      if (resetPassword !== resetConfirmPassword) {
+        throw new Error("Mật khẩu xác nhận không khớp.");
+      }
+
+      if (resetPassword === loginPassword && forgotEmail.trim().toLowerCase() === loginEmail.trim().toLowerCase()) {
+        throw new Error("Mật khẩu mới không nên giống mật khẩu cũ vừa sử dụng.");
+      }
+
+      await confirmForgotPassword({
+        email: forgotEmail,
+        code: resetCode,
+        newPassword: resetPassword
+      });
+
+      setAuthMode("login");
+      setLoginEmail(forgotEmail);
+      setLoginPassword("");
+      setMessage("Đã cập nhật mật khẩu. Hãy đăng nhập bằng mật khẩu mới.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Đặt lại mật khẩu thất bại");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleResendCode() {
+    setIsSubmitting(true);
+
+    try {
+      await resendConfirmationCode(confirmEmail);
+      setMessage("Đã gửi lại mã xác nhận mới.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không thể gửi lại mã xác nhận");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   if (!ready) {
@@ -142,169 +306,235 @@ export default function Home() {
 
   return (
     <div className="grid gap-4">
-      <section className="flex items-center justify-between gap-3 rounded-3xl border border-white/70 bg-white/82 px-5 py-4 shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
-        <div className="min-w-0">
-          <p className="truncate text-sm text-slate-500">{message}</p>
-          {!user ? (
-            <p className="mt-1 truncate text-sm text-slate-500">
-              Demo mặc định: <strong className="text-slate-900">admin@demo.local</strong> /{" "}
-              <strong className="text-slate-900">123456</strong>
-            </p>
-          ) : (
-            <p className="mt-1 truncate text-sm text-slate-500">
-              Đang đăng nhập với <strong className="text-slate-900">{user.email}</strong>
-            </p>
-          )}
-        </div>
+      {!session ? (
+        <section className="mx-auto w-full max-w-md rounded-[28px] border border-white/70 bg-white p-6 shadow-[0_30px_100px_rgba(15,23,42,0.12)]">
+          <div className="mb-5 text-center">
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
+              {authMode === "login" && "Đăng nhập"}
+              {authMode === "register" && "Tạo tài khoản"}
+              {authMode === "confirm" && "Xác nhận email"}
+              {authMode === "forgot" && "Quên mật khẩu"}
+              {authMode === "reset" && "Đặt lại mật khẩu"}
+            </h2>
+            <p className={`mt-3 rounded-2xl border px-4 py-3 text-left text-sm ${renderMessageTone()}`}>{message}</p>
+          </div>
 
-        <div className="flex shrink-0 items-center gap-3">
-          {user ? (
-            <>
+          {authMode === "login" ? (
+            <form className="grid gap-4" onSubmit={handleLogin}>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Email</span>
+                <input className={inputClassName} type="email" placeholder="admin@example.com" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required />
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Mật khẩu</span>
+                <PasswordField
+                  value={loginPassword}
+                  onChange={setLoginPassword}
+                  placeholder="Nhập mật khẩu của bạn"
+                  autoComplete="current-password"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}
+              </button>
+              <button
+                type="button"
+                onClick={beginGoogleSignIn}
+                className="inline-flex h-11 items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.8-6-6.2s2.7-6.2 6-6.2c1.9 0 3.2.8 3.9 1.5l2.7-2.6C17 2.9 14.7 2 12 2 6.9 2 2.8 6.3 2.8 11.8S6.9 21.5 12 21.5c6.9 0 9.2-4.9 9.2-7.5 0-.5 0-.9-.1-1.3H12Z" />
+                  <path fill="#4285F4" d="M3.8 7.3l3.2 2.4C7.8 7.3 9.7 5.6 12 5.6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C17 2.9 14.7 2 12 2 8 2 4.6 4.3 3 7.7l.8-.4Z" />
+                  <path fill="#FBBC05" d="M12 21.5c2.6 0 4.8-.9 6.4-2.5l-3-2.5c-.8.6-1.9 1-3.4 1-3.9 0-5.2-2.6-5.5-3.9l-3.2 2.5C4.6 19.2 8 21.5 12 21.5Z" />
+                  <path fill="#34A853" d="M6.5 13.6c-.2-.6-.3-1.2-.3-1.8s.1-1.2.3-1.8L3.3 7.5C2.8 8.7 2.5 10.2 2.5 11.8s.3 3.1.8 4.3l3.2-2.5Z" />
+                </svg>
+                <span>Đăng nhập với Google</span>
+              </button>
+            </form>
+          ) : null}
+
+          {authMode === "register" ? (
+            <form className="grid gap-4" onSubmit={handleRegister}>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Họ và tên</span>
+                <input className={inputClassName} placeholder="Ví dụ: Nguyễn Văn A" value={registerName} onChange={(event) => setRegisterName(event.target.value)} />
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Email</span>
+                <input className={inputClassName} type="email" placeholder="you@example.com" value={registerEmail} onChange={(event) => setRegisterEmail(event.target.value)} required />
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Mật khẩu</span>
+                <PasswordField
+                  value={registerPassword}
+                  onChange={setRegisterPassword}
+                  placeholder="Ít nhất 8 ký tự, có chữ hoa, chữ thường và số"
+                  autoComplete="new-password"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Xác nhận mật khẩu</span>
+                <PasswordField
+                  value={registerConfirmPassword}
+                  onChange={setRegisterConfirmPassword}
+                  placeholder="Nhập lại mật khẩu để xác nhận"
+                  autoComplete="new-password"
+                />
+              </label>
+              <p className="text-xs text-slate-500">
+                Quy tắc mật khẩu: ít nhất 8 ký tự, có chữ hoa, chữ thường và số.
+              </p>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-cyan-600 px-4 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? "Đang tạo tài khoản..." : "Tạo tài khoản"}
+              </button>
+            </form>
+          ) : null}
+
+          {authMode === "confirm" ? (
+            <form className="grid gap-4" onSubmit={handleConfirm}>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Email</span>
+                <input className={inputClassName} type="email" placeholder="Email vừa đăng ký" value={confirmEmail} onChange={(event) => setConfirmEmail(event.target.value)} required />
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Mã xác nhận</span>
+                <input className={inputClassName} placeholder="Nhập mã gồm 6 chữ số từ email" value={confirmCode} onChange={(event) => setConfirmCode(event.target.value)} required />
+              </label>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? "Đang xác nhận..." : "Xác nhận tài khoản"}
+              </button>
+              <button
+                type="button"
+                onClick={handleResendCode}
+                disabled={isSubmitting}
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Gửi lại mã
+              </button>
+            </form>
+          ) : null}
+
+          {authMode === "forgot" ? (
+            <form className="grid gap-4" onSubmit={handleForgotPassword}>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Email</span>
+                <input className={inputClassName} type="email" placeholder="Nhập email tài khoản của bạn" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
+              </label>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? "Đang gửi mã..." : "Gửi mã đặt lại"}
+              </button>
+            </form>
+          ) : null}
+
+          {authMode === "reset" ? (
+            <form className="grid gap-4" onSubmit={handleResetPassword}>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Email</span>
+                <input className={inputClassName} type="email" placeholder="Email cần đặt lại mật khẩu" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Mã đặt lại</span>
+                <input className={inputClassName} placeholder="Nhập mã đặt lại từ email" value={resetCode} onChange={(event) => setResetCode(event.target.value)} required />
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Mật khẩu mới</span>
+                <PasswordField
+                  value={resetPassword}
+                  onChange={setResetPassword}
+                  placeholder="Tạo mật khẩu mới mạnh hơn mật khẩu cũ"
+                  autoComplete="new-password"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-slate-700">
+                <span>Xác nhận mật khẩu mới</span>
+                <PasswordField
+                  value={resetConfirmPassword}
+                  onChange={setResetConfirmPassword}
+                  placeholder="Nhập lại mật khẩu mới"
+                  autoComplete="new-password"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? "Đang cập nhật mật khẩu..." : "Cập nhật mật khẩu"}
+              </button>
+            </form>
+          ) : null}
+
+          <div className={`mt-5 grid gap-3 ${authMode === "forgot" || authMode === "reset" || authMode === "register" ? "grid-cols-1" : "grid-cols-2"}`}>
+            {authMode !== "register" && authMode !== "forgot" && authMode !== "reset" ? (
+              <button
+                type="button"
+                onClick={() => setAuthMode("register")}
+                className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-cyan-200 bg-cyan-50 px-4 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-100"
+              >
+                Tạo tài khoản
+              </button>
+            ) : null}
+            {authMode !== "forgot" && authMode !== "reset" && authMode !== "register" ? (
+              <button
+                type="button"
+                onClick={() => setAuthMode("forgot")}
+                className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Quên mật khẩu
+              </button>
+            ) : null}
+            {authMode !== "login" ? (
+              <button
+                type="button"
+                onClick={() => setAuthMode("login")}
+                className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Quay lại đăng nhập
+              </button>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {session ? (
+        <ShoppingManager
+          authToken={session.idToken}
+          canManageProducts={session.role === "admin"}
+          headerActions={(
+            <div className="flex items-center gap-3">
               <div className="hidden rounded-2xl bg-cyan-50 px-4 py-3 text-right ring-1 ring-cyan-200 md:block">
-                <p className="text-sm font-semibold text-slate-900">{user.name}</p>
-                <p className="text-xs text-slate-500">{user.role}</p>
+                <p className="text-sm font-semibold text-slate-900">{session.name}</p>
+                <p className="text-xs text-slate-500">{session.email}</p>
+                <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700">
+                  {session.role === "admin" ? "Admin" : "Viewer"}
+                </p>
               </div>
               <button
                 type="button"
-                onClick={handleLogout}
+                onClick={handleHostedLogout}
                 className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 Đăng xuất
               </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => openAuthModal("register")}
-                className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Đăng ký
-              </button>
-              <button
-                type="button"
-                onClick={() => openAuthModal("login")}
-                className="inline-flex h-10 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                Đăng nhập
-              </button>
-            </>
+            </div>
           )}
-        </div>
-      </section>
-
-      <ShoppingManager />
-
-      {isAuthOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
-          onClick={closeAuthModal}
-        >
-          <div
-            className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-[0_30px_100px_rgba(15,23,42,0.2)]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-700">
-                  {authMode === "login" ? "Login" : "Register"}
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
-                  {authMode === "login" ? "Đăng nhập" : "Tạo tài khoản mock"}
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={closeAuthModal}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
-              >
-                ×
-              </button>
-            </div>
-
-            {authMode === "login" ? (
-              <form className="grid gap-4" onSubmit={handleLogin}>
-                <label className="grid gap-2 text-sm font-medium text-slate-700">
-                  <span>Email</span>
-                  <input
-                    className={inputClassName}
-                    type="email"
-                    value={loginEmail}
-                    onChange={(event) => setLoginEmail(event.target.value)}
-                    required
-                  />
-                </label>
-                <label className="grid gap-2 text-sm font-medium text-slate-700">
-                  <span>Mật khẩu</span>
-                  <input
-                    className={inputClassName}
-                    type="password"
-                    value={loginPassword}
-                    onChange={(event) => setLoginPassword(event.target.value)}
-                    required
-                  />
-                </label>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isSubmitting ? "Đang xử lý..." : "Đăng nhập"}
-                </button>
-              </form>
-            ) : (
-              <form className="grid gap-4" onSubmit={handleRegister}>
-                <label className="grid gap-2 text-sm font-medium text-slate-700">
-                  <span>Họ tên</span>
-                  <input
-                    className={inputClassName}
-                    value={registerName}
-                    onChange={(event) => setRegisterName(event.target.value)}
-                    required
-                  />
-                </label>
-                <label className="grid gap-2 text-sm font-medium text-slate-700">
-                  <span>Email</span>
-                  <input
-                    className={inputClassName}
-                    type="email"
-                    value={registerEmail}
-                    onChange={(event) => setRegisterEmail(event.target.value)}
-                    required
-                  />
-                </label>
-                <label className="grid gap-2 text-sm font-medium text-slate-700">
-                  <span>Mật khẩu</span>
-                  <input
-                    className={inputClassName}
-                    type="password"
-                    value={registerPassword}
-                    onChange={(event) => setRegisterPassword(event.target.value)}
-                    required
-                  />
-                </label>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="inline-flex h-11 items-center justify-center rounded-xl bg-cyan-600 px-4 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isSubmitting ? "Đang xử lý..." : "Đăng ký"}
-                </button>
-              </form>
-            )}
-
-            <div className="mt-5 text-sm text-slate-500">
-              {authMode === "login" ? "Chưa có tài khoản? " : "Đã có tài khoản? "}
-              <button
-                type="button"
-                onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}
-                className="font-semibold text-cyan-700"
-              >
-                {authMode === "login" ? "Đăng ký tại đây" : "Đăng nhập tại đây"}
-              </button>
-            </div>
-          </div>
-        </div>
+        />
       ) : null}
     </div>
   );

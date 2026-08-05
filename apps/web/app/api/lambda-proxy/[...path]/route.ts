@@ -3,7 +3,9 @@ type RouteContext = {
 };
 
 const upstreamBaseUrl = (
+  process.env.API_BASE_URL ??
   process.env.LOCALSTACK_API_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
   process.env.LOCALSTACK_LAMBDA_URL ??
   ""
 ).replace(/\/$/, "");
@@ -32,9 +34,11 @@ async function proxy(request: Request, context: RouteContext) {
     const headers = new Headers();
     const contentType = request.headers.get("content-type");
     const accept = request.headers.get("accept");
+    const authorization = request.headers.get("authorization");
 
     if (contentType) headers.set("content-type", contentType);
     if (accept) headers.set("accept", accept);
+    if (authorization) headers.set("authorization", authorization);
 
     const init: RequestInit = {
       method: request.method,
@@ -67,7 +71,14 @@ async function proxy(request: Request, context: RouteContext) {
     console.error("[lambda-proxy] request failed", error);
     return Response.json(
       { message: error instanceof Error ? error.message : "Proxy request failed" },
-      { status: 500 }
+      {
+        status: 500,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type"
+        }
+      }
     );
   }
 }

@@ -65,7 +65,13 @@ type MetaResponse = {
   searchFields?: SearchField[];
 };
 
-const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000").replace(/\/+$/, "");
+type ShoppingManagerProps = {
+  authToken?: string;
+  headerActions?: ReactNode;
+  canManageProducts?: boolean;
+};
+
+const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "/api/lambda-proxy").replace(/\/+$/, "");
 const pageSize = 10;
 const fallbackCategories = [
   "Thời trang",
@@ -415,7 +421,11 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-export default function ShoppingManager() {
+export default function ShoppingManager({
+  authToken = "",
+  headerActions = null,
+  canManageProducts = false
+}: ShoppingManagerProps) {
   const [items, setItems] = useState<ProductItem[]>([]);
   const [allItems, setAllItems] = useState<ProductItem[]>([]);
   const [categories, setCategories] = useState(fallbackCategories);
@@ -441,6 +451,7 @@ export default function ShoppingManager() {
   const previewBasePrice = parseFormattedNumber(form.basePriceInput);
   const previewDiscount = Math.min(99, Math.max(0, Number(form.discountPercent) || 0));
   const previewSalePrice = computeSalePrice(previewBasePrice, previewDiscount);
+  const isViewerOnly = !canManageProducts;
 
   const summary = useMemo(() => {
     const totalProducts = allItems.length;
@@ -455,9 +466,21 @@ export default function ShoppingManager() {
       .sort((left, right) => String(left).localeCompare(String(right)))
   ), [allItems]);
 
+  function buildRequestHeaders(extraHeaders: HeadersInit = {}) {
+    const headers = new Headers(extraHeaders);
+
+    if (authToken) {
+      headers.set("Authorization", `Bearer ${authToken}`);
+    }
+
+    return headers;
+  }
+
   async function loadMeta() {
     try {
-      const response = await fetch(`${apiUrl}/api/shopping-items/meta`);
+      const response = await fetch(`${apiUrl}/api/shopping-items/meta`, {
+        headers: buildRequestHeaders()
+      });
       if (!response.ok) return;
       const data = (await response.json()) as MetaResponse;
       setCategories((data.categories ?? fallbackCategories).map(normalizeCategoryValue));
@@ -482,7 +505,9 @@ export default function ShoppingManager() {
         params.set("sortDirection", sortDirection);
       }
 
-      const response = await fetch(`${apiUrl}/api/shopping-items/all?${params.toString()}`);
+      const response = await fetch(`${apiUrl}/api/shopping-items/all?${params.toString()}`, {
+        headers: buildRequestHeaders()
+      });
       if (!response.ok) throw new Error(await logApiFailure(response, "Failed to load product summary", "loadSummary"));
       const data = (await response.json()) as ListAllResponse;
       setAllItems(data.items ?? []);
@@ -507,7 +532,9 @@ export default function ShoppingManager() {
         params.set("sortDirection", sortDirection);
       }
 
-      const response = await fetch(`${apiUrl}/api/shopping-items?${params.toString()}`);
+      const response = await fetch(`${apiUrl}/api/shopping-items?${params.toString()}`, {
+        headers: buildRequestHeaders()
+      });
       if (!response.ok) throw new Error(await logApiFailure(response, "Failed to load products", "loadItems"));
 
       const data = (await response.json()) as ListResponse;
@@ -581,6 +608,11 @@ export default function ShoppingManager() {
   }
 
   function startEdit(item: ProductItem) {
+    if (isViewerOnly) {
+      setMessage("Tài khoản xem-only không được chỉnh sửa sản phẩm.");
+      return;
+    }
+
     setEditingId(item.id);
     setEditingVersion(item.version);
     setForm({
@@ -662,7 +694,9 @@ export default function ShoppingManager() {
         params.set("sortDirection", sortDirection);
       }
 
-      const cursorResponse = await fetch(`${apiUrl}/api/shopping-items/page-cursor?${params.toString()}`);
+      const cursorResponse = await fetch(`${apiUrl}/api/shopping-items/page-cursor?${params.toString()}`, {
+        headers: buildRequestHeaders()
+      });
       if (!cursorResponse.ok) throw new Error(await logApiFailure(cursorResponse, "Failed to resolve page cursor", "goToPage"));
 
       const cursorData = (await cursorResponse.json()) as CursorPageResponse;
@@ -684,6 +718,11 @@ export default function ShoppingManager() {
   }
 
   async function updateStock(item: ProductItem, incrementBy: number) {
+    if (isViewerOnly) {
+      setMessage("Tài khoản xem-only không được cập nhật tồn kho.");
+      return;
+    }
+
     const amount = Number(incrementBy);
     if (!Number.isFinite(amount) || amount === 0) return;
 
@@ -691,7 +730,7 @@ export default function ShoppingManager() {
     try {
       const response = await fetch(`${apiUrl}/api/shopping-items/${item.id}/increment`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: buildRequestHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ field: "stock", incrementBy: amount })
       });
       if (!response.ok) throw new Error(await logApiFailure(response, "Stock update failed", "updateStock"));
@@ -708,6 +747,12 @@ export default function ShoppingManager() {
 
   async function submitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (isViewerOnly) {
+      setMessage("Tài khoản xem-only không được tạo hoặc cập nhật sản phẩm.");
+      return;
+    }
+
     setBusy(true);
 
     const normalizedName = form.name.trim();
@@ -736,7 +781,7 @@ export default function ShoppingManager() {
         editingId ? `${apiUrl}/api/shopping-items/${editingId}` : `${apiUrl}/api/shopping-items`,
         {
           method: editingId ? "PATCH" : "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: buildRequestHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify(editingId ? { ...payload, version: editingVersion } : payload)
         }
       );
@@ -780,6 +825,11 @@ export default function ShoppingManager() {
   }
 
   function requestDelete(item: ProductItem) {
+    if (isViewerOnly) {
+      setMessage("Tài khoản xem-only không được xóa sản phẩm.");
+      return;
+    }
+
     setDeleteTarget(item);
   }
 
@@ -789,9 +839,17 @@ export default function ShoppingManager() {
   }
 
   async function removeItem(item: ProductItem) {
+    if (isViewerOnly) {
+      setMessage("Tài khoản xem-only không được xóa sản phẩm.");
+      return;
+    }
+
     setBusy(true);
     try {
-      const response = await fetch(`${apiUrl}/api/shopping-items/${item.id}`, { method: "DELETE" });
+      const response = await fetch(`${apiUrl}/api/shopping-items/${item.id}`, {
+        method: "DELETE",
+        headers: buildRequestHeaders()
+      });
       if (!response.ok) throw new Error(await logApiFailure(response, "Failed to delete product", "removeItem"));
       if (editingId === item.id) resetForm();
       setMessage(`Deleted "${item.name}"`);
@@ -858,6 +916,7 @@ export default function ShoppingManager() {
             Product List
           </h1>
         </div>
+        {headerActions}
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" style={statsGridStyle}>
@@ -866,6 +925,12 @@ export default function ShoppingManager() {
         <StatCard label="Out of Stock" value={summary.outOfStock} />
         <StatCard label="Inventory Value" value={currency(summary.inventoryValue)} />
       </section>
+
+      {isViewerOnly ? (
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800" style={panelStyle}>
+          Tài khoản này đang ở chế độ xem-only. Bạn vẫn xem được danh sách sản phẩm, nhưng không thể tạo, sửa, xóa hoặc cập nhật tồn kho.
+        </section>
+      ) : null}
 
       <section className="grid gap-3 rounded-3xl border bg-color-blue border-white/70 bg-white/90 p-4 md:grid-cols-2 xl:grid-cols-4" style={{ ...panelStyle, ...filterGridStyle }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
@@ -990,7 +1055,11 @@ export default function ShoppingManager() {
                   return (
                     <tr
                       key={item.id}
-                      onDoubleClick={() => startEdit(item)}
+                      onDoubleClick={() => {
+                        if (!isViewerOnly) {
+                          startEdit(item);
+                        }
+                      }}
                       className={`cursor-pointer transition hover:bg-slate-50/80 ${editingId === item.id ? "bg-blue-50/80" : ""}`}
                       style={{ height: "68px" }}
                     >
@@ -1022,7 +1091,7 @@ export default function ShoppingManager() {
                             onMouseLeave={stopStockHold}
                             onTouchStart={() => startStockHold(item, -1)}
                             onTouchEnd={stopStockHold}
-                            disabled={busy || Number(item.stock) <= 0}
+                            disabled={busy || isViewerOnly || Number(item.stock) <= 0}
                             className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`}
                             style={{ minWidth: "32px", padding: "0 8px" }}
                           >
@@ -1037,7 +1106,7 @@ export default function ShoppingManager() {
                             onMouseLeave={stopStockHold}
                             onTouchStart={() => startStockHold(item, 1)}
                             onTouchEnd={stopStockHold}
-                            disabled={busy}
+                            disabled={busy || isViewerOnly}
                             className={`${actionButtonClassName} bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
                             style={{ minWidth: "32px", padding: "0 8px" }}
                           >
@@ -1054,10 +1123,16 @@ export default function ShoppingManager() {
                         </span>
                       </td>
                       <td style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-100">
-                        <div style={{ display: "flex", flexWrap: "nowrap", gap: "6px", width: "100%" }}>
-                          <button type="button" onClick={() => startEdit(item)} disabled={busy} className={`${actionButtonClassName} bg-blue-50 text-blue-700 hover:bg-blue-100`} style={{ flex: "1 1 0", minWidth: "48px", padding: "0 8px" }}>Edit</button>
-                          <button type="button" onClick={() => requestDelete(item)} disabled={busy} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ flex: "1 1 0", minWidth: "58px", padding: "0 8px" }}>Delete</button>
-                        </div>
+                        {isViewerOnly ? (
+                          <span className="inline-flex h-9 items-center rounded-lg bg-slate-100 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                            View only
+                          </span>
+                        ) : (
+                          <div style={{ display: "flex", flexWrap: "nowrap", gap: "6px", width: "100%" }}>
+                            <button type="button" onClick={() => startEdit(item)} disabled={busy} className={`${actionButtonClassName} bg-blue-50 text-blue-700 hover:bg-blue-100`} style={{ flex: "1 1 0", minWidth: "48px", padding: "0 8px" }}>Edit</button>
+                            <button type="button" onClick={() => requestDelete(item)} disabled={busy} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ flex: "1 1 0", minWidth: "58px", padding: "0 8px" }}>Delete</button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1092,6 +1167,18 @@ export default function ShoppingManager() {
           </div>
         </div>
 
+        {isViewerOnly ? (
+          <section className="grid h-full content-start gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
+            <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "16px" }}>
+              <h2 className="text-xl font-semibold text-slate-900" style={{ margin: 0, fontSize: "20px", fontWeight: 600 }}>
+                Viewer Mode
+              </h2>
+              <p className="mt-1 text-sm text-slate-500" style={{ margin: "4px 0 0", fontSize: "14px", color: "#64748b" }}>
+                Tài khoản này chỉ được xem dữ liệu. Muốn quản trị sản phẩm, hãy đăng nhập bằng user thuộc group `admin` trong Cognito.
+              </p>
+            </div>
+          </section>
+        ) : (
         <form onSubmit={submitForm} className="grid h-full gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
           <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "16px" }}>
             <h2 className="text-xl font-semibold text-slate-900" style={{ margin: 0, fontSize: "20px", fontWeight: 600 }}>
@@ -1195,6 +1282,7 @@ export default function ShoppingManager() {
             ) : null}
           </div>
         </form>
+        )}
       </section>
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" style={{ display: "grid", gap: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
