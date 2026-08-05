@@ -93,6 +93,7 @@ export default function Home() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [message, setMessage] = useState("Dùng tài khoản Cognito để truy cập API admin trên AWS.");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(0);
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -119,6 +120,18 @@ export default function Home() {
     setSession(nextSession);
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    if (resendCountdown <= 0) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setResendCountdown((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [resendCountdown]);
 
   function handleLogout() {
     clearAuthSession();
@@ -202,6 +215,7 @@ export default function Home() {
       setConfirmEmail(registerEmail);
       setLoginEmail(registerEmail);
       setLoginPassword(registerPassword);
+      setResendCountdown(60);
       setAuthMode("confirm");
       setMessage("Tạo tài khoản thành công. Hãy kiểm tra email để lấy mã xác nhận.");
     } catch (error) {
@@ -225,6 +239,7 @@ export default function Home() {
         code: confirmCode
       });
 
+      setResendCountdown(0);
       setAuthMode("login");
       setMessage("Xác nhận tài khoản thành công. Bạn có thể đăng nhập ngay.");
     } catch (error) {
@@ -288,10 +303,15 @@ export default function Home() {
   }
 
   async function handleResendCode() {
+    if (resendCountdown > 0) {
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       await resendConfirmationCode(confirmEmail);
+      setResendCountdown(60);
       setMessage("Đã gửi lại mã xác nhận mới.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Không thể gửi lại mã xác nhận");
@@ -303,6 +323,8 @@ export default function Home() {
   if (!ready) {
     return null;
   }
+
+  const singleActionMode = authMode === "register" || authMode === "confirm" || authMode === "forgot" || authMode === "reset";
 
   return (
     <div className="grid gap-4">
@@ -418,10 +440,10 @@ export default function Home() {
               <button
                 type="button"
                 onClick={handleResendCode}
-                disabled={isSubmitting}
+                disabled={isSubmitting || resendCountdown > 0}
                 className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Gửi lại mã
+                {resendCountdown > 0 ? `Gửi lại mã sau ${resendCountdown}s` : "Gửi lại mã"}
               </button>
             </form>
           ) : null}
@@ -480,8 +502,8 @@ export default function Home() {
             </form>
           ) : null}
 
-          <div className={`mt-5 grid gap-3 ${authMode === "forgot" || authMode === "reset" || authMode === "register" ? "grid-cols-1" : "grid-cols-2"}`}>
-            {authMode !== "register" && authMode !== "forgot" && authMode !== "reset" ? (
+          <div className={`mt-5 grid gap-3 ${singleActionMode ? "grid-cols-1" : "grid-cols-2"}`}>
+            {authMode !== "register" && authMode !== "forgot" && authMode !== "reset" && authMode !== "confirm" ? (
               <button
                 type="button"
                 onClick={() => setAuthMode("register")}
@@ -490,7 +512,7 @@ export default function Home() {
                 Tạo tài khoản
               </button>
             ) : null}
-            {authMode !== "forgot" && authMode !== "reset" && authMode !== "register" ? (
+            {authMode !== "forgot" && authMode !== "reset" && authMode !== "register" && authMode !== "confirm" ? (
               <button
                 type="button"
                 onClick={() => setAuthMode("forgot")}

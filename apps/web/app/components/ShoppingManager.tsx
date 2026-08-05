@@ -757,13 +757,19 @@ export default function ShoppingManager({
 
     const normalizedName = form.name.trim();
     const normalizedBrand = form.brand.trim();
+    const normalizedCategory = normalizeCategoryValue(
+      String(form.category ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/gi, "d")
+    );
     const originalPrice = Math.max(1000, parseFormattedNumber(form.basePriceInput));
     const discountPercent = Math.min(99, Math.max(0, Number(form.discountPercent) || 0));
     const price = computeSalePrice(originalPrice, discountPercent);
 
     const payload = {
       name: normalizedName,
-      category: form.category,
+      category: normalizedCategory,
       brand: normalizedBrand || "Unknown",
       sku: makeSku(normalizedName),
       stock: Number(form.stock),
