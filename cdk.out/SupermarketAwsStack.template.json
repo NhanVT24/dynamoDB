@@ -403,6 +403,32 @@
     "aws:asset:property": "Code"
    }
   },
+  "NotificationsQueue3B766469": {
+   "Type": "AWS::SQS::Queue",
+   "Properties": {
+    "MessageRetentionPeriod": 345600,
+    "QueueName": "supermarket-notifications",
+    "VisibilityTimeout": 30
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/NotificationsQueue/Resource"
+   }
+  },
+  "AuditQueue1D3C234B": {
+   "Type": "AWS::SQS::Queue",
+   "Properties": {
+    "MessageRetentionPeriod": 345600,
+    "QueueName": "supermarket-audit-log",
+    "VisibilityTimeout": 30
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/AuditQueue/Resource"
+   }
+  },
   "CognitoTriggerFunctionServiceRoleF8897875": {
    "Type": "AWS::IAM::Role",
    "Properties": {
@@ -858,6 +884,34 @@
          ]
         }
        ]
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "NotificationsQueue3B766469",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuditQueue1D3C234B",
+         "Arn"
+        ]
+       }
       }
      ],
      "Version": "2012-10-17"
@@ -881,7 +935,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "002c457fcef9386af155c3ec11c7ff4c6fb94f1601c1ae57b16699e51683a51a.zip"
+     "S3Key": "23cd6bfb295acde5b224a466250d0566f63e1ce7dbd95136c8d2ca127ce66df0.zip"
     },
     "Environment": {
      "Variables": {
@@ -902,6 +956,12 @@
          ".s3.ap-southeast-1.amazonaws.com"
         ]
        ]
+      },
+      "SQS_NOTIFICATIONS_QUEUE_URL": {
+       "Ref": "NotificationsQueue3B766469"
+      },
+      "SQS_AUDIT_QUEUE_URL": {
+       "Ref": "AuditQueue1D3C234B"
       },
       "VNPAY_TMN_CODE": {
        "Ref": "VnpayTmnCode"
@@ -938,7 +998,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.002c457fcef9386af155c3ec11c7ff4c6fb94f1601c1ae57b16699e51683a51a",
+    "aws:asset:path": "asset.23cd6bfb295acde5b224a466250d0566f63e1ce7dbd95136c8d2ca127ce66df0",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -2699,7 +2759,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VQwY7TQAz9lu15OiwtQohbthUrDmijFk4IrSYTb9ZtZhyNPVtClH9HkzRt0MKBk5/97Odnr/Tq/Vrf3pgTL215XNZY6G4vxh7V5snnJhgHAkGZEz92ZeuNo7LQmyf/1RQ1KF7r7i7aI0hqH9H3buHwJ/rFx8VcNSnwWg8U67E1i0JbqEHgoTiAFV70P9RI5VSjba+qY/4f2uPAXoyAAz+XvjMMvaqNK0qju0/RW0HyadUc5xAcMiP5XqFxuttRDYkY4tXeiHplqfIopLtvDCEnqhN5wRPY1Ahe5tS5MqVbcgb9vOF15T5QbC4Tn0vwgtLmgV6whHBPVI1O/9XRK14/GmYQ1lkKyjRYGYGTaXW3A5asweHUK8yspehFbaGpqXXnI2bZXkw1bB3BDphisJCerb6APFOZyDOa2POSMx4/OLnmLMozBfwFYTBwyfpebSILub+r/EFNJw82hluTPfRVmnmI0kTplacS9IHfvKze6bcf9O3NgRGXIXpBB3o3xt9rNvMcKgMAAA=="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VRwW7bMAz9luasaF0yDMNuboIVOwz1ku00DIUss64SS/REqpln+N8HWXbiYu1hJz7ykY+P0kqu3q/l9ZU60VKXx2VtCtntWemj2Dy4XHllgcELdaL7rmydslgWcvPgvqmiBkFr2d0EfQSO7Qn96BbW/DZu8XExV40KtJYDRTK1ZoFxCzUw3BUH0EyL/qdIVI610e1FNeX/oZ0G9qwYLLi59I0i6AX9Itl9DRAgLhlAL2pli1LJ7lNwmg26SM1xDt4aIoOuF0ZZ2e2wHuaHePGcUC80Vs4wyu47gc8R60ie8QQ2tQHHc2qsTOkWrTJu3vBv5dZjaM4Tn0twbLjNPT6ZEvwtYpWcvtbRC1rfKyJgklkMQjWmUgwn1cpuB8RZY4ZTLzDTGoNjsYWmxtaOR8yyPatq2JrADgiD1xB/QHwBfsQykiOa2HHJiNMLTq4pC/yI3vwBPxg4Z30vNoEY7csqz6jp5MHGcGu0Z1wVZ+4CN4F74bAEeaA3T6t38u0HeX11IGOWPjg2FuQuxb/Mlp3dPwMAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/CDKMetadata/Default"
@@ -2764,6 +2824,16 @@
   "ProductImagesBucketName": {
    "Value": {
     "Ref": "ProductImagesBucket03BDA4C8"
+   }
+  },
+  "NotificationsQueueUrl": {
+   "Value": {
+    "Ref": "NotificationsQueue3B766469"
+   }
+  },
+  "AuditQueueUrl": {
+   "Value": {
+    "Ref": "AuditQueue1D3C234B"
    }
   },
   "UserPoolId": {
