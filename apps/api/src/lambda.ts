@@ -8,6 +8,22 @@ const proxy = awsLambdaFastify(app.getHttpAdapter().getInstance(), {
 });
 
 export const handler = async (event: any, context: unknown) => {
+  const pathParameters = typeof event?.pathParameters === "object" && event.pathParameters ? { ...event.pathParameters } : {};
+  const rawProxyPath = typeof pathParameters.proxy === "string" ? pathParameters.proxy.replace(/^\/+/, "") : "";
+  const path = String(event?.path ?? "");
+  const rawPath = String(event?.rawPath ?? "");
+  const storefrontPrefix = "/api/storefront";
+  const isStorefrontRequest =
+    path.includes(`${storefrontPrefix}/`) ||
+    path.endsWith(storefrontPrefix) ||
+    rawPath.startsWith(`${storefrontPrefix}/`) ||
+    rawPath === storefrontPrefix;
+
+  if (isStorefrontRequest) {
+    pathParameters.proxy = rawProxyPath ? `api/storefront/${rawProxyPath}` : "api/storefront";
+    event.pathParameters = pathParameters;
+  }
+
   console.log("[lambda] incoming event", {
     path: event?.path,
     rawPath: event?.rawPath,

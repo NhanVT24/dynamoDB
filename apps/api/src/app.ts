@@ -3,6 +3,7 @@ import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
 import { AppModule } from "./app.module.js";
 import { isAdminRequest } from "./common/auth/cognito-groups.js";
+import { extractCognitoPrincipal } from "./common/auth/cognito-principal.js";
 import { env } from "./config/env.js";
 import { AppExceptionFilter } from "./common/filters/app-exception.filter.js";
 
@@ -47,8 +48,25 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
   fastify.addHook("preHandler", async (request, reply) => {
     const method = request.method.toUpperCase();
     const isReadOnlyMethod = method === "GET" || method === "HEAD" || method === "OPTIONS";
+    const url = String(request.url || "");
+    const isPublicStorefrontRead = isReadOnlyMethod && url.startsWith("/api/storefront/");
+    const isPublicProductsRead = isReadOnlyMethod && url.startsWith("/api/products");
+    const isStorefrontOrderMutation = method === "POST" && url === "/api/storefront/orders";
 
-    if (isReadOnlyMethod) {
+    if (isReadOnlyMethod || isPublicStorefrontRead || isPublicProductsRead) {
+      return;
+    }
+
+    if (isStorefrontOrderMutation) {
+      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      if (principal && (principal.role === "customer" || principal.role === "admin")) {
+        return;
+      }
+
+      reply.status(403).send({
+        statusCode: 403,
+        message: "Chỉ tài khoản customer hoặc admin mới được đặt hàng."
+      });
       return;
     }
 

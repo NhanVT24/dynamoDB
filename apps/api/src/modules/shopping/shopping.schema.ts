@@ -25,6 +25,7 @@ export function normalizeCategory(category: unknown) {
 
 const categorySchema = z.preprocess((value) => normalizeCategory(value), z.enum(categoryValues));
 const statusValues = ["active", "low_stock", "out_of_stock"] as const;
+const maxProductPrice = 99_999_999_999;
 
 export const createShoppingItemSchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -32,8 +33,8 @@ export const createShoppingItemSchema = z.object({
   brand: z.string().trim().min(2).max(80),
   sku: z.string().trim().min(3).max(40),
   stock: z.coerce.number().int().min(0).max(999999),
-  price: z.coerce.number().min(1000).max(999999999),
-  originalPrice: z.coerce.number().min(1000).max(999999999).optional(),
+  price: z.coerce.number().min(1000).max(maxProductPrice),
+  originalPrice: z.coerce.number().min(1000).max(maxProductPrice).optional(),
   imageUrl: z.string().url().max(500),
   location: z.string().trim().min(2).max(80),
   description: z.string().trim().min(10).max(500),

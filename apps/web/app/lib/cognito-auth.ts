@@ -17,7 +17,7 @@ export type AuthSession = {
   expiresAt: number;
   email: string;
   name: string;
-  role: "admin" | "viewer";
+  role: "admin" | "customer" | "viewer";
 };
 
 type JwtPayload = {
@@ -271,9 +271,13 @@ function buildSession(authenticationResult: {
     name: repairMojibake(idPayload.display_name) || repairMojibake(idPayload.name) || repairMojibake(idPayload.email) || "Cognito User",
     role: String(idPayload.role || "").toLowerCase() === "admin"
       ? "admin"
-      : idPayload["cognito:groups"]?.some((group) => String(group).toLowerCase() === "admin")
-        ? "admin"
-        : "viewer"
+      : String(idPayload.role || "").toLowerCase() === "customer"
+        ? "customer"
+        : idPayload["cognito:groups"]?.some((group) => String(group).toLowerCase() === "admin")
+          ? "admin"
+          : idPayload["cognito:groups"]?.some((group) => String(group).toLowerCase() === "customer")
+            ? "customer"
+            : "viewer"
   };
 
   persistAuthSession(session);

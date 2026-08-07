@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type Status = "active" | "low_stock" | "out_of_stock";
 type SearchField = "name" | "brand";
-type SortValue = "" | "updatedAt:asc" | "stock:desc";
+type SortValue = "updatedAt:desc" | "updatedAt:asc" | "stock:desc";
 
 type ProductItem = {
   id: string;
@@ -71,15 +71,15 @@ type ShoppingManagerProps = {
   canManageProducts?: boolean;
 };
 
-const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "/api/lambda-proxy").replace(/\/+$/, "");
+const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 const pageSize = 10;
 const fallbackCategories = [
-  "Thời trang",
-  "Điện tử",
-  "Gia dụng",
-  "Mẹ và bé",
-  "Làm đẹp",
-  "Bách hóa"
+  "\u0054h\u1eddi trang",
+  "\u0110i\u1ec7n t\u1eed",
+  "Gia d\u1ee5ng",
+  "M\u1eb9 v\u00e0 b\u00e9",
+  "L\u00e0m \u0111\u1eb9p",
+  "B\u00e1ch h\u00f3a"
 ];
 const fallbackStatuses = ["active", "low_stock", "out_of_stock"];
 const fallbackSearchFields: SearchField[] = ["name", "brand"];
@@ -96,7 +96,7 @@ const categoryLabels = {
 const emptyForm: FormState = {
   name: "",
   brand: "",
-  category: "Thời trang",
+  category: "\u0054h\u1eddi trang",
   stock: "0",
   basePriceInput: "1.000",
   discountPercent: "0",
@@ -319,12 +319,12 @@ function normalizeCategoryValue(category: string | undefined) {
   const normalized = String(category ?? "").trim().toLowerCase();
 
   if (!normalized || normalized === "all") return "all";
-  if (normalized.includes("thoi trang") || normalized.includes("thá") || normalized.includes("thÃ¡")) return "Thoi trang";
-  if (normalized.includes("dien tu") || normalized.includes("iá»‡n") || normalized.includes("Ã¡Â»â€¡n")) return "Dien tu";
-  if (normalized.includes("gia dung") || normalized.includes("dá»¥ng") || normalized.includes("dÃ¡Â»Â¥ng")) return "Gia dung";
-  if (normalized.includes("me va be") || normalized.includes("máº¹") || normalized.includes("mÃ¡ÂºÂ¹")) return "Me va be";
-  if (normalized.includes("lam dep") || normalized.includes("lÃ m") || normalized.includes("Ã£Â m")) return "Lam dep";
-  if (normalized.includes("bach hoa") || normalized.includes("bÃ¡ch") || normalized.includes("bÃ£Â¡ch")) return "Bach hoa";
+  if (normalized.includes("thoi trang") || normalized.includes("th\u1eddi trang")) return "Thoi trang";
+  if (normalized.includes("dien tu") || normalized.includes("\u0111i\u1ec7n t\u1eed")) return "Dien tu";
+  if (normalized.includes("gia dung") || normalized.includes("gia d\u1ee5ng")) return "Gia dung";
+  if (normalized.includes("me va be") || normalized.includes("m\u1eb9 v\u00e0 b\u00e9")) return "Me va be";
+  if (normalized.includes("lam dep") || normalized.includes("l\u00e0m \u0111\u1eb9p")) return "Lam dep";
+  if (normalized.includes("bach hoa") || normalized.includes("b\u00e1ch h\u00f3a")) return "Bach hoa";
 
   return category;
 }
@@ -431,7 +431,7 @@ export default function ShoppingManager({
   const [categories, setCategories] = useState(fallbackCategories);
   const [statuses] = useState(fallbackStatuses);
   const [searchFields, setSearchFields] = useState<SearchField[]>(fallbackSearchFields);
-  const [filters, setFilters] = useState<Filters>({ category: "all", status: "", updatedAtFrom: "", searchField: "name", search: "", sort: "" });
+  const [filters, setFilters] = useState<Filters>({ category: "all", status: "", updatedAtFrom: "", searchField: "name", search: "", sort: "updatedAt:desc" });
   const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([null]);
   const [cursorIndex, setCursorIndex] = useState(0);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -767,22 +767,22 @@ export default function ShoppingManager({
     const discountPercent = Math.min(99, Math.max(0, Number(form.discountPercent) || 0));
     const price = computeSalePrice(originalPrice, discountPercent);
 
-    const payload = {
-      name: normalizedName,
-      category: normalizedCategory,
-      brand: normalizedBrand || "Unknown",
-      sku: makeSku(normalizedName),
-      stock: Number(form.stock),
-      price,
-      originalPrice,
-      imageUrl: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80",
-      location: "TP.HCM",
-      description: form.description.trim() || `Product ${normalizedName} was quickly created from the admin page.`,
-      rating: 4.8,
-      soldCount: 0
-    };
-
     try {
+      const payload = {
+        name: normalizedName,
+        category: normalizedCategory,
+        brand: normalizedBrand || "Unknown",
+        sku: makeSku(normalizedName),
+        stock: Number(form.stock),
+        price,
+        originalPrice,
+        imageUrl: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80",
+        location: "TP.HCM",
+        description: form.description.trim() || `Product ${normalizedName} was quickly created from the admin page.`,
+        rating: 4.8,
+        soldCount: 0
+      };
+
       const response = await fetch(
         editingId ? `${apiUrl}/api/shopping-items/${editingId}` : `${apiUrl}/api/shopping-items`,
         {
@@ -1000,7 +1000,7 @@ export default function ShoppingManager({
             onChange={(event) => updateFilter("sort", event.target.value)}
             title="Sort products"
           >
-            <option value="">Newest first</option>
+            <option value="updatedAt:desc">Newest first</option>
             <option value="updatedAt:asc">Oldest first</option>
             <option value="stock:desc">Stock high to low</option>
           </select>
@@ -1012,9 +1012,7 @@ export default function ShoppingManager({
             }}
             className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-base font-bold text-slate-700 transition hover:bg-slate-50"
             style={{ display: "none", height: "40px", width: "40px", padding: 0, borderRadius: "10px", flexShrink: 0 }}
-            title={filters.sort === ""
-              ? "Sort stock descending"
-              : filters.sort.endsWith(":asc")
+            title={filters.sort.endsWith(":asc")
                 ? "Sort stock ascending"
                 : "Sort stock descending"}
           >
@@ -1070,7 +1068,7 @@ export default function ShoppingManager({
                       style={{ height: "68px" }}
                     >
                       <td style={{ ...columnStyles.product, padding: "12px 16px" }} className="border-b border-slate-100 align-middle">
-                        <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: "10px" }}>
+                        <div className="group relative" style={{ minWidth: 0, display: "flex", alignItems: "center", gap: "10px" }}>
                           <img src={item.imageUrl} alt={item.name} style={{ width: "40px", height: "40px", borderRadius: "12px", border: "1px solid #e2e8f0", objectFit: "cover", flexShrink: 0 }} />
                           <div style={{ minWidth: 0, overflow: "hidden" }}>
                             <strong className="block text-sm font-semibold text-slate-900" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</strong>
@@ -1078,6 +1076,11 @@ export default function ShoppingManager({
                               SKU {item.sku}
                             </span>
                           </div>
+                          {item.description ? (
+                            <div className="pointer-events-none absolute left-12 top-1/2 z-20 hidden w-72 -translate-y-1/2 rounded-2xl bg-slate-950 px-4 py-3 text-xs font-medium leading-5 text-white shadow-2xl group-hover:block">
+                              {item.description}
+                            </div>
+                          ) : null}
                         </div>
                       </td>
                       <td style={{ ...columnStyles.category, padding: "12px 10px", fontSize: "13px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} className="border-b border-slate-100 text-slate-600">{categoryLabel(item.category)}</td>

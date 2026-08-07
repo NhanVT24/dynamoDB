@@ -4,12 +4,14 @@ import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 
 export class LocalstackApiStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
     const localDynamoEndpoint = "http://localhost.localstack.cloud:4566";
+    const localS3Endpoint = "http://s3.localhost.localstack.cloud:4566";
 
     const table = new dynamodb.CfnTable(this, "MarketplaceProductsTable", {
       tableName: "MarketplaceProducts",
@@ -60,6 +62,27 @@ export class LocalstackApiStack extends Stack {
       ]
     });
 
+    const productImagesBucket = new s3.Bucket(this, "ProductImagesBucket", {
+      bucketName: "supermarket-product-images-local",
+      blockPublicAccess: new s3.BlockPublicAccess({
+        blockPublicAcls: true,
+        ignorePublicAcls: true,
+        blockPublicPolicy: false,
+        restrictPublicBuckets: false
+      }),
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      publicReadAccess: true,
+      cors: [
+        {
+          allowedOrigins: ["*"],
+          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedHeaders: ["*"],
+          exposedHeaders: ["ETag"],
+          maxAge: 3000
+        }
+      ]
+    });
+
     const lambdaFunction = new lambda.Function(this, "SupermarketApiFunction", {
       functionName: "supermarket-api-localstack",
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -70,7 +93,11 @@ export class LocalstackApiStack extends Stack {
       code: lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda")),
       environment: {
         DYNAMODB_ENDPOINT: localDynamoEndpoint,
-        DYNAMODB_TABLE_NAME: table.tableName ?? "MarketplaceProducts"
+        DYNAMODB_TABLE_NAME: table.tableName ?? "MarketplaceProducts",
+        S3_BUCKET_NAME: productImagesBucket.bucketName,
+        S3_ENDPOINT: localS3Endpoint,
+        S3_PUBLIC_BASE_URL: `${localS3Endpoint}/${productImagesBucket.bucketName}`,
+        S3_FORCE_PATH_STYLE: "true"
       }
     });
 
@@ -90,6 +117,8 @@ export class LocalstackApiStack extends Stack {
         `arn:aws:dynamodb:${this.region}:${this.account}:table/${table.tableName}/index/*`
       ]
     }));
+
+    productImagesBucket.grantReadWrite(lambdaFunction);
 
     const api = new apigateway.LambdaRestApi(this, "SupermarketApiGateway", {
       handler: lambdaFunction,
@@ -111,6 +140,10 @@ export class LocalstackApiStack extends Stack {
 
     new CfnOutput(this, "ApiGatewayUrl", {
       value: api.url
+    });
+
+    new CfnOutput(this, "ProductImagesBucketName", {
+      value: productImagesBucket.bucketName
     });
   }
 }

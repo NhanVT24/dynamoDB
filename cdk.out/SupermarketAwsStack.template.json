@@ -16,21 +16,31 @@
    "AllowedPattern": "^[a-z0-9-]+$",
    "Description": "Globally unique domain prefix for Cognito hosted UI"
   },
-  "GoogleClientId": {
+  "GoogleClientIdSsmPath": {
    "Type": "String",
-   "Default": "",
-   "Description": "Google OAuth client id for Cognito social sign-in"
+   "Default": "/supermarket/google/client-id",
+   "Description": "SSM parameter path for Google OAuth client id"
   },
-  "GoogleClientSecret": {
+  "GoogleClientSecretSsmPath": {
    "Type": "String",
-   "Default": "",
-   "Description": "Google OAuth client secret for Cognito social sign-in",
-   "NoEcho": true
+   "Default": "/supermarket/google/client-secret",
+   "Description": "SSM secure string parameter path for Google OAuth client secret"
+  },
+  "GoogleClientSecretSsmVersion": {
+   "Type": "Number",
+   "Default": 1,
+   "Description": "Version of the SSM secure string parameter for Google OAuth client secret"
   },
   "DynamoTableName": {
    "Type": "String",
    "Default": "MarketplaceProductsDev",
    "Description": "DynamoDB table name for this stack"
+  },
+  "GoogleClientIdParameterParameter": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": {
+    "Ref": "GoogleClientIdSsmPath"
+   }
   },
   "BootstrapVersion": {
    "Type": "AWS::SSM::Parameter::Value<String>",
@@ -163,6 +173,220 @@
     "aws:cdk:path": "SupermarketAwsStack/MarketplaceProductsTable"
    }
   },
+  "ProductImagesBucket03BDA4C8": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketEncryption": {
+     "ServerSideEncryptionConfiguration": [
+      {
+       "ServerSideEncryptionByDefault": {
+        "SSEAlgorithm": "AES256"
+       }
+      }
+     ]
+    },
+    "CorsConfiguration": {
+     "CorsRules": [
+      {
+       "AllowedHeaders": [
+        "*"
+       ],
+       "AllowedMethods": [
+        "PUT",
+        "GET",
+        "HEAD"
+       ],
+       "AllowedOrigins": [
+        "*"
+       ],
+       "ExposedHeaders": [
+        "ETag"
+       ],
+       "MaxAge": 3000
+      }
+     ]
+    },
+    "PublicAccessBlockConfiguration": {
+     "BlockPublicAcls": true,
+     "BlockPublicPolicy": false,
+     "IgnorePublicAcls": true,
+     "RestrictPublicBuckets": false
+    },
+    "Tags": [
+     {
+      "Key": "aws-cdk:auto-delete-objects",
+      "Value": "true"
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/ProductImagesBucket/Resource"
+   }
+  },
+  "ProductImagesBucketPolicyA2B0CBED": {
+   "Type": "AWS::S3::BucketPolicy",
+   "Properties": {
+    "Bucket": {
+     "Ref": "ProductImagesBucket03BDA4C8"
+    },
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": "s3:GetObject",
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": "*"
+       },
+       "Resource": {
+        "Fn::Join": [
+         "",
+         [
+          {
+           "Fn::GetAtt": [
+            "ProductImagesBucket03BDA4C8",
+            "Arn"
+           ]
+          },
+          "/*"
+         ]
+        ]
+       }
+      },
+      {
+       "Action": [
+        "s3:PutBucketPolicy",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*"
+       ],
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": {
+         "Fn::GetAtt": [
+          "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+          "Arn"
+         ]
+        }
+       },
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "ProductImagesBucket03BDA4C8",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "ProductImagesBucket03BDA4C8",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/ProductImagesBucket/Policy/Resource"
+   }
+  },
+  "ProductImagesBucketAutoDeleteObjectsCustomResourceB27E6F1C": {
+   "Type": "Custom::S3AutoDeleteObjects",
+   "Properties": {
+    "ServiceToken": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F",
+      "Arn"
+     ]
+    },
+    "BucketName": {
+     "Ref": "ProductImagesBucket03BDA4C8"
+    }
+   },
+   "DependsOn": [
+    "ProductImagesBucketPolicyA2B0CBED"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/ProductImagesBucket/AutoDeleteObjectsCustomResource/Default"
+   }
+  },
+  "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Version": "2012-10-17",
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ]
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role"
+   }
+  },
+  "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
+     "S3Key": "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6.zip"
+    },
+    "Timeout": 900,
+    "MemorySize": 128,
+    "Handler": "index.handler",
+    "Role": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs24.x",
+    "Description": {
+     "Fn::Join": [
+      "",
+      [
+       "Lambda function for auto-deleting objects in ",
+       {
+        "Ref": "ProductImagesBucket03BDA4C8"
+       },
+       " S3 bucket."
+      ]
+     ]
+    }
+   },
+   "DependsOn": [
+    "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler",
+    "aws:asset:path": "asset.faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6",
+    "aws:asset:property": "Code"
+   }
+  },
   "CognitoTriggerFunctionServiceRoleF8897875": {
    "Type": "AWS::IAM::Role",
    "Properties": {
@@ -205,6 +429,7 @@
       {
        "Action": [
         "cognito-idp:AdminGetUser",
+        "cognito-idp:AdminAddUserToGroup",
         "cognito-idp:AdminLinkProviderForUser",
         "cognito-idp:AdminListGroupsForUser",
         "cognito-idp:ListUsers"
@@ -233,7 +458,7 @@
      "x86_64"
     ],
     "Code": {
-     "ZipFile": "\nconst {\n  CognitoIdentityProviderClient,\n  ListUsersCommand,\n  AdminLinkProviderForUserCommand,\n  AdminListGroupsForUserCommand,\n  AdminGetUserCommand\n} = require(\"@aws-sdk/client-cognito-identity-provider\");\n\nconst client = new CognitoIdentityProviderClient({});\n\nfunction normalizeEmail(email) {\n  return String(email || \"\").trim().toLowerCase();\n}\n\nfunction getAttribute(attributes, name) {\n  return (attributes || []).find((attribute) => attribute.Name === name)?.Value || \"\";\n}\n\nfunction parseProviderUserName(userName) {\n  const [providerName, ...rest] = String(userName || \"\").split(\"_\");\n  return {\n    providerName,\n    providerUserId: rest.join(\"_\")\n  };\n}\n\nasync function findExistingUserByEmail(userPoolId, email) {\n  const normalizedEmail = normalizeEmail(email);\n  if (!normalizedEmail) return null;\n\n  const response = await client.send(new ListUsersCommand({\n    UserPoolId: userPoolId,\n    Filter: `email = \"${normalizedEmail.replace(/\"/g, '\\\\\"')}\"`,\n    Limit: 10\n  }));\n\n  const users = response.Users || [];\n  return users.find((user) => String(user.Username || \"\").toLowerCase() !== \"\") || null;\n}\n\nasync function handlePreSignUp(event) {\n  if (event.triggerSource !== \"PreSignUp_ExternalProvider\") {\n    return event;\n  }\n\n  const email = normalizeEmail(event.request.userAttributes.email);\n  const { providerName, providerUserId } = parseProviderUserName(event.userName);\n\n  if (!email || !providerName || !providerUserId) {\n    event.response.autoConfirmUser = true;\n    event.response.autoVerifyEmail = true;\n    return event;\n  }\n\n  const existingUser = await findExistingUserByEmail(event.userPoolId, email);\n\n  if (existingUser && !String(existingUser.Username || \"\").startsWith(providerName + \"_\")) {\n    await client.send(new AdminLinkProviderForUserCommand({\n      UserPoolId: event.userPoolId,\n      DestinationUser: {\n        ProviderName: \"Cognito\",\n        ProviderAttributeValue: existingUser.Username\n      },\n      SourceUser: {\n        ProviderName: providerName,\n        ProviderAttributeName: \"Cognito_Subject\",\n        ProviderAttributeValue: providerUserId\n      }\n    }));\n  }\n\n  event.response.autoConfirmUser = true;\n  event.response.autoVerifyEmail = true;\n  return event;\n}\n\nasync function handleTokenGeneration(event) {\n  const user = await client.send(new AdminGetUserCommand({\n    UserPoolId: event.userPoolId,\n    Username: event.userName\n  }));\n\n  const groupsResponse = await client.send(new AdminListGroupsForUserCommand({\n    UserPoolId: event.userPoolId,\n    Username: event.userName\n  }));\n\n  const groups = (groupsResponse.Groups || []).map((group) => String(group.GroupName || \"\").toLowerCase());\n  const role = groups.includes(\"admin\") ? \"admin\" : \"viewer\";\n  const email = normalizeEmail(getAttribute(user.UserAttributes, \"email\"));\n  const displayName = getAttribute(user.UserAttributes, \"name\") || email || \"Cognito User\";\n  const identitiesRaw = getAttribute(user.UserAttributes, \"identities\");\n\n  let authProvider = \"COGNITO\";\n  if (identitiesRaw) {\n    try {\n      const identities = JSON.parse(identitiesRaw);\n      authProvider = String(identities?.[0]?.providerName || \"COGNITO\").toUpperCase();\n    } catch {}\n  }\n\n  event.response = {\n    claimsOverrideDetails: {\n      claimsToAddOrOverride: {\n        role,\n        auth_provider: authProvider,\n        principal_email: email,\n        display_name: displayName\n      },\n      groupOverrideDetails: {\n        groupsToOverride: groups.length > 0 ? groups : [\"viewer\"]\n      }\n    }\n  };\n\n  return event;\n}\n\nexports.handler = async (event) => {\n  if (event.triggerSource === \"PreSignUp_ExternalProvider\") {\n    return handlePreSignUp(event);\n  }\n\n  if (String(event.triggerSource || \"\").startsWith(\"TokenGeneration_\")) {\n    return handleTokenGeneration(event);\n  }\n\n  return event;\n};\n      "
+     "ZipFile": "\nconst {\n  CognitoIdentityProviderClient,\n  ListUsersCommand,\n  AdminAddUserToGroupCommand,\n  AdminLinkProviderForUserCommand,\n  AdminListGroupsForUserCommand,\n  AdminGetUserCommand\n} = require(\"@aws-sdk/client-cognito-identity-provider\");\n\nconst client = new CognitoIdentityProviderClient({});\n\nfunction normalizeEmail(email) {\n  return String(email || \"\").trim().toLowerCase();\n}\n\nfunction getAttribute(attributes, name) {\n  return (attributes || []).find((attribute) => attribute.Name === name)?.Value || \"\";\n}\n\nfunction parseProviderUserName(userName) {\n  const [providerName, ...rest] = String(userName || \"\").split(\"_\");\n  return {\n    providerName,\n    providerUserId: rest.join(\"_\")\n  };\n}\n\nasync function findExistingUserByEmail(userPoolId, email) {\n  const normalizedEmail = normalizeEmail(email);\n  if (!normalizedEmail) return null;\n\n  const response = await client.send(new ListUsersCommand({\n    UserPoolId: userPoolId,\n    Filter: `email = \"${normalizedEmail.replace(/\"/g, '\\\\\"')}\"`,\n    Limit: 10\n  }));\n\n  const users = response.Users || [];\n  return users.find((user) => String(user.Username || \"\").toLowerCase() !== \"\") || null;\n}\n\nasync function handlePreSignUp(event) {\n  if (event.triggerSource !== \"PreSignUp_ExternalProvider\") {\n    return event;\n  }\n\n  const email = normalizeEmail(event.request.userAttributes.email);\n  const { providerName, providerUserId } = parseProviderUserName(event.userName);\n\n  if (!email || !providerName || !providerUserId) {\n    event.response.autoConfirmUser = true;\n    event.response.autoVerifyEmail = true;\n    return event;\n  }\n\n  const existingUser = await findExistingUserByEmail(event.userPoolId, email);\n\n  if (existingUser && !String(existingUser.Username || \"\").startsWith(providerName + \"_\")) {\n    await client.send(new AdminLinkProviderForUserCommand({\n      UserPoolId: event.userPoolId,\n      DestinationUser: {\n        ProviderName: \"Cognito\",\n        ProviderAttributeValue: existingUser.Username\n      },\n      SourceUser: {\n        ProviderName: providerName,\n        ProviderAttributeName: \"Cognito_Subject\",\n        ProviderAttributeValue: providerUserId\n      }\n    }));\n  }\n\n  event.response.autoConfirmUser = true;\n  event.response.autoVerifyEmail = true;\n  return event;\n}\n\nasync function handleTokenGeneration(event) {\n  const user = await client.send(new AdminGetUserCommand({\n    UserPoolId: event.userPoolId,\n    Username: event.userName\n  }));\n\n  const groupsResponse = await client.send(new AdminListGroupsForUserCommand({\n    UserPoolId: event.userPoolId,\n    Username: event.userName\n  }));\n\n  const groups = (groupsResponse.Groups || []).map((group) => String(group.GroupName || \"\").toLowerCase());\n  const role = groups.includes(\"admin\") ? \"admin\" : groups.includes(\"customer\") ? \"customer\" : \"customer\";\n  const email = normalizeEmail(getAttribute(user.UserAttributes, \"email\"));\n  const displayName = getAttribute(user.UserAttributes, \"name\") || email || \"Cognito User\";\n  const identitiesRaw = getAttribute(user.UserAttributes, \"identities\");\n\n  let authProvider = \"COGNITO\";\n  if (identitiesRaw) {\n    try {\n      const identities = JSON.parse(identitiesRaw);\n      authProvider = String(identities?.[0]?.providerName || \"COGNITO\").toUpperCase();\n    } catch {}\n  }\n\n  event.response = {\n    claimsOverrideDetails: {\n      claimsToAddOrOverride: {\n        role,\n        auth_provider: authProvider,\n        principal_email: email,\n        display_name: displayName\n      },\n      groupOverrideDetails: {\n        groupsToOverride: groups.length > 0 ? groups : [\"customer\"]\n      }\n    }\n  };\n\n  return event;\n}\n\nasync function handlePostConfirmation(event) {\n  if (event.triggerSource !== \"PostConfirmation_ConfirmSignUp\") {\n    return event;\n  }\n\n  await client.send(new AdminAddUserToGroupCommand({\n    UserPoolId: event.userPoolId,\n    Username: event.userName,\n    GroupName: \"customer\"\n  }));\n\n  return event;\n}\n\nexports.handler = async (event) => {\n  if (event.triggerSource === \"PreSignUp_ExternalProvider\") {\n    return handlePreSignUp(event);\n  }\n\n  if (event.triggerSource === \"PostConfirmation_ConfirmSignUp\") {\n    return handlePostConfirmation(event);\n  }\n\n  if (String(event.triggerSource || \"\").startsWith(\"TokenGeneration_\")) {\n    return handleTokenGeneration(event);\n  }\n\n  return event;\n};\n      "
     },
     "FunctionName": "supermarket-cognito-trigger",
     "Handler": "index.handler",
@@ -275,6 +500,28 @@
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/AdminUserPool/PreSignUpCognito"
+   }
+  },
+  "AdminUserPoolPostConfirmationCognito17B1914E": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "CognitoTriggerFunction313F0716",
+      "Arn"
+     ]
+    },
+    "Principal": "cognito-idp.amazonaws.com",
+    "SourceArn": {
+     "Fn::GetAtt": [
+      "AdminUserPoolD0AF18CF",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/AdminUserPool/PostConfirmationCognito"
    }
   },
   "AdminUserPoolPreTokenGenerationCognito96C4EABC": {
@@ -319,6 +566,12 @@
     "EmailVerificationMessage": "The verification code to your new account is {####}",
     "EmailVerificationSubject": "Verify your new account",
     "LambdaConfig": {
+     "PostConfirmation": {
+      "Fn::GetAtt": [
+       "CognitoTriggerFunction313F0716",
+       "Arn"
+      ]
+     },
      "PreSignUp": {
       "Fn::GetAtt": [
        "CognitoTriggerFunction313F0716",
@@ -431,6 +684,19 @@
     "aws:cdk:path": "SupermarketAwsStack/AdminUserPool/HostedUiDomain/Resource"
    }
   },
+  "CustomerGroup": {
+   "Type": "AWS::Cognito::UserPoolGroup",
+   "Properties": {
+    "Description": "Customers can browse products and place orders",
+    "GroupName": "customer",
+    "UserPoolId": {
+     "Ref": "AdminUserPoolD0AF18CF"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/CustomerGroup"
+   }
+  },
   "GoogleIdentityProvider5AA1A9DD": {
    "Type": "AWS::Cognito::UserPoolIdentityProvider",
    "Properties": {
@@ -440,10 +706,23 @@
     },
     "ProviderDetails": {
      "client_id": {
-      "Ref": "GoogleClientId"
+      "Ref": "GoogleClientIdParameterParameter"
      },
      "client_secret": {
-      "Ref": "GoogleClientSecret"
+      "Fn::Join": [
+       "",
+       [
+        "{{resolve:ssm-secure:",
+        {
+         "Ref": "GoogleClientSecretSsmPath"
+        },
+        ":",
+        {
+         "Ref": "GoogleClientSecretSsmVersion"
+        },
+        "}}"
+       ]
+      ]
      },
      "authorize_scopes": "openid email profile"
     },
@@ -530,6 +809,43 @@
          ]
         }
        ]
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging",
+        "s3:Abort*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "ProductImagesBucket03BDA4C8",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "ProductImagesBucket03BDA4C8",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
       }
      ],
      "Version": "2012-10-17"
@@ -553,12 +869,27 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "f6f7cebc6827539194c8e9a292efe369d82924ad099eb99aa9c38d51f083f0ac.zip"
+     "S3Key": "0d5d54fc97f1bdbb1167459349740f45ad0af40c0f788b5d568a50f39bacfeda.zip"
     },
     "Environment": {
      "Variables": {
       "DYNAMODB_TABLE_NAME": {
        "Ref": "DynamoTableName"
+      },
+      "S3_BUCKET_NAME": {
+       "Ref": "ProductImagesBucket03BDA4C8"
+      },
+      "S3_PUBLIC_BASE_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "https://",
+         {
+          "Ref": "ProductImagesBucket03BDA4C8"
+         },
+         ".s3.ap-southeast-1.amazonaws.com"
+        ]
+       ]
       }
      }
     },
@@ -580,7 +911,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.f6f7cebc6827539194c8e9a292efe369d82924ad099eb99aa9c38d51f083f0ac",
+    "aws:asset:path": "asset.0d5d54fc97f1bdbb1167459349740f45ad0af40c0f788b5d568a50f39bacfeda",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -649,7 +980,7 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Account"
    }
   },
-  "SupermarketApiGatewayDeployment3BDE3851c6a453779335d7aec2bb8aed938827a6": {
+  "SupermarketApiGatewayDeployment3BDE3851dd5d6d9b90b576bf705fbf01d0813ee8": {
    "Type": "AWS::ApiGateway::Deployment",
    "Properties": {
     "Description": "Automatically created by the RestApi construct",
@@ -661,6 +992,14 @@
     "SupermarketApiGatewayproxyANY40C8E0D5",
     "SupermarketApiGatewayproxyOPTIONSF7D54AE3",
     "SupermarketApiGatewayproxyAD8FA136",
+    "SupermarketApiGatewayapiOPTIONSCB5BA1AD",
+    "SupermarketApiGatewayapiB7B395D3",
+    "SupermarketApiGatewayapistorefrontproxyANY5CD821BE",
+    "SupermarketApiGatewayapistorefrontproxyOPTIONS383AD73B",
+    "SupermarketApiGatewayapistorefrontproxy22DDF99B",
+    "SupermarketApiGatewayapistorefrontANY9FA32239",
+    "SupermarketApiGatewayapistorefrontOPTIONSB82476C5",
+    "SupermarketApiGatewayapistorefront5F652345",
     "SupermarketApiGatewayGETCFBB7913",
     "SupermarketApiGatewayhealthGETB79B340F",
     "SupermarketApiGatewayhealthOPTIONSE72A4BDD",
@@ -676,7 +1015,7 @@
    "Type": "AWS::ApiGateway::Stage",
    "Properties": {
     "DeploymentId": {
-     "Ref": "SupermarketApiGatewayDeployment3BDE3851c6a453779335d7aec2bb8aed938827a6"
+     "Ref": "SupermarketApiGatewayDeployment3BDE3851dd5d6d9b90b576bf705fbf01d0813ee8"
     },
     "RestApiId": {
      "Ref": "SupermarketApiGatewayD32A94E9"
@@ -1014,6 +1353,397 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/health/GET/Resource"
    }
   },
+  "SupermarketApiGatewayapiB7B395D3": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Fn::GetAtt": [
+      "SupermarketApiGatewayD32A94E9",
+      "RootResourceId"
+     ]
+    },
+    "PathPart": "api",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/Resource"
+   }
+  },
+  "SupermarketApiGatewayapiOPTIONSCB5BA1AD": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapiB7B395D3"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefront5F652345": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapiB7B395D3"
+    },
+    "PathPart": "storefront",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontOPTIONSB82476C5": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapistorefront5F652345"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefront4AB8C997": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/api/storefront"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefrontAA988290": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/api/storefront"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontANY9FA32239": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketApiFunctionD4E09F97",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapistorefront5F652345"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/ANY/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontproxy22DDF99B": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapistorefront5F652345"
+    },
+    "PathPart": "{proxy+}",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontproxyOPTIONS383AD73B": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapistorefrontproxy22DDF99B"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontproxyANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefrontproxyFE03DB07": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/api/storefront/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront.{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontproxyANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefrontproxyB4CD2269": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/api/storefront/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront.{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontproxyANY5CD821BE": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketApiFunctionD4E09F97",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapistorefrontproxy22DDF99B"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/ANY/Resource"
+   }
+  },
   "SupermarketApiGatewayproxyAD8FA136": {
    "Type": "AWS::ApiGateway::Resource",
    "Properties": {
@@ -1210,7 +1940,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/3WQQW/CMAyFfwv3kDGYpl0LaNMO06qynZFJTTG0cZW4oK7qf5+atqyXnfw9Pyfxy1Ivn1d6MYObn5v0Ms/poJudgLmozdHG4KBAQafg5vdNWlsoOD3ozdF+wSFHlUNxSEE3r5U1Qmy7Q1OO0RXkPbFtFUGhm4Rz7IxQY87J1GEuUKsMZ5aEdfPt0cXMeWfeeYRNTmhlag2dUW65ALLTgaEzyvcUrZDUseMrpejemLN+sf8mWuVXe/AexeuoK8qv9LoyF5Q1eFRQUgaCN6h1k6CXqKSQ8w8jY7iyorZY5lwXQ4KJ2glkYYceEvRcOYPh+g+UE6edOdDoDo8M3H/fmMFHlZzY0Q+6sMBdta0KGbqHyGad+VlJWUmrLKeoz/7hunzSjy96MTt7ormrrFCBOunrL1XoQOs2AgAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VQwY7TQAz9lu15OiwtQohbtxUrDmijFk4IrSYTb9ZtZhyNPVtClH9HySRtVsCBk5/97Odnr/Tq/Vrf3pgzL21xWlaY6/Ygxp7U9slnJhgHAkGZMz+2ReONoyLX2yf/1eQVKF7r9i7aE0jfntD3duHwJ/rFx8VctVfgtR4o1ql1E4V2UIHAQ34EK7zofqhEZVShba6qKf8P7TRwECPgwM+l7wxDpyrj8sLo9lP0VpB8v2qOMwgOmZF8p9A43e6pgp4Y4tVeQp2yVHoU0u03hpARVT15wRPYVghe5tRYmdIdOYN+3vBn5T5QrC8TnwvwgtJkgV6wgHBPVCan/+roFK8fDTMI600flKmxNAJn0+h2DyybGodTr3BjLUUvagd1RY0bj5hlBzHlsDWBPTDFYKF/tvoC8kxFT45oYsclI04fnFzzJsozBfwFYTBwybpObSMLub+rvKKmkwcbw629PfTlKwsPUeoonfJUgD7ym5fVO/32g769OTLiMkQv6EDvU/wNdf0ERDMDAAA="
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/CDKMetadata/Default"
@@ -1272,6 +2002,11 @@
     ]
    }
   },
+  "ProductImagesBucketName": {
+   "Value": {
+    "Ref": "ProductImagesBucket03BDA4C8"
+   }
+  },
   "UserPoolId": {
    "Value": {
     "Ref": "AdminUserPoolD0AF18CF"
@@ -1281,6 +2016,12 @@
    "Value": {
     "Ref": "AdminUserPoolWebClient31E56587"
    }
+  },
+  "CustomerGroupName": {
+   "Value": "customer"
+  },
+  "AdminGroupName": {
+   "Value": "admin"
   },
   "CognitoHostedUiDomain": {
    "Value": {

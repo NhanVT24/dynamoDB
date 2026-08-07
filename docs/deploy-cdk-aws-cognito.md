@@ -80,7 +80,35 @@ Xem CloudFormation template truoc:
 npm run cdk:aws:synth
 ```
 
-## 7. Deploy stack
+## 7. Tao SSM parameter truoc khi deploy
+
+Stack AWS doc Google OAuth config tu SSM Parameter Store:
+
+- `/supermarket/google/client-id`
+- `/supermarket/google/client-secret`
+
+Tao parameter bang AWS CLI:
+
+```bash
+aws ssm put-parameter --name "/supermarket/google/client-id" --type "String" --value "YOUR_GOOGLE_CLIENT_ID" --overwrite
+aws ssm put-parameter --name "/supermarket/google/client-secret" --type "SecureString" --value "YOUR_GOOGLE_CLIENT_SECRET" --overwrite
+```
+
+Neu ban muon dung path khac, luc deploy co the override:
+
+- `GoogleClientIdSsmPath`
+- `GoogleClientSecretSsmPath`
+- `GoogleClientSecretSsmVersion`
+
+Mac dinh `GoogleClientSecretSsmVersion = 1`. Moi lan update secret bang `put-parameter --overwrite`, SSM se tang version, nen luc deploy lai can truyen dung version moi neu khong dung version `1`.
+
+Co the xem version hien tai:
+
+```bash
+aws ssm get-parameter-history --name "/supermarket/google/client-secret"
+```
+
+## 8. Deploy stack
 
 Deploy co ban:
 
@@ -88,21 +116,27 @@ Deploy co ban:
 npm run cdk:aws:deploy
 ```
 
-CDK se hoi parameter. 3 parameter quan trong:
+CDK se hoi parameter. 6 parameter quan trong:
 
 - `CallbackUrl`
 - `LogoutUrl`
 - `CognitoDomainPrefix`
+- `GoogleClientIdSsmPath`
+- `GoogleClientSecretSsmPath`
+- `GoogleClientSecretSsmVersion`
 
 Gia tri local de test frontend:
 
 - `CallbackUrl`: `http://localhost:3000/auth/callback`
 - `LogoutUrl`: `http://localhost:3000/`
 - `CognitoDomainPrefix`: phai unique toan cau, vi du `supermarket-auth-tenban-2026`
+- `GoogleClientIdSsmPath`: `/supermarket/google/client-id`
+- `GoogleClientSecretSsmPath`: `/supermarket/google/client-secret`
+- `GoogleClientSecretSsmVersion`: `1` hoac version secret hien tai trong SSM
 
 Khong nen de gia tri mac dinh `replace-me-supermarket-auth` khi deploy that, vi kha nang cao se bi trung domain.
 
-## 8. Output can luu lai
+## 9. Output can luu lai
 
 Sau khi deploy xong, ghi lai:
 
@@ -113,7 +147,7 @@ Sau khi deploy xong, ghi lai:
 
 Day la cac bien sau nay frontend se dung de login that.
 
-## 9. Can cau hinh them gi sau Cognito
+## 10. Can cau hinh them gi sau Cognito
 
 Sau khi stack tao xong, ban thuong van can:
 
@@ -122,7 +156,7 @@ Sau khi stack tao xong, ban thuong van can:
 - goi API kem `Authorization: Bearer <token>`
 - neu muon user tu dang ky va xac minh email, can test luong verify email
 
-## 10. Chi phi co ban
+## 11. Chi phi co ban
 
 De giu kha nang 0 USD cao nhat:
 
@@ -140,7 +174,7 @@ Thuc te stack nay thuong ton phi o:
 
 Cognito co kha nang van la 0 USD neu luong user nho.
 
-## 11. Neu deploy fail thi sao
+## 12. Neu deploy fail thi sao
 
 Thong thuong khong can xoa het stack.
 
@@ -153,7 +187,7 @@ Luong binh thuong:
 
 Chi khi stack roi vao `UPDATE_ROLLBACK_FAILED` thi moi can xu ly rollback truoc.
 
-## 12. Xoa stack khi khong dung nua
+## 13. Xoa stack khi khong dung nua
 
 Neu chi test free tier, nen xoa stack sau khi xong:
 
@@ -161,9 +195,10 @@ Neu chi test free tier, nen xoa stack sau khi xong:
 npm run cdk:aws:destroy
 ```
 
-## 13. Ghi chu quan trong
+## 14. Ghi chu quan trong
 
 - `CognitoDomainPrefix` phai unique toan cau
 - `RemovalPolicy.DESTROY` dang duoc dat cho demo/development de de cleanup
 - stack hien tai dang mo `GET /` va `GET /health` khong can auth de de test healthcheck
 - cac endpoint khac se di qua Cognito authorizer
+- parameter Google secret dang doc tu SSM `SecureString`, khong con truyen truc tiep secret qua CDK prompt nua

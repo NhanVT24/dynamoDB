@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import ShoppingManager from "./components/ShoppingManager";
 import {
   beginGoogleSignIn,
@@ -88,6 +89,7 @@ function PasswordField({
 }
 
 export default function Home() {
+  const router = useRouter();
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -120,6 +122,13 @@ export default function Home() {
     setSession(nextSession);
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!ready || !session) return;
+    if (session.role !== "admin") {
+      router.replace("/store");
+    }
+  }, [ready, router, session]);
 
   useEffect(() => {
     if (resendCountdown <= 0) {
@@ -180,6 +189,7 @@ export default function Home() {
       });
 
       setSession(nextSession);
+      setMessage(nextSession.role === "admin" ? "Đăng nhập admin thành công." : "Đăng nhập thành công, đang chuyển sang trang mua sắm.");
     } catch (error) {
       const text = error instanceof Error ? error.message : "Đăng nhập thất bại";
       setMessage(text);
@@ -534,7 +544,7 @@ export default function Home() {
         </section>
       ) : null}
 
-      {session ? (
+      {session && session.role === "admin" ? (
         <ShoppingManager
           authToken={session.idToken}
           canManageProducts={session.role === "admin"}
@@ -544,7 +554,7 @@ export default function Home() {
                 <p className="text-sm font-semibold text-slate-900">{session.name}</p>
                 <p className="text-xs text-slate-500">{session.email}</p>
                 <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700">
-                  {session.role === "admin" ? "Admin" : "Viewer"}
+                  {session.role === "admin" ? "Admin" : session.role === "customer" ? "Customer" : "Viewer"}
                 </p>
               </div>
               <button

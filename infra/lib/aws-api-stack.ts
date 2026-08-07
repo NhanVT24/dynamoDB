@@ -13,6 +13,8 @@ import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as s3 from "aws-cdk-lib/aws-s3";
+import * as ssm from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 
 export class AwsApiStack extends Stack {
@@ -38,17 +40,22 @@ export class AwsApiStack extends Stack {
       description: "Globally unique domain prefix for Cognito hosted UI"
     });
 
-    const googleClientId = new CfnParameter(this, "GoogleClientId", {
+    const googleClientIdSsmPath = new CfnParameter(this, "GoogleClientIdSsmPath", {
       type: "String",
-      default: "",
-      description: "Google OAuth client id for Cognito social sign-in"
+      default: "/supermarket/google/client-id",
+      description: "SSM parameter path for Google OAuth client id"
     });
 
-    const googleClientSecret = new CfnParameter(this, "GoogleClientSecret", {
+    const googleClientSecretSsmPath = new CfnParameter(this, "GoogleClientSecretSsmPath", {
       type: "String",
-      default: "",
-      noEcho: true,
-      description: "Google OAuth client secret for Cognito social sign-in"
+      default: "/supermarket/google/client-secret",
+      description: "SSM secure string parameter path for Google OAuth client secret"
+    });
+
+    const googleClientSecretSsmVersion = new CfnParameter(this, "GoogleClientSecretSsmVersion", {
+      type: "Number",
+      default: 1,
+      description: "Version of the SSM secure string parameter for Google OAuth client secret"
     });
 
     const dynamoTableName = new CfnParameter(this, "DynamoTableName", {
@@ -107,6 +114,28 @@ export class AwsApiStack extends Stack {
     });
     table.applyRemovalPolicy(RemovalPolicy.DESTROY);
 
+    const productImagesBucket = new s3.Bucket(this, "ProductImagesBucket", {
+      blockPublicAccess: new s3.BlockPublicAccess({
+        blockPublicAcls: true,
+        ignorePublicAcls: true,
+        blockPublicPolicy: false,
+        restrictPublicBuckets: false
+      }),
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      publicReadAccess: true,
+      cors: [
+        {
+          allowedOrigins: ["*"],
+          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
+          allowedHeaders: ["*"],
+          exposedHeaders: ["ETag"],
+          maxAge: 3000
+        }
+      ],
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true
+    });
+
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
       functionName: "supermarket-cognito-trigger",
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -118,6 +147,7 @@ export class AwsApiStack extends Stack {
 const {
   CognitoIdentityProviderClient,
   ListUsersCommand,
+  AdminAddUserToGroupCommand,
   AdminLinkProviderForUserCommand,
   AdminListGroupsForUserCommand,
   AdminGetUserCommand
@@ -203,7 +233,7 @@ async function handleTokenGeneration(event) {
   }));
 
   const groups = (groupsResponse.Groups || []).map((group) => String(group.GroupName || "").toLowerCase());
-  const role = groups.includes("admin") ? "admin" : "viewer";
+  const role = groups.includes("admin") ? "admin" : groups.includes("customer") ? "customer" : "customer";
   const email = normalizeEmail(getAttribute(user.UserAttributes, "email"));
   const displayName = getAttribute(user.UserAttributes, "name") || email || "Cognito User";
   const identitiesRaw = getAttribute(user.UserAttributes, "identities");
@@ -225,7 +255,7 @@ async function handleTokenGeneration(event) {
         display_name: displayName
       },
       groupOverrideDetails: {
-        groupsToOverride: groups.length > 0 ? groups : ["viewer"]
+        groupsToOverride: groups.length > 0 ? groups : ["customer"]
       }
     }
   };
@@ -233,9 +263,27 @@ async function handleTokenGeneration(event) {
   return event;
 }
 
+async function handlePostConfirmation(event) {
+  if (event.triggerSource !== "PostConfirmation_ConfirmSignUp") {
+    return event;
+  }
+
+  await client.send(new AdminAddUserToGroupCommand({
+    UserPoolId: event.userPoolId,
+    Username: event.userName,
+    GroupName: "customer"
+  }));
+
+  return event;
+}
+
 exports.handler = async (event) => {
   if (event.triggerSource === "PreSignUp_ExternalProvider") {
     return handlePreSignUp(event);
+  }
+
+  if (event.triggerSource === "PostConfirmation_ConfirmSignUp") {
+    return handlePostConfirmation(event);
   }
 
   if (String(event.triggerSource || "").startsWith("TokenGeneration_")) {
@@ -249,6 +297,7 @@ exports.handler = async (event) => {
         new iam.PolicyStatement({
           actions: [
             "cognito-idp:AdminGetUser",
+            "cognito-idp:AdminAddUserToGroup",
             "cognito-idp:AdminLinkProviderForUser",
             "cognito-idp:AdminListGroupsForUser",
             "cognito-idp:ListUsers"
@@ -279,14 +328,29 @@ exports.handler = async (event) => {
       },
       lambdaTriggers: {
         preSignUp: cognitoTriggerFunction,
+        postConfirmation: cognitoTriggerFunction,
         preTokenGeneration: cognitoTriggerFunction
       }
     });
 
+    const customerGroup = new cognito.CfnUserPoolGroup(this, "CustomerGroup", {
+      userPoolId: userPool.userPoolId,
+      groupName: "customer",
+      description: "Customers can browse products and place orders"
+    });
+
+    const googleClientId = ssm.StringParameter.fromStringParameterAttributes(this, "GoogleClientIdParameter", {
+      parameterName: googleClientIdSsmPath.valueAsString,
+      simpleName: false
+    }).stringValue;
+
     const googleIdentityProvider = new cognito.UserPoolIdentityProviderGoogle(this, "GoogleIdentityProvider", {
       userPool,
-      clientId: googleClientId.valueAsString,
-      clientSecretValue: SecretValue.unsafePlainText(googleClientSecret.valueAsString),
+      clientId: googleClientId,
+      clientSecretValue: SecretValue.ssmSecure(
+        googleClientSecretSsmPath.valueAsString,
+        googleClientSecretSsmVersion.valueAsString
+      ),
       scopes: ["openid", "email", "profile"],
       attributeMapping: {
         email: cognito.ProviderAttribute.GOOGLE_EMAIL,
@@ -325,7 +389,9 @@ exports.handler = async (event) => {
       memorySize: 256,
       code: lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda")),
       environment: {
-        DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString
+        DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString,
+        S3_BUCKET_NAME: productImagesBucket.bucketName,
+        S3_PUBLIC_BASE_URL: `https://${productImagesBucket.bucketName}.s3.${this.region}.amazonaws.com`
       }
     });
 
@@ -345,6 +411,8 @@ exports.handler = async (event) => {
         `${table.attrArn}/index/*`
       ]
     }));
+
+    productImagesBucket.grantReadWrite(lambdaFunction);
 
     const api = new apigateway.RestApi(this, "SupermarketApiGateway", {
       defaultCorsPreflightOptions: {
@@ -368,6 +436,16 @@ exports.handler = async (event) => {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
+    const apiResource = api.root.addResource("api");
+    const storefrontResource = apiResource.addResource("storefront");
+    storefrontResource.addMethod("ANY", lambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+    const storefrontProxyResource = storefrontResource.addResource("{proxy+}");
+    storefrontProxyResource.addMethod("ANY", lambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+
     const proxyResource = api.root.addResource("{proxy+}");
     proxyResource.addMethod("ANY", lambdaIntegration, {
       authorizer: cognitoAuthorizer,
@@ -386,12 +464,24 @@ exports.handler = async (event) => {
       value: api.url
     });
 
+    new CfnOutput(this, "ProductImagesBucketName", {
+      value: productImagesBucket.bucketName
+    });
+
     new CfnOutput(this, "UserPoolId", {
       value: userPool.userPoolId
     });
 
     new CfnOutput(this, "UserPoolClientId", {
       value: userPoolClient.userPoolClientId
+    });
+
+    new CfnOutput(this, "CustomerGroupName", {
+      value: customerGroup.groupName ?? "customer"
+    });
+
+    new CfnOutput(this, "AdminGroupName", {
+      value: "admin"
     });
 
     new CfnOutput(this, "CognitoHostedUiDomain", {
