@@ -82,31 +82,21 @@ npm run cdk:aws:synth
 
 ## 7. Tao SSM parameter truoc khi deploy
 
-Stack AWS doc Google OAuth config tu SSM Parameter Store:
+Stack AWS doc Google OAuth client id tu SSM Parameter Store:
 
 - `/supermarket/google/client-id`
-- `/supermarket/google/client-secret`
 
 Tao parameter bang AWS CLI:
 
 ```bash
 aws ssm put-parameter --name "/supermarket/google/client-id" --type "String" --value "YOUR_GOOGLE_CLIENT_ID" --overwrite
-aws ssm put-parameter --name "/supermarket/google/client-secret" --type "SecureString" --value "YOUR_GOOGLE_CLIENT_SECRET" --overwrite
 ```
 
-Neu ban muon dung path khac, luc deploy co the override:
+Luu y: `GoogleClientSecret` khong doc tu SSM trong CloudFormation cho Cognito Google IdP, vi resource nay khong ho tro `SSM Secure reference` cho `client_secret`. Vi vay secret duoc nhap luc deploy qua `CfnParameter` va an bang `NoEcho`.
+
+Neu ban muon dung path khac cho client id, luc deploy co the override:
 
 - `GoogleClientIdSsmPath`
-- `GoogleClientSecretSsmPath`
-- `GoogleClientSecretSsmVersion`
-
-Mac dinh `GoogleClientSecretSsmVersion = 1`. Moi lan update secret bang `put-parameter --overwrite`, SSM se tang version, nen luc deploy lai can truyen dung version moi neu khong dung version `1`.
-
-Co the xem version hien tai:
-
-```bash
-aws ssm get-parameter-history --name "/supermarket/google/client-secret"
-```
 
 ## 8. Deploy stack
 
@@ -116,14 +106,13 @@ Deploy co ban:
 npm run cdk:aws:deploy
 ```
 
-CDK se hoi parameter. 6 parameter quan trong:
+CDK se hoi parameter. 5 parameter quan trong:
 
 - `CallbackUrl`
 - `LogoutUrl`
 - `CognitoDomainPrefix`
 - `GoogleClientIdSsmPath`
-- `GoogleClientSecretSsmPath`
-- `GoogleClientSecretSsmVersion`
+- `GoogleClientSecret`
 
 Gia tri local de test frontend:
 
@@ -131,8 +120,7 @@ Gia tri local de test frontend:
 - `LogoutUrl`: `http://localhost:3000/`
 - `CognitoDomainPrefix`: phai unique toan cau, vi du `supermarket-auth-tenban-2026`
 - `GoogleClientIdSsmPath`: `/supermarket/google/client-id`
-- `GoogleClientSecretSsmPath`: `/supermarket/google/client-secret`
-- `GoogleClientSecretSsmVersion`: `1` hoac version secret hien tai trong SSM
+- `GoogleClientSecret`: nhap truc tiep tu Google Cloud Console, CloudFormation se an gia tri nay
 
 Khong nen de gia tri mac dinh `replace-me-supermarket-auth` khi deploy that, vi kha nang cao se bi trung domain.
 
@@ -201,4 +189,5 @@ npm run cdk:aws:destroy
 - `RemovalPolicy.DESTROY` dang duoc dat cho demo/development de de cleanup
 - stack hien tai dang mo `GET /` va `GET /health` khong can auth de de test healthcheck
 - cac endpoint khac se di qua Cognito authorizer
-- parameter Google secret dang doc tu SSM `SecureString`, khong con truyen truc tiep secret qua CDK prompt nua
+- Google client id dang doc tu SSM
+- Google client secret dang nhap qua `NoEcho` parameter khi deploy

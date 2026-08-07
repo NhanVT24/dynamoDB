@@ -70,7 +70,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
             disabled={isOut}
             className="pointer-events-auto mt-5 inline-flex min-w-[9rem] items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400"
           >
-            {isOut ? "Het hang" : "Them vao gio"}
+            {isOut ? "Hết hàng" : "Thêm vào giỏ"}
           </button>
         </div>
       </div>
@@ -84,7 +84,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
         <p className={`mt-2 line-clamp-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{product.description}</p>
         <div className="mt-3 flex items-center gap-2 text-sm">
           <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-600">★ {product.rating}</span>
-          <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>Da ban {product.soldCount}</span>
+          <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>Đã bán {product.soldCount}</span>
         </div>
         <div className="mt-4">
           <div className="text-[13px] text-slate-400 line-through">{formatCurrency(product.originalPrice)}</div>
@@ -106,7 +106,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const activeCategory = category ?? "Tat ca";
+  const activeCategory = category ?? "Tất cả";
   const activeSort: SortMode =
     sort === "oldest" || sort === "price-asc" || sort === "price-desc" || sort === "best-seller"
       ? sort
@@ -127,7 +127,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
         }
       } catch (fetchError) {
         if (!cancelled) {
-          setError(fetchError instanceof Error ? fetchError.message : "Khong the tai du lieu san pham.");
+          setError(fetchError instanceof Error ? fetchError.message : "Không thể tải danh sách sản phẩm.");
         }
       } finally {
         if (!cancelled) {
@@ -145,7 +145,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
   const filteredProducts = useMemo(() => {
     const normalizedKeyword = normalizeVietnameseText(keyword);
     const normalizedActiveCategory = normalizeVietnameseText(activeCategory);
-    const normalizedAllCategory = normalizeVietnameseText("Tat ca");
+    const normalizedAllCategory = normalizeVietnameseText("Tất cả");
 
     return [...products]
       .filter((product) => normalizedActiveCategory === normalizedAllCategory || normalizeVietnameseText(product.category) === normalizedActiveCategory)
@@ -172,7 +172,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
     const nextCategory = next.category ?? activeCategory;
     const nextSort = next.sort ?? activeSort;
 
-    if (normalizeVietnameseText(nextCategory) === normalizeVietnameseText("Tat ca")) {
+    if (normalizeVietnameseText(nextCategory) === normalizeVietnameseText("Tất cả")) {
       draft.delete("category");
     } else {
       draft.set("category", nextCategory);
@@ -195,28 +195,28 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
     <section className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <SectionTitle
-          title="Danh sach san pham"
-          description="Bo loc da duoc doi sang so khop khong phan biet dau, nen du lieu co dau hay khong dau deu loc duoc."
+          title="Danh sách sản phẩm"
+          description="Chọn nhanh món bạn yêu thích, lọc theo nhu cầu và khám phá những ưu đãi nổi bật đang có trong cửa hàng."
         />
         <div className={`mt-8 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
           <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr_1fr]">
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Tim san pham</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Tìm sản phẩm</span>
               <input
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
-                placeholder="Nhap ten, thuong hieu hoac mo ta..."
+                placeholder="Nhập tên, thương hiệu hoặc mô tả bạn muốn tìm..."
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${isDark ? "border-white/10 bg-slate-900 text-white placeholder:text-slate-500 focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400 focus:border-orange-500"}`}
               />
             </label>
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Danh muc</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Danh mục</span>
               <select
                 value={activeCategory}
                 onChange={(event) => updateFilters({ category: event.target.value })}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${isDark ? "border-white/10 bg-slate-900 text-white focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 focus:border-orange-500"}`}
               >
-                <option value="Tat ca">Tat ca</option>
+                <option value="Tất cả">Tất cả</option>
                 {storeCategories.map((item) => (
                   <option key={item.id} value={item.label}>
                     {item.label}
@@ -225,30 +225,56 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
               </select>
             </label>
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Sap xep</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Sắp xếp</span>
               <select
                 value={activeSort}
                 onChange={(event) => updateFilters({ sort: event.target.value as SortMode })}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${isDark ? "border-white/10 bg-slate-900 text-white focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 focus:border-orange-500"}`}
               >
-                <option value="newest">Newest</option>
-                <option value="oldest">Oldest</option>
-                <option value="price-asc">Gia tang dan</option>
-                <option value="price-desc">Gia giam dan</option>
-                <option value="best-seller">Ban chay</option>
+                <option value="newest">Mới cập nhật</option>
+                <option value="oldest">Cũ hơn</option>
+                <option value="price-asc">Giá tăng dần</option>
+                <option value="price-desc">Giá giảm dần</option>
+                <option value="best-seller">Bán chạy</option>
               </select>
             </label>
           </div>
         </div>
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-          <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>Hien thi <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{paginatedProducts.length}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{filteredProducts.length}</span> san pham</p>
-          <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>Trang <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{safePage}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{totalPages}</span></p>
-        </div>
         <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {paginatedProducts.map((product) => <ProductCard key={product.id} product={product} />)}
         </div>
-        {loading ? <p className={`mt-6 text-sm ${isDark ? "text-slate-300" : "text-slate-500"}`}>Dang tai san pham...</p> : null}
+        {loading ? <p className={`mt-6 text-sm ${isDark ? "text-slate-300" : "text-slate-500"}`}>Đang tải sản phẩm...</p> : null}
         {!loading && error ? <p className="mt-6 text-sm font-medium text-rose-500">{error}</p> : null}
+        {!loading && !error && totalPages > 1 ? (
+          <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={safePage <= 1}
+              className={`rounded-full px-5 py-3 text-sm font-semibold transition ${safePage <= 1 ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white hover:bg-white/10" : "bg-white text-slate-950 shadow-sm hover:bg-slate-50"}`}
+            >
+              Trang trước
+            </button>
+            {Array.from({ length: totalPages }, (_, index) => index + 1).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setPage(value)}
+                className={`h-11 min-w-11 rounded-full px-4 text-sm font-semibold transition ${value === safePage ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-white text-slate-700 shadow-sm hover:bg-slate-50"}`}
+              >
+                {value}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              disabled={safePage >= totalPages}
+              className={`rounded-full px-5 py-3 text-sm font-semibold transition ${safePage >= totalPages ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white hover:bg-white/10" : "bg-white text-slate-950 shadow-sm hover:bg-slate-50"}`}
+            >
+              Trang sau
+            </button>
+          </div>
+        ) : null}
       </div>
     </section>
   );

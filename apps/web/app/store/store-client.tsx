@@ -29,6 +29,15 @@ type StoreContextValue = {
   toggleDrawer: (open?: boolean) => void;
 };
 
+type StoreNotification = {
+  id: string;
+  title: string;
+  message: string;
+  status: "pending" | "sent" | "read";
+  channel: "email" | "system";
+  createdAt: string;
+};
+
 const StoreContext = createContext<StoreContextValue | null>(null);
 const themeStorageKey = "web-storefront-theme";
 const cartStorageKey = "web-storefront-cart";
@@ -203,11 +212,103 @@ function CartDrawer() {
           <div className="mt-4 flex justify-between border-t border-white/20 pt-4 text-lg font-semibold"><span>Tổng</span><span>{formatCurrency(total)}</span></div>
           <div className="mt-4 grid gap-3">
             <button onClick={clearCart} className="rounded-full border border-white/20 px-4 py-3 font-semibold">Xóa toàn bộ</button>
-            <button className="rounded-full bg-white px-4 py-3 font-semibold text-orange-600">Thanh toán sandbox sau</button>
+            <Link href="/store/checkout" className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600">
+              Thanh toán sandbox
+            </Link>
           </div>
         </div>
       </aside>
     </>
+  );
+}
+
+function NotificationBell({ session, isDark }: { session: AuthSession | null; isDark: boolean }) {
+  const [notifications, setNotifications] = useState<StoreNotification[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!session?.idToken) {
+      setNotifications([]);
+      setPendingCount(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadNotifications() {
+      try {
+        const response = await fetch("/api/lambda-proxy/api/notifications/me", {
+          headers: {
+            Authorization: `Bearer ${session.idToken}`
+          },
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = await response.json() as { items?: StoreNotification[]; pendingCount?: number };
+        if (cancelled) {
+          return;
+        }
+
+        setNotifications(payload.items ?? []);
+        setPendingCount(Number(payload.pendingCount ?? 0));
+      } catch {}
+    }
+
+    void loadNotifications();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.idToken]);
+
+  if (!session) {
+    return null;
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className={`relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${isDark ? "border-white/10 bg-white/5 text-slate-100" : "border-slate-200 bg-white text-slate-700"}`}
+      >
+        🔔
+        {pendingCount > 0 ? (
+          <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[11px] font-bold text-white">
+            {pendingCount}
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <div className={`absolute right-0 mt-3 w-80 rounded-[1.5rem] border p-4 shadow-2xl ${isDark ? "border-white/10 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold">Thông báo</p>
+            <span className="text-xs text-orange-500">{pendingCount} pending</span>
+          </div>
+          <div className="mt-3 space-y-3">
+            {notifications.length === 0 ? (
+              <div className={`rounded-2xl border border-dashed p-4 text-sm ${isDark ? "border-white/10 text-slate-300" : "border-slate-200 text-slate-500"}`}>
+                Chưa có thông báo nào.
+              </div>
+            ) : notifications.slice(0, 5).map((item) => (
+              <div key={item.id} className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-100 bg-slate-50"}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">{item.title}</p>
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${item.status === "pending" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+                    {item.status}
+                  </span>
+                </div>
+                <p className={`mt-2 text-xs leading-5 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{item.message}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -335,6 +436,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
               <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{"S\u1ea3n ph\u1ea9m"}</Link>
             </nav>
             <div className="ml-auto flex items-center gap-2">
+              <NotificationBell session={session} isDark={isDark} />
               {session ? (
                 <div className="hidden items-center gap-2 lg:flex">
                   <div className={`rounded-2xl px-4 py-2 text-right ${isDark ? "bg-white/5 text-slate-200" : "bg-slate-100 text-slate-700"}`}>

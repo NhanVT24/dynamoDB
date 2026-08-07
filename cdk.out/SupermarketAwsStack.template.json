@@ -21,26 +21,42 @@
    "Default": "/supermarket/google/client-id",
    "Description": "SSM parameter path for Google OAuth client id"
   },
-  "GoogleClientSecretSsmPath": {
+  "GoogleClientSecret": {
    "Type": "String",
-   "Default": "/supermarket/google/client-secret",
-   "Description": "SSM secure string parameter path for Google OAuth client secret"
-  },
-  "GoogleClientSecretSsmVersion": {
-   "Type": "Number",
-   "Default": 1,
-   "Description": "Version of the SSM secure string parameter for Google OAuth client secret"
+   "Default": "",
+   "Description": "Google OAuth client secret for Cognito social sign-in",
+   "NoEcho": true
   },
   "DynamoTableName": {
    "Type": "String",
    "Default": "MarketplaceProductsDev",
    "Description": "DynamoDB table name for this stack"
   },
-  "GoogleClientIdParameterParameter": {
-   "Type": "AWS::SSM::Parameter::Value<String>",
-   "Default": {
-    "Ref": "GoogleClientIdSsmPath"
-   }
+  "VnpayTmnCode": {
+   "Type": "String",
+   "Default": "2HY1RX82",
+   "Description": "VNPay sandbox terminal code"
+  },
+  "VnpayHashSecret": {
+   "Type": "String",
+   "Default": "CHLZOLUIWEKQEKXUJVWWBBRPSHAAOGBB",
+   "Description": "VNPay sandbox hash secret",
+   "NoEcho": true
+  },
+  "VnpayPaymentUrl": {
+   "Type": "String",
+   "Default": "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
+   "Description": "VNPay payment gateway URL"
+  },
+  "VnpayReturnUrl": {
+   "Type": "String",
+   "Default": "http://localhost:3000/store/checkout/result",
+   "Description": "Frontend return URL after VNPay payment"
+  },
+  "VnpayIpnUrl": {
+   "Type": "String",
+   "Default": "http://localhost:3000/api/lambda-proxy/api/payments/vnpay/ipn",
+   "Description": "VNPay IPN callback URL"
   },
   "BootstrapVersion": {
    "Type": "AWS::SSM::Parameter::Value<String>",
@@ -706,23 +722,19 @@
     },
     "ProviderDetails": {
      "client_id": {
-      "Ref": "GoogleClientIdParameterParameter"
-     },
-     "client_secret": {
       "Fn::Join": [
        "",
        [
-        "{{resolve:ssm-secure:",
+        "{{resolve:ssm:",
         {
-         "Ref": "GoogleClientSecretSsmPath"
-        },
-        ":",
-        {
-         "Ref": "GoogleClientSecretSsmVersion"
+         "Ref": "GoogleClientIdSsmPath"
         },
         "}}"
        ]
       ]
+     },
+     "client_secret": {
+      "Ref": "GoogleClientSecret"
      },
      "authorize_scopes": "openid email profile"
     },
@@ -869,7 +881,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "0d5d54fc97f1bdbb1167459349740f45ad0af40c0f788b5d568a50f39bacfeda.zip"
+     "S3Key": "002c457fcef9386af155c3ec11c7ff4c6fb94f1601c1ae57b16699e51683a51a.zip"
     },
     "Environment": {
      "Variables": {
@@ -890,6 +902,21 @@
          ".s3.ap-southeast-1.amazonaws.com"
         ]
        ]
+      },
+      "VNPAY_TMN_CODE": {
+       "Ref": "VnpayTmnCode"
+      },
+      "VNPAY_HASH_SECRET": {
+       "Ref": "VnpayHashSecret"
+      },
+      "VNPAY_PAYMENT_URL": {
+       "Ref": "VnpayPaymentUrl"
+      },
+      "VNPAY_RETURN_URL": {
+       "Ref": "VnpayReturnUrl"
+      },
+      "VNPAY_IPN_URL": {
+       "Ref": "VnpayIpnUrl"
       }
      }
     },
@@ -911,7 +938,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.0d5d54fc97f1bdbb1167459349740f45ad0af40c0f788b5d568a50f39bacfeda",
+    "aws:asset:path": "asset.002c457fcef9386af155c3ec11c7ff4c6fb94f1601c1ae57b16699e51683a51a",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -980,7 +1007,7 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Account"
    }
   },
-  "SupermarketApiGatewayDeployment3BDE3851dd5d6d9b90b576bf705fbf01d0813ee8": {
+  "SupermarketApiGatewayDeployment3BDE38514a45d28e521764d929c3358e255108e7": {
    "Type": "AWS::ApiGateway::Deployment",
    "Properties": {
     "Description": "Automatically created by the RestApi construct",
@@ -993,6 +1020,20 @@
     "SupermarketApiGatewayproxyOPTIONSF7D54AE3",
     "SupermarketApiGatewayproxyAD8FA136",
     "SupermarketApiGatewayapiOPTIONSCB5BA1AD",
+    "SupermarketApiGatewayapipaymentsOPTIONSC75B6A74",
+    "SupermarketApiGatewayapipayments22D03519",
+    "SupermarketApiGatewayapipaymentsvnpayproxyANY8A89E29B",
+    "SupermarketApiGatewayapipaymentsvnpayproxyOPTIONSADC6104D",
+    "SupermarketApiGatewayapipaymentsvnpayproxy98D1FC15",
+    "SupermarketApiGatewayapipaymentsvnpayANYB40EB5B8",
+    "SupermarketApiGatewayapipaymentsvnpayOPTIONS2157F617",
+    "SupermarketApiGatewayapipaymentsvnpay6A0C5208",
+    "SupermarketApiGatewayapiproductsproxyANY67C1189C",
+    "SupermarketApiGatewayapiproductsproxyOPTIONSC09AA66B",
+    "SupermarketApiGatewayapiproductsproxy1FDD00B4",
+    "SupermarketApiGatewayapiproductsANY0B0183A3",
+    "SupermarketApiGatewayapiproductsOPTIONS5C53ED4E",
+    "SupermarketApiGatewayapiproducts18B12F32",
     "SupermarketApiGatewayapiB7B395D3",
     "SupermarketApiGatewayapistorefrontproxyANY5CD821BE",
     "SupermarketApiGatewayapistorefrontproxyOPTIONS383AD73B",
@@ -1015,7 +1056,7 @@
    "Type": "AWS::ApiGateway::Stage",
    "Properties": {
     "DeploymentId": {
-     "Ref": "SupermarketApiGatewayDeployment3BDE3851dd5d6d9b90b576bf705fbf01d0813ee8"
+     "Ref": "SupermarketApiGatewayDeployment3BDE38514a45d28e521764d929c3358e255108e7"
     },
     "RestApiId": {
      "Ref": "SupermarketApiGatewayD32A94E9"
@@ -1414,6 +1455,336 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/OPTIONS/Resource"
    }
   },
+  "SupermarketApiGatewayapiproducts18B12F32": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapiB7B395D3"
+    },
+    "PathPart": "products",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/products/Resource"
+   }
+  },
+  "SupermarketApiGatewayapiproductsOPTIONS5C53ED4E": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapiproducts18B12F32"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/products/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapiproductsANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapiproducts72FBC865": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/api/products"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/products/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.products"
+   }
+  },
+  "SupermarketApiGatewayapiproductsANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapiproducts01CB8B5B": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/api/products"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/products/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.products"
+   }
+  },
+  "SupermarketApiGatewayapiproductsANY0B0183A3": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketApiFunctionD4E09F97",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapiproducts18B12F32"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/products/ANY/Resource"
+   }
+  },
+  "SupermarketApiGatewayapiproductsproxy1FDD00B4": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapiproducts18B12F32"
+    },
+    "PathPart": "{proxy+}",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/products/{proxy+}/Resource"
+   }
+  },
+  "SupermarketApiGatewayapiproductsproxyOPTIONSC09AA66B": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapiproductsproxy1FDD00B4"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/products/{proxy+}/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapiproductsproxyANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapiproductsproxyB1DDB48A": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/api/products/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/products/{proxy+}/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.products.{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayapiproductsproxyANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapiproductsproxy9B349FDC": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/api/products/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/products/{proxy+}/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.products.{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayapiproductsproxyANY67C1189C": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketApiFunctionD4E09F97",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapiproductsproxy1FDD00B4"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/products/{proxy+}/ANY/Resource"
+   }
+  },
   "SupermarketApiGatewayapistorefront5F652345": {
    "Type": "AWS::ApiGateway::Resource",
    "Properties": {
@@ -1744,6 +2115,394 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/ANY/Resource"
    }
   },
+  "SupermarketApiGatewayapipayments22D03519": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapiB7B395D3"
+    },
+    "PathPart": "payments",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/Resource"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsOPTIONSC75B6A74": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapipayments22D03519"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsvnpay6A0C5208": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapipayments22D03519"
+    },
+    "PathPart": "vnpay",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/vnpay/Resource"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsvnpayOPTIONS2157F617": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapipaymentsvnpay6A0C5208"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/vnpay/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsvnpayANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapipaymentsvnpayD80AAC5D": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/api/payments/vnpay"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/vnpay/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.payments.vnpay"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsvnpayANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapipaymentsvnpay0F842CBF": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/api/payments/vnpay"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/vnpay/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.payments.vnpay"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsvnpayANYB40EB5B8": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketApiFunctionD4E09F97",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapipaymentsvnpay6A0C5208"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/vnpay/ANY/Resource"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsvnpayproxy98D1FC15": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapipaymentsvnpay6A0C5208"
+    },
+    "PathPart": "{proxy+}",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/vnpay/{proxy+}/Resource"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsvnpayproxyOPTIONSADC6104D": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapipaymentsvnpayproxy98D1FC15"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/vnpay/{proxy+}/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsvnpayproxyANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapipaymentsvnpayproxy2D5EBC01": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/api/payments/vnpay/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/vnpay/{proxy+}/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.payments.vnpay.{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsvnpayproxyANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapipaymentsvnpayproxy950240C1": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/api/payments/vnpay/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/vnpay/{proxy+}/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.payments.vnpay.{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayapipaymentsvnpayproxyANY8A89E29B": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketApiFunctionD4E09F97",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapipaymentsvnpayproxy98D1FC15"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/payments/vnpay/{proxy+}/ANY/Resource"
+   }
+  },
   "SupermarketApiGatewayproxyAD8FA136": {
    "Type": "AWS::ApiGateway::Resource",
    "Properties": {
@@ -1940,7 +2699,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VQwY7TQAz9lu15OiwtQohbtxUrDmijFk4IrSYTb9ZtZhyNPVtClH9HySRtVsCBk5/97Odnr/Tq/Vrf3pgzL21xWlaY6/Ygxp7U9slnJhgHAkGZMz+2ReONoyLX2yf/1eQVKF7r9i7aE0jfntD3duHwJ/rFx8VctVfgtR4o1ql1E4V2UIHAQ34EK7zofqhEZVShba6qKf8P7TRwECPgwM+l7wxDpyrj8sLo9lP0VpB8v2qOMwgOmZF8p9A43e6pgp4Y4tVeQp2yVHoU0u03hpARVT15wRPYVghe5tRYmdIdOYN+3vBn5T5QrC8TnwvwgtJkgV6wgHBPVCan/+roFK8fDTMI600flKmxNAJn0+h2DyybGodTr3BjLUUvagd1RY0bj5hlBzHlsDWBPTDFYKF/tvoC8kxFT45oYsclI04fnFzzJsozBfwFYTBwybpObSMLub+rvKKmkwcbw629PfTlKwsPUeoonfJUgD7ym5fVO/32g769OTLiMkQv6EDvU/wNdf0ERDMDAAA="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VQwY7TQAz9lu15OiwtQohbthUrDmijFk4IrSYTb9ZtZhyNPVtClH9HkzRt0MKBk5/97Odnr/Tq/Vrf3pgTL215XNZY6G4vxh7V5snnJhgHAkGZEz92ZeuNo7LQmyf/1RQ1KF7r7i7aI0hqH9H3buHwJ/rFx8VcNSnwWg8U67E1i0JbqEHgoTiAFV70P9RI5VSjba+qY/4f2uPAXoyAAz+XvjMMvaqNK0qju0/RW0HyadUc5xAcMiP5XqFxuttRDYkY4tXeiHplqfIopLtvDCEnqhN5wRPY1Ahe5tS5MqVbcgb9vOF15T5QbC4Tn0vwgtLmgV6whHBPVI1O/9XRK14/GmYQ1lkKyjRYGYGTaXW3A5asweHUK8yspehFbaGpqXXnI2bZXkw1bB3BDphisJCerb6APFOZyDOa2POSMx4/OLnmLMozBfwFYTBwyfpebSILub+r/EFNJw82hluTPfRVmnmI0kTplacS9IHfvKze6bcf9O3NgRGXIXpBB3o3xt9rNvMcKgMAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/CDKMetadata/Default"

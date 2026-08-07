@@ -7,3 +7,12 @@ dist
 .dynamodb
 .cdk
 
+
+cdk.out/
+.next/
+dist/
+apps/api/dist/
+**/*.tsbuildinfo
+.env
+.env.local
+*.log.

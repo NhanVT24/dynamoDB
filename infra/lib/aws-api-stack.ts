@@ -1,5 +1,7 @@
 import * as path from "node:path";
 import {
+  CfnDynamicReference,
+  CfnDynamicReferenceService,
   CfnOutput,
   CfnParameter,
   Duration,
@@ -14,7 +16,7 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as s3 from "aws-cdk-lib/aws-s3";
-import * as ssm from "aws-cdk-lib/aws-ssm";
+import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 
 export class AwsApiStack extends Stack {
@@ -46,22 +48,48 @@ export class AwsApiStack extends Stack {
       description: "SSM parameter path for Google OAuth client id"
     });
 
-    const googleClientSecretSsmPath = new CfnParameter(this, "GoogleClientSecretSsmPath", {
+    const googleClientSecret = new CfnParameter(this, "GoogleClientSecret", {
       type: "String",
-      default: "/supermarket/google/client-secret",
-      description: "SSM secure string parameter path for Google OAuth client secret"
-    });
-
-    const googleClientSecretSsmVersion = new CfnParameter(this, "GoogleClientSecretSsmVersion", {
-      type: "Number",
-      default: 1,
-      description: "Version of the SSM secure string parameter for Google OAuth client secret"
+      default: "",
+      noEcho: true,
+      description: "Google OAuth client secret for Cognito social sign-in"
     });
 
     const dynamoTableName = new CfnParameter(this, "DynamoTableName", {
       type: "String",
       default: "MarketplaceProductsDev",
       description: "DynamoDB table name for this stack"
+    });
+
+    const vnpayTmnCode = new CfnParameter(this, "VnpayTmnCode", {
+      type: "String",
+      default: "2HY1RX82",
+      description: "VNPay sandbox terminal code"
+    });
+
+    const vnpayHashSecret = new CfnParameter(this, "VnpayHashSecret", {
+      type: "String",
+      default: "CHLZOLUIWEKQEKXUJVWWBBRPSHAAOGBB",
+      noEcho: true,
+      description: "VNPay sandbox hash secret"
+    });
+
+    const vnpayPaymentUrl = new CfnParameter(this, "VnpayPaymentUrl", {
+      type: "String",
+      default: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
+      description: "VNPay payment gateway URL"
+    });
+
+    const vnpayReturnUrl = new CfnParameter(this, "VnpayReturnUrl", {
+      type: "String",
+      default: "http://localhost:3000/store/checkout/result",
+      description: "Frontend return URL after VNPay payment"
+    });
+
+    const vnpayIpnUrl = new CfnParameter(this, "VnpayIpnUrl", {
+      type: "String",
+      default: "http://localhost:3000/api/lambda-proxy/api/payments/vnpay/ipn",
+      description: "VNPay IPN callback URL"
     });
 
     const table = new dynamodb.CfnTable(this, "MarketplaceProductsTable", {
@@ -134,6 +162,18 @@ export class AwsApiStack extends Stack {
       ],
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true
+    });
+
+    const notificationsQueue = new sqs.Queue(this, "NotificationsQueue", {
+      queueName: "supermarket-notifications",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(4)
+    });
+
+    const auditQueue = new sqs.Queue(this, "AuditQueue", {
+      queueName: "supermarket-audit-log",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(4)
     });
 
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
@@ -339,18 +379,15 @@ exports.handler = async (event) => {
       description: "Customers can browse products and place orders"
     });
 
-    const googleClientId = ssm.StringParameter.fromStringParameterAttributes(this, "GoogleClientIdParameter", {
-      parameterName: googleClientIdSsmPath.valueAsString,
-      simpleName: false
-    }).stringValue;
+    const googleClientId = new CfnDynamicReference(
+      CfnDynamicReferenceService.SSM,
+      googleClientIdSsmPath.valueAsString
+    ).toString();
 
     const googleIdentityProvider = new cognito.UserPoolIdentityProviderGoogle(this, "GoogleIdentityProvider", {
       userPool,
       clientId: googleClientId,
-      clientSecretValue: SecretValue.ssmSecure(
-        googleClientSecretSsmPath.valueAsString,
-        googleClientSecretSsmVersion.valueAsString
-      ),
+      clientSecretValue: SecretValue.unsafePlainText(googleClientSecret.valueAsString),
       scopes: ["openid", "email", "profile"],
       attributeMapping: {
         email: cognito.ProviderAttribute.GOOGLE_EMAIL,
@@ -391,7 +428,14 @@ exports.handler = async (event) => {
       environment: {
         DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString,
         S3_BUCKET_NAME: productImagesBucket.bucketName,
-        S3_PUBLIC_BASE_URL: `https://${productImagesBucket.bucketName}.s3.${this.region}.amazonaws.com`
+        S3_PUBLIC_BASE_URL: `https://${productImagesBucket.bucketName}.s3.${this.region}.amazonaws.com`,
+        SQS_NOTIFICATIONS_QUEUE_URL: notificationsQueue.queueUrl,
+        SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
+        VNPAY_TMN_CODE: vnpayTmnCode.valueAsString,
+        VNPAY_HASH_SECRET: vnpayHashSecret.valueAsString,
+        VNPAY_PAYMENT_URL: vnpayPaymentUrl.valueAsString,
+        VNPAY_RETURN_URL: vnpayReturnUrl.valueAsString,
+        VNPAY_IPN_URL: vnpayIpnUrl.valueAsString
       }
     });
 
@@ -413,6 +457,8 @@ exports.handler = async (event) => {
     }));
 
     productImagesBucket.grantReadWrite(lambdaFunction);
+    notificationsQueue.grantSendMessages(lambdaFunction);
+    auditQueue.grantSendMessages(lambdaFunction);
 
     const api = new apigateway.RestApi(this, "SupermarketApiGateway", {
       defaultCorsPreflightOptions: {
@@ -437,12 +483,31 @@ exports.handler = async (event) => {
     });
 
     const apiResource = api.root.addResource("api");
+    const productsResource = apiResource.addResource("products");
+    productsResource.addMethod("ANY", lambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+    const productsProxyResource = productsResource.addResource("{proxy+}");
+    productsProxyResource.addMethod("ANY", lambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+
     const storefrontResource = apiResource.addResource("storefront");
     storefrontResource.addMethod("ANY", lambdaIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
     const storefrontProxyResource = storefrontResource.addResource("{proxy+}");
     storefrontProxyResource.addMethod("ANY", lambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+
+    const paymentsResource = apiResource.addResource("payments");
+    const vnpayResource = paymentsResource.addResource("vnpay");
+    vnpayResource.addMethod("ANY", lambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+    const vnpayProxyResource = vnpayResource.addResource("{proxy+}");
+    vnpayProxyResource.addMethod("ANY", lambdaIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
@@ -466,6 +531,14 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "ProductImagesBucketName", {
       value: productImagesBucket.bucketName
+    });
+
+    new CfnOutput(this, "NotificationsQueueUrl", {
+      value: notificationsQueue.queueUrl
+    });
+
+    new CfnOutput(this, "AuditQueueUrl", {
+      value: auditQueue.queueUrl
     });
 
     new CfnOutput(this, "UserPoolId", {

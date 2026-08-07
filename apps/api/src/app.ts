@@ -51,9 +51,14 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const url = String(request.url || "");
     const isPublicStorefrontRead = isReadOnlyMethod && url.startsWith("/api/storefront/");
     const isPublicProductsRead = isReadOnlyMethod && url.startsWith("/api/products");
+    const isNotificationsMeRead = isReadOnlyMethod && url.startsWith("/api/notifications/me");
     const isStorefrontOrderMutation = method === "POST" && url === "/api/storefront/orders";
+    const isPublicVnpayRequest =
+      url === "/api/payments/vnpay" ||
+      url.startsWith("/api/payments/vnpay/") ||
+      url.startsWith("/api/payments/vnpay?");
 
-    if (isReadOnlyMethod || isPublicStorefrontRead || isPublicProductsRead) {
+    if (isReadOnlyMethod || isPublicStorefrontRead || isPublicProductsRead || isPublicVnpayRequest || isNotificationsMeRead) {
       return;
     }
 

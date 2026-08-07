@@ -17,6 +17,14 @@ export const env = z.object({
   S3_ENDPOINT: z.string().optional(),
   S3_PUBLIC_BASE_URL: z.string().optional(),
   S3_PRESIGN_EXPIRES_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
+  SQS_NOTIFICATIONS_QUEUE_URL: z.string().optional(),
+  SQS_AUDIT_QUEUE_URL: z.string().optional(),
+  NEXT_PUBLIC_API_URL: z.string().url().optional(),
+  VNPAY_TMN_CODE: z.string().min(1),
+  VNPAY_HASH_SECRET: z.string().min(1),
+  VNPAY_PAYMENT_URL: z.string().url().default("https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"),
+  VNPAY_RETURN_URL: z.string().url(),
+  VNPAY_IPN_URL: z.string().url(),
   S3_FORCE_PATH_STYLE: z
     .enum(["true", "false"])
     .optional()

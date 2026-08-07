@@ -1,0 +1,99 @@
+import crypto from "node:crypto";
+import { PutItemCommand, ScanCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
+import { env } from "../../config/env.js";
+import { rawDb } from "../../database/dynamodb/client.js";
+
+const TableName = env.DYNAMODB_TABLE_NAME;
+
+function toDynamoItem(item: Record<string, unknown>) {
+  return marshall(item, { removeUndefinedValues: true });
+}
+
+function fromDynamoItem(item?: Record<string, AttributeValue>) {
+  return item ? (unmarshall(item) as Record<string, any>) : null;
+}
+
+export type NotificationRecord = {
+  PK: string;
+  SK: string;
+  entityType: "NOTIFICATION";
+  id: string;
+  customerEmail: string;
+  title: string;
+  message: string;
+  channel: "email" | "system";
+  status: "pending" | "sent" | "read";
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function createNotification(input: {
+  email: string;
+  title: string;
+  message: string;
+  channel: "email" | "system";
+  status?: "pending" | "sent" | "read";
+  metadata?: Record<string, unknown>;
+}) {
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  const record: NotificationRecord = {
+    PK: `NOTIFICATION#${id}`,
+    SK: "DETAIL",
+    entityType: "NOTIFICATION",
+    id,
+    customerEmail: input.email,
+    title: input.title,
+    message: input.message,
+    channel: input.channel,
+    status: input.status ?? "pending",
+    metadata: input.metadata,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await rawDb.send(new PutItemCommand({
+    TableName,
+    Item: toDynamoItem(record),
+    ConditionExpression: "attribute_not_exists(PK)"
+  }));
+
+  return record;
+}
+
+export async function listNotificationsByCustomer(email: string) {
+  const result = await rawDb.send(new ScanCommand({
+    TableName,
+    FilterExpression: "entityType = :entityType AND customerEmail = :customerEmail",
+    ExpressionAttributeValues: toDynamoItem({
+      ":entityType": "NOTIFICATION",
+      ":customerEmail": email
+    })
+  }));
+
+  return (result.Items ?? [])
+    .map((item) => fromDynamoItem(item) as NotificationRecord | null)
+    .filter(Boolean)
+    .sort((left, right) => String(right?.createdAt ?? "").localeCompare(String(left?.createdAt ?? "")));
+}
+
+export async function markNotificationAsRead(id: string) {
+  const now = new Date().toISOString();
+  await rawDb.send(new UpdateItemCommand({
+    TableName,
+    Key: toDynamoItem({
+      PK: `NOTIFICATION#${id}`,
+      SK: "DETAIL"
+    }),
+    UpdateExpression: "SET #status = :status, updatedAt = :updatedAt",
+    ExpressionAttributeNames: {
+      "#status": "status"
+    },
+    ExpressionAttributeValues: toDynamoItem({
+      ":status": "read",
+      ":updatedAt": now
+    })
+  }));
+}

@@ -12,16 +12,27 @@ export const handler = async (event: any, context: unknown) => {
   const rawProxyPath = typeof pathParameters.proxy === "string" ? pathParameters.proxy.replace(/^\/+/, "") : "";
   const path = String(event?.path ?? "");
   const rawPath = String(event?.rawPath ?? "");
-  const storefrontPrefix = "/api/storefront";
-  const isStorefrontRequest =
-    path.includes(`${storefrontPrefix}/`) ||
-    path.endsWith(storefrontPrefix) ||
-    rawPath.startsWith(`${storefrontPrefix}/`) ||
-    rawPath === storefrontPrefix;
+  const rewritablePrefixes = [
+    "/api/storefront",
+    "/api/products",
+    "/api/payments/vnpay"
+  ];
 
-  if (isStorefrontRequest) {
-    pathParameters.proxy = rawProxyPath ? `api/storefront/${rawProxyPath}` : "api/storefront";
+  for (const prefix of rewritablePrefixes) {
+    const isMatchingRequest =
+      path.includes(`${prefix}/`) ||
+      path.endsWith(prefix) ||
+      rawPath.startsWith(`${prefix}/`) ||
+      rawPath === prefix;
+
+    if (!isMatchingRequest) {
+      continue;
+    }
+
+    const normalizedPrefix = prefix.replace(/^\/+/, "");
+    pathParameters.proxy = rawProxyPath ? `${normalizedPrefix}/${rawProxyPath}` : normalizedPrefix;
     event.pathParameters = pathParameters;
+    break;
   }
 
   console.log("[lambda] incoming event", {
