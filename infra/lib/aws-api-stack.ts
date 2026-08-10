@@ -178,7 +178,7 @@ export class AwsApiStack extends Stack {
 
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
       functionName: "supermarket-cognito-trigger",
-      runtime: lambda.Runtime.NODEJS_24_X,
+      runtime: lambda.Runtime.NODEJS_20_X,
       architecture: lambda.Architecture.X86_64,
       handler: "index.handler",
       timeout: Duration.seconds(10),
@@ -429,7 +429,7 @@ exports.handler = async (event) => {
 
     const lambdaFunction = new lambda.Function(this, "SupermarketApiFunction", {
       functionName: "supermarket-api-aws",
-      runtime: lambda.Runtime.NODEJS_24_X,
+      runtime: lambda.Runtime.NODEJS_20_X,
       architecture: lambda.Architecture.X86_64,
       handler: "src/lambda.handler",
       timeout: Duration.seconds(10),

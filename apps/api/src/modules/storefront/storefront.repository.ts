@@ -161,10 +161,6 @@ export async function listOrdersByCustomer(email: string) {
   const result = await rawDb.send(new ScanCommand({
     TableName,
     FilterExpression: "entityType = :entityType AND customerEmail = :customerEmail",
-    ProjectionExpression: "PK, SK, id, customerEmail, #status, items, totalAmount, createdAt, updatedAt",
-    ExpressionAttributeNames: {
-      "#status": "status"
-    },
     ExpressionAttributeValues: toDynamoItem({
       ":entityType": "ORDER",
       ":customerEmail": email
@@ -173,5 +169,6 @@ export async function listOrdersByCustomer(email: string) {
 
   return (result.Items ?? [])
     .map((item) => fromDynamoItem(item))
+    .filter(Boolean)
     .sort((left, right) => String(right?.createdAt ?? "").localeCompare(String(left?.createdAt ?? "")));
 }

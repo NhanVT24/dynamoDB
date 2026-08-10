@@ -80,7 +80,8 @@ function ensureLambdaPackageJson() {
     name: `${packageJson.name}-lambda`,
     private: true,
     type: "module",
-    dependencies: packageJson.dependencies
+    dependencies: packageJson.dependencies,
+    overrides: packageJson.overrides
   };
 
   writeFileSync(join(lambdaRoot, "package.json"), JSON.stringify(lambdaPackageJson, null, 2));

@@ -69,11 +69,6 @@ export async function listNotificationsByCustomer(email: string) {
   const result = await rawDb.send(new ScanCommand({
     TableName,
     FilterExpression: "entityType = :entityType AND customerEmail = :customerEmail",
-    ProjectionExpression: "PK, SK, id, customerEmail, title, message, #channel, #status, isRead, metadata, createdAt, updatedAt",
-    ExpressionAttributeNames: {
-      "#channel": "channel",
-      "#status": "status"
-    },
     ExpressionAttributeValues: toDynamoItem({
       ":entityType": "NOTIFICATION",
       ":customerEmail": email
