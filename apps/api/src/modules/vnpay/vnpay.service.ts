@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import { Injectable } from "@nestjs/common";
-import { env } from "../../config/env.js";
+import { Injectable, Logger } from "@nestjs/common";
+import { RuntimeConfigService } from "../../config/runtime-config.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { getStorefrontProductById } from "../storefront/storefront.repository.js";
 import type { CreateVnpayPaymentInput } from "./vnpay.schema.js";
@@ -33,8 +33,8 @@ function sortAndSerialize(params: Record<string, string>) {
     .join("&");
 }
 
-function signPayload(payload: string) {
-  return crypto.createHmac("sha512", env.VNPAY_HASH_SECRET).update(Buffer.from(payload, "utf-8")).digest("hex");
+function signPayload(payload: string, secret: string) {
+  return crypto.createHmac("sha512", secret).update(Buffer.from(payload, "utf-8")).digest("hex");
 }
 
 function mapResponseCode(code: string) {
@@ -48,9 +48,15 @@ function mapResponseCode(code: string) {
 
 @Injectable()
 export class VnpayService {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  private readonly logger = new Logger(VnpayService.name);
+
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly runtimeConfigService: RuntimeConfigService
+  ) {}
 
   async createPaymentUrl(input: CreateVnpayPaymentInput, ipAddress: string) {
+    const paymentConfig = this.runtimeConfigService.getPaymentConfig();
     let totalAmount = 0;
 
     for (const item of input.items) {
@@ -69,18 +75,19 @@ export class VnpayService {
     const txnRef = `NX${Date.now()}`;
     const createDate = formatVnpDate(new Date());
     const orderInfo = input.orderDescription?.trim() || `Thanh toan don hang ${txnRef}`;
+    const resolvedIpAddress = ipAddress || "127.0.0.1";
     const params: Record<string, string> = {
       vnp_Version: "2.1.0",
       vnp_Command: "pay",
-      vnp_TmnCode: env.VNPAY_TMN_CODE,
+      vnp_TmnCode: paymentConfig.vnpayTmnCode,
       vnp_Amount: String(totalAmount * 100),
       vnp_CreateDate: createDate,
       vnp_CurrCode: "VND",
-      vnp_IpAddr: ipAddress || "127.0.0.1",
+      vnp_IpAddr: resolvedIpAddress,
       vnp_Locale: input.locale || "vn",
       vnp_OrderInfo: orderInfo,
       vnp_OrderType: "other",
-      vnp_ReturnUrl: env.VNPAY_RETURN_URL,
+      vnp_ReturnUrl: paymentConfig.vnpayReturnUrl,
       vnp_TxnRef: txnRef
     };
 
@@ -89,8 +96,10 @@ export class VnpayService {
     }
 
     const query = sortAndSerialize(params);
-    const secureHash = signPayload(query);
-    const paymentUrl = `${env.VNPAY_PAYMENT_URL}?${query}&vnp_SecureHash=${secureHash}`;
+    const secureHash = signPayload(query, paymentConfig.vnpayHashSecret);
+    const paymentUrl = `${paymentConfig.vnpayPaymentUrl}?${query}&vnp_SecureHash=${secureHash}`;
+
+    this.logger.log(`payment.created txnRef=${txnRef} amount=${totalAmount} itemCount=${input.items.length} ip=${resolvedIpAddress}`);
 
     if (input.email?.trim()) {
       const normalizedEmail = input.email.trim().toLowerCase();
@@ -106,6 +115,7 @@ export class VnpayService {
           orderInfo
         }
       });
+      this.logger.log(`payment.notification_enqueued txnRef=${txnRef} channel=system email=${normalizedEmail}`);
 
       await this.notificationsService.createPendingNotification({
         email: normalizedEmail,
@@ -117,6 +127,7 @@ export class VnpayService {
           template: "payment-pending"
         }
       });
+      this.logger.log(`payment.notification_enqueued txnRef=${txnRef} channel=email email=${normalizedEmail}`);
 
       await this.notificationsService.publishAuditLog({
         eventType: "payments.vnpay.created",
@@ -129,6 +140,7 @@ export class VnpayService {
           status: "pending"
         }
       });
+      this.logger.log(`payment.audit_enqueued txnRef=${txnRef} email=${normalizedEmail}`);
     }
 
     return {
@@ -140,6 +152,7 @@ export class VnpayService {
   }
 
   verifyReturn(rawQuery: Record<string, unknown>): VnpayReturnPayload {
+    const paymentConfig = this.runtimeConfigService.getPaymentConfig();
     const query = Object.fromEntries(
       Object.entries(rawQuery).map(([key, value]) => [key, String(value ?? "")])
     ) as Record<string, string>;
@@ -149,14 +162,17 @@ export class VnpayService {
     delete sanitized.vnp_SecureHash;
     delete sanitized.vnp_SecureHashType;
 
-    const computedHash = signPayload(sortAndSerialize(sanitized));
+    const computedHash = signPayload(sortAndSerialize(sanitized), paymentConfig.vnpayHashSecret);
     const responseCode = query.vnp_ResponseCode || "";
-    const success = receivedHash === computedHash && responseCode === "00";
+    const isValidSignature = receivedHash === computedHash;
+    const success = isValidSignature && responseCode === "00";
+
+    this.logger.log(`payment.return_checked txnRef=${query.vnp_TxnRef || ""} valid=${isValidSignature} responseCode=${responseCode}`);
 
     return {
-      isValidSignature: receivedHash === computedHash,
+      isValidSignature,
       transactionStatus: success ? "success" : "failed",
-      message: receivedHash === computedHash ? mapResponseCode(responseCode) : "Chữ ký phản hồi từ VNPay không hợp lệ.",
+      message: isValidSignature ? mapResponseCode(responseCode) : "Chữ ký phản hồi từ VNPay không hợp lệ.",
       txnRef: query.vnp_TxnRef || "",
       amount: Number(query.vnp_Amount || 0) / 100,
       orderInfo: query.vnp_OrderInfo || "",
@@ -169,6 +185,7 @@ export class VnpayService {
 
   verifyIpn(rawQuery: Record<string, unknown>) {
     const result = this.verifyReturn(rawQuery);
+    this.logger.log(`payment.ipn_checked txnRef=${result.txnRef} valid=${result.isValidSignature} status=${result.transactionStatus}`);
     return result.isValidSignature
       ? { RspCode: "00", Message: "Confirm Success" }
       : { RspCode: "97", Message: "Invalid Checksum" };

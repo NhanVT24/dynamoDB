@@ -6,6 +6,7 @@ import { useStorefront } from "../store-client";
 import { formatCurrency } from "../store-utils";
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
+const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
 
 export default function CheckoutPage() {
   const { items, subtotal, shipping, total } = useStorefront();
@@ -49,6 +50,15 @@ export default function CheckoutPage() {
       if (!response.ok || !payload?.paymentUrl) {
         throw new Error(payload?.message || "Không thể tạo liên kết thanh toán VNPay.");
       }
+
+      window.localStorage.setItem(pendingCheckoutStorageKey, JSON.stringify({
+        email: session?.email ?? "",
+        items: items.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity
+        })),
+        createdAt: new Date().toISOString()
+      }));
 
       window.location.assign(payload.paymentUrl);
     } catch (checkoutError) {

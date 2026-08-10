@@ -1,7 +1,8 @@
 "use client";
 
+import { readAuthSession } from "../lib/cognito-auth";
 import { storeCategories } from "./store-data";
-import type { StoreProduct } from "./store-types";
+import type { StoreOrder, StoreProduct } from "./store-types";
 
 type StorefrontApiItem = {
   id: string;
@@ -18,12 +19,36 @@ type StorefrontApiItem = {
   createdAt?: string;
   imageUrl?: string;
   soldCount?: number;
+  location?: string;
+  featured?: boolean;
+  rating?: number;
+  attributes?: Record<string, unknown>;
 };
 
 type StorefrontListResponse = {
   items?: StorefrontApiItem[];
-  nextCursor?: string | null;
-  hasNextPage?: boolean;
+  pageInfo?: {
+    nextCursor?: string | null;
+    hasNextPage?: boolean;
+    limit?: number;
+    cursor?: string | null;
+  };
+};
+
+type StorefrontOrderApiItem = {
+  id: string;
+  customerEmail: string;
+  status: string;
+  items?: Array<{
+    productId: string;
+    productName: string;
+    price: number;
+    quantity: number;
+    lineTotal: number;
+  }>;
+  totalAmount: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 const publicApiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
@@ -33,7 +58,7 @@ function getStorefrontBasePath() {
     throw new Error("Missing NEXT_PUBLIC_API_URL in apps/web environment.");
   }
 
-  return `${publicApiBaseUrl}/api/products`;
+  return `${publicApiBaseUrl}/api/storefront`;
 }
 
 function slugify(value: string) {
@@ -44,18 +69,24 @@ function getCategoryImage(category: string) {
   return storeCategories.find((item) => item.label === category)?.imageUrl ?? storeCategories[0]?.imageUrl ?? "";
 }
 
-function getCategorySpecs(category: string, brand: string) {
-  return [
+function getCategorySpecs(category: string, brand: string, attributes?: Record<string, unknown>) {
+  const baseSpecs = [
     `${brand} Edition`,
     category,
-    "Bảo hành chính hãng"
+    "Bao hanh chinh hang"
   ];
+
+  const attributeSpecs = Object.entries(attributes ?? {})
+    .slice(0, 3)
+    .map(([key, value]) => `${key}: ${String(value)}`);
+
+  return [...baseSpecs, ...attributeSpecs];
 }
 
 export function toStoreProduct(item: StorefrontApiItem): StoreProduct {
-  const category = item.category ?? "Điện tử";
+  const category = item.category ?? "Dien tu";
   const brand = item.brand?.trim() || "NovaX";
-  const name = item.name?.trim() || "Sản phẩm";
+  const name = item.name?.trim() || "San pham";
   const price = Number(item.price ?? 0);
   const originalPrice = Number(item.originalPrice ?? Math.max(price, price + Math.round(price * 0.12)));
   const stock = Number(item.stock ?? 0);
@@ -74,29 +105,82 @@ export function toStoreProduct(item: StorefrontApiItem): StoreProduct {
     price,
     originalPrice,
     status,
-    rating: 4.8,
+    rating: Number(item.rating ?? 4.8),
     soldCount: Number(item.soldCount ?? 0),
-    featured: true,
-    description: item.description?.trim() || "Sản phẩm đang được cập nhật mô tả chi tiết.",
+    featured: Boolean(item.featured ?? true),
+    description: item.description?.trim() || "San pham dang duoc cap nhat mo ta chi tiet.",
     imageUrl: item.imageUrl?.trim() || getCategoryImage(category),
-    location: "Việt Nam",
+    location: item.location?.trim() || "Viet Nam",
     updatedAt: item.updatedAt ?? item.createdAt ?? new Date().toISOString(),
-    badge: status === "out_of_stock" ? "Hết hàng" : stock <= 10 ? "Sắp hết" : "Mới cập nhật",
-    specs: getCategorySpecs(category, brand)
+    badge: status === "out_of_stock" ? "Het hang" : stock <= 10 ? "Sap het" : "Moi cap nhat",
+    specs: getCategorySpecs(category, brand, item.attributes)
   };
 }
 
 export async function fetchStorefrontProducts(query: Record<string, string> = {}) {
-  const params = new URLSearchParams({ limit: "50", ...query });
-  const response = await fetch(`${getStorefrontBasePath()}?${params.toString()}`, {
+  const params = new URLSearchParams({ limit: "24", ...query });
+  const response = await fetch(`${getStorefrontBasePath()}/products?${params.toString()}`, {
     method: "GET",
     cache: "no-store"
   });
 
   if (!response.ok) {
-    throw new Error("Không thể tải dữ liệu sản phẩm.");
+    throw new Error("Khong the tai du lieu san pham.");
   }
 
   const payload = (await response.json()) as StorefrontListResponse;
-  return (payload.items ?? []).map(toStoreProduct);
+  return {
+    items: (payload.items ?? []).map(toStoreProduct),
+    pageInfo: {
+      nextCursor: payload.pageInfo?.nextCursor ?? null,
+      hasNextPage: Boolean(payload.pageInfo?.hasNextPage),
+      limit: Number(payload.pageInfo?.limit ?? params.get("limit") ?? 24),
+      cursor: payload.pageInfo?.cursor ?? null
+    }
+  };
+}
+
+export async function fetchStorefrontProductById(id: string) {
+  const response = await fetch(`${getStorefrontBasePath()}/products/${id}`, {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error("Khong the tai chi tiet san pham.");
+  }
+
+  const payload = (await response.json()) as StorefrontApiItem;
+  return toStoreProduct(payload);
+}
+
+export async function fetchMyOrders() {
+  const session = readAuthSession();
+  if (!session?.idToken) {
+    throw new Error("Ban can dang nhap de xem lich su mua hang.");
+  }
+
+  const response = await fetch(`${getStorefrontBasePath()}/orders/me`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${session.idToken}`
+    },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(payload?.message || "Khong the tai lich su mua hang.");
+  }
+
+  const payload = (await response.json().catch(() => [])) as StorefrontOrderApiItem[];
+  return payload.map((item): StoreOrder => ({
+    id: item.id,
+    customerEmail: item.customerEmail,
+    status: item.status,
+    items: item.items ?? [],
+    totalAmount: Number(item.totalAmount ?? 0),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+  }));
 }

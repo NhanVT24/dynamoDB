@@ -90,7 +90,7 @@ export class LocalstackApiStack extends Stack {
       handler: "src/lambda.handler",
       timeout: Duration.seconds(10),
       memorySize: 256,
-      code: lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda")),
+      code: lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip")),
       environment: {
         DYNAMODB_ENDPOINT: localDynamoEndpoint,
         DYNAMODB_TABLE_NAME: table.tableName ?? "MarketplaceProducts",

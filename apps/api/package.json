@@ -12,6 +12,7 @@
     "db:init": "tsx src/scripts/create-table.ts",
     "db:reset-table": "tsx src/scripts/reset-table.ts",
     "db:seed": "tsx src/scripts/seed.ts",
+    "db:seed:test": "tsx src/scripts/seed.ts --products=2000 --include-orders --customers=120 --orders-per-customer=12",
     "db:reseed": "tsx src/scripts/reseed.ts",
     "db:backfill-products": "tsx src/scripts/backfill-products.ts",
     "db:localize": "tsx src/scripts/localize-products.ts"

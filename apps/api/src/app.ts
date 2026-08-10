@@ -52,6 +52,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const isPublicStorefrontRead = isReadOnlyMethod && url.startsWith("/api/storefront/");
     const isPublicProductsRead = isReadOnlyMethod && url.startsWith("/api/products");
     const isNotificationsMeRead = isReadOnlyMethod && url.startsWith("/api/notifications/me");
+    const isNotificationReadMutation = method === "PATCH" && /^\/api\/notifications\/[^/]+\/read(?:\?|$)/.test(url);
     const isStorefrontOrderMutation = method === "POST" && url === "/api/storefront/orders";
     const isPublicVnpayRequest =
       url === "/api/payments/vnpay" ||
@@ -71,6 +72,19 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       reply.status(403).send({
         statusCode: 403,
         message: "Chỉ tài khoản customer hoặc admin mới được đặt hàng."
+      });
+      return;
+    }
+
+    if (isNotificationReadMutation) {
+      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      if (principal) {
+        return;
+      }
+
+      reply.status(403).send({
+        statusCode: 403,
+        message: "Bạn cần đăng nhập để cập nhật trạng thái thông báo."
       });
       return;
     }

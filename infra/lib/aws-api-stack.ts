@@ -48,6 +48,18 @@ export class AwsApiStack extends Stack {
       description: "SSM parameter path for Google OAuth client id"
     });
 
+    const vnpayTmnCodeSsmPath = new CfnParameter(this, "VnpayTmnCodeSsmPath", {
+      type: "String",
+      default: "/supermarket/vnpay/tmn-code",
+      description: "SSM parameter path for VNPay terminal code"
+    });
+
+    const vnpayPaymentUrlSsmPath = new CfnParameter(this, "VnpayPaymentUrlSsmPath", {
+      type: "String",
+      default: "/supermarket/vnpay/payment-url",
+      description: "SSM parameter path for VNPay payment gateway URL"
+    });
+
     const googleClientSecret = new CfnParameter(this, "GoogleClientSecret", {
       type: "String",
       default: "",
@@ -61,23 +73,11 @@ export class AwsApiStack extends Stack {
       description: "DynamoDB table name for this stack"
     });
 
-    const vnpayTmnCode = new CfnParameter(this, "VnpayTmnCode", {
-      type: "String",
-      default: "2HY1RX82",
-      description: "VNPay sandbox terminal code"
-    });
-
     const vnpayHashSecret = new CfnParameter(this, "VnpayHashSecret", {
       type: "String",
       default: "CHLZOLUIWEKQEKXUJVWWBBRPSHAAOGBB",
       noEcho: true,
       description: "VNPay sandbox hash secret"
-    });
-
-    const vnpayPaymentUrl = new CfnParameter(this, "VnpayPaymentUrl", {
-      type: "String",
-      default: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
-      description: "VNPay payment gateway URL"
     });
 
     const vnpayReturnUrl = new CfnParameter(this, "VnpayReturnUrl", {
@@ -413,6 +413,16 @@ exports.handler = async (event) => {
     });
     userPoolClient.node.addDependency(googleIdentityProvider);
 
+    const vnpayTmnCodeValue = new CfnDynamicReference(
+      CfnDynamicReferenceService.SSM,
+      vnpayTmnCodeSsmPath.valueAsString
+    ).toString();
+
+    const vnpayPaymentUrlValue = new CfnDynamicReference(
+      CfnDynamicReferenceService.SSM,
+      vnpayPaymentUrlSsmPath.valueAsString
+    ).toString();
+
     const userPoolDomain = userPool.addDomain("HostedUiDomain", {
       cognitoDomain: { domainPrefix: cognitoDomainPrefix.valueAsString }
     });
@@ -424,16 +434,16 @@ exports.handler = async (event) => {
       handler: "src/lambda.handler",
       timeout: Duration.seconds(10),
       memorySize: 256,
-      code: lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda")),
+      code: lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip")),
       environment: {
         DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString,
         S3_BUCKET_NAME: productImagesBucket.bucketName,
         S3_PUBLIC_BASE_URL: `https://${productImagesBucket.bucketName}.s3.${this.region}.amazonaws.com`,
         SQS_NOTIFICATIONS_QUEUE_URL: notificationsQueue.queueUrl,
         SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
-        VNPAY_TMN_CODE: vnpayTmnCode.valueAsString,
+        VNPAY_TMN_CODE: vnpayTmnCodeValue,
         VNPAY_HASH_SECRET: vnpayHashSecret.valueAsString,
-        VNPAY_PAYMENT_URL: vnpayPaymentUrl.valueAsString,
+        VNPAY_PAYMENT_URL: vnpayPaymentUrlValue,
         VNPAY_RETURN_URL: vnpayReturnUrl.valueAsString,
         VNPAY_IPN_URL: vnpayIpnUrl.valueAsString
       }
@@ -458,7 +468,14 @@ exports.handler = async (event) => {
 
     productImagesBucket.grantReadWrite(lambdaFunction);
     notificationsQueue.grantSendMessages(lambdaFunction);
+    notificationsQueue.grantConsumeMessages(lambdaFunction);
     auditQueue.grantSendMessages(lambdaFunction);
+
+    new lambda.EventSourceMapping(this, "NotificationsQueueEventSource", {
+      target: lambdaFunction,
+      eventSourceArn: notificationsQueue.queueArn,
+      batchSize: 10
+    });
 
     const api = new apigateway.RestApi(this, "SupermarketApiGateway", {
       defaultCorsPreflightOptions: {

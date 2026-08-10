@@ -21,6 +21,16 @@
    "Default": "/supermarket/google/client-id",
    "Description": "SSM parameter path for Google OAuth client id"
   },
+  "VnpayTmnCodeSsmPath": {
+   "Type": "String",
+   "Default": "/supermarket/vnpay/tmn-code",
+   "Description": "SSM parameter path for VNPay terminal code"
+  },
+  "VnpayPaymentUrlSsmPath": {
+   "Type": "String",
+   "Default": "/supermarket/vnpay/payment-url",
+   "Description": "SSM parameter path for VNPay payment gateway URL"
+  },
   "GoogleClientSecret": {
    "Type": "String",
    "Default": "",
@@ -32,21 +42,11 @@
    "Default": "MarketplaceProductsDev",
    "Description": "DynamoDB table name for this stack"
   },
-  "VnpayTmnCode": {
-   "Type": "String",
-   "Default": "2HY1RX82",
-   "Description": "VNPay sandbox terminal code"
-  },
   "VnpayHashSecret": {
    "Type": "String",
    "Default": "CHLZOLUIWEKQEKXUJVWWBBRPSHAAOGBB",
    "Description": "VNPay sandbox hash secret",
    "NoEcho": true
-  },
-  "VnpayPaymentUrl": {
-   "Type": "String",
-   "Default": "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
-   "Description": "VNPay payment gateway URL"
   },
   "VnpayReturnUrl": {
    "Type": "String",
@@ -901,6 +901,22 @@
       },
       {
        "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:ChangeMessageVisibility",
+        "sqs:GetQueueUrl",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "NotificationsQueue3B766469",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
         "sqs:SendMessage",
         "sqs:GetQueueAttributes",
         "sqs:GetQueueUrl"
@@ -935,7 +951,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "23cd6bfb295acde5b224a466250d0566f63e1ce7dbd95136c8d2ca127ce66df0.zip"
+     "S3Key": "b1fe755d880f958a11476c773f4e2f07d73dac3ec4ba1adc0c5e1583913feb14.zip"
     },
     "Environment": {
      "Variables": {
@@ -964,13 +980,31 @@
        "Ref": "AuditQueue1D3C234B"
       },
       "VNPAY_TMN_CODE": {
-       "Ref": "VnpayTmnCode"
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayTmnCodeSsmPath"
+         },
+         "}}"
+        ]
+       ]
       },
       "VNPAY_HASH_SECRET": {
        "Ref": "VnpayHashSecret"
       },
       "VNPAY_PAYMENT_URL": {
-       "Ref": "VnpayPaymentUrl"
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayPaymentUrlSsmPath"
+         },
+         "}}"
+        ]
+       ]
       },
       "VNPAY_RETURN_URL": {
        "Ref": "VnpayReturnUrl"
@@ -998,9 +1032,27 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.23cd6bfb295acde5b224a466250d0566f63e1ce7dbd95136c8d2ca127ce66df0",
+    "aws:asset:path": "asset.b1fe755d880f958a11476c773f4e2f07d73dac3ec4ba1adc0c5e1583913feb14.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
+   }
+  },
+  "NotificationsQueueEventSource95362BF3": {
+   "Type": "AWS::Lambda::EventSourceMapping",
+   "Properties": {
+    "BatchSize": 10,
+    "EventSourceArn": {
+     "Fn::GetAtt": [
+      "NotificationsQueue3B766469",
+      "Arn"
+     ]
+    },
+    "FunctionName": {
+     "Ref": "SupermarketApiFunctionD4E09F97"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/NotificationsQueueEventSource/Resource"
    }
   },
   "SupermarketApiGatewayD32A94E9": {
@@ -2759,7 +2811,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VRwW7bMAz9luasaF0yDMNuboIVOwz1ku00DIUss64SS/REqpln+N8HWXbiYu1hJz7ykY+P0kqu3q/l9ZU60VKXx2VtCtntWemj2Dy4XHllgcELdaL7rmydslgWcvPgvqmiBkFr2d0EfQSO7Qn96BbW/DZu8XExV40KtJYDRTK1ZoFxCzUw3BUH0EyL/qdIVI610e1FNeX/oZ0G9qwYLLi59I0i6AX9Itl9DRAgLhlAL2pli1LJ7lNwmg26SM1xDt4aIoOuF0ZZ2e2wHuaHePGcUC80Vs4wyu47gc8R60ie8QQ2tQHHc2qsTOkWrTJu3vBv5dZjaM4Tn0twbLjNPT6ZEvwtYpWcvtbRC1rfKyJgklkMQjWmUgwn1cpuB8RZY4ZTLzDTGoNjsYWmxtaOR8yyPatq2JrADgiD1xB/QHwBfsQykiOa2HHJiNMLTq4pC/yI3vwBPxg4Z30vNoEY7csqz6jp5MHGcGu0Z1wVZ+4CN4F74bAEeaA3T6t38u0HeX11IGOWPjg2FuQuxb/Mlp3dPwMAAA=="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VRwW7bMAz9luasaF0yDMNuabIVOxT1ku00DIUss64SS/REKpln+N8HyXbioeuhJz7yUY+P1EIu3i/l9ZU60VwXh3llctnuWOmDWD+6THllgcELdaKHtmicsljkcv3ovqm8AkFL2d4EfQCO7T360c6s+W3c7ONsqhoVaCkTRbJvXQXGDVTAcJ/vQTPNup+ipzKsjG4uqn3+Cu3+wY4VgwU3lb5RBJ2gXyTbrwECxCEJdKJSNi+UbD8Hp9mgi9QUZ+CtIYrZpyM43mHwGu5UXRtXxobn1U4YZWW7xSoNSvGyXI86obF0hlG23wl8hlhF8oxHsK4MOJ5SQ2VMN2iVcdOG55Vbj6E+v/hSgGPDTebxaArwt4hl7/Sljk7Q8kERAZNcxSBUbUrFcFKNbLdAvKpNWvUCV1pjcCw2UFfY2GGJSbZjVaapPdgCpRvGrxJ3wE9YRHJAIzsMGXB/wdE1rQI/oTd/wCcD56zrxDoQo/2/yj/UuHKykXaN9oavvg9cB+6EwwLknt4cF+/k2w/y+mpPxsx9cGwsyG0f/wKZCWDNaAMAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/CDKMetadata/Default"

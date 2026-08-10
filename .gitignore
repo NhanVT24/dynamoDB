@@ -15,4 +15,3 @@ apps/api/dist/
 **/*.tsbuildinfo
 .env
 .env.local
-*.log.

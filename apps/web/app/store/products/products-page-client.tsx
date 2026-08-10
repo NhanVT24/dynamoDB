@@ -123,7 +123,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
       try {
         const data = await fetchStorefrontProducts();
         if (!cancelled) {
-          setProducts(data);
+          setProducts(data.items);
         }
       } catch (fetchError) {
         if (!cancelled) {

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { GetItemCommand, PutItemCommand, ScanCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import { GetItemCommand, PutItemCommand, ScanCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
@@ -18,6 +18,19 @@ type OrderLine = {
 type CreateOrderPayload = {
   email: string;
   items: Array<{ productId: string; quantity: number }>;
+};
+
+export type StorefrontOrderRecord = {
+  PK: string;
+  SK: string;
+  entityType: "ORDER";
+  id: string;
+  customerEmail: string;
+  status: "pending" | "done";
+  items: OrderLine[];
+  totalAmount: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 function toDynamoItem(item: Record<string, unknown>) {
@@ -77,7 +90,7 @@ export async function createStorefrontOrder(input: CreateOrderPayload) {
 
   const now = new Date().toISOString();
   const orderId = crypto.randomUUID();
-  const orderRecord = {
+  const orderRecord: StorefrontOrderRecord = {
     PK: `ORDER#${orderId}`,
     SK: "DETAIL",
     entityType: "ORDER",
@@ -99,10 +112,59 @@ export async function createStorefrontOrder(input: CreateOrderPayload) {
   return orderRecord;
 }
 
+export async function getOrderById(id: string) {
+  const result = await rawDb.send(new GetItemCommand({
+    TableName,
+    Key: toDynamoItem({
+      PK: `ORDER#${id}`,
+      SK: "DETAIL"
+    })
+  }));
+
+  return fromDynamoItem(result.Item) as StorefrontOrderRecord | null;
+}
+
+export async function markOrderAsDone(id: string) {
+  const now = new Date().toISOString();
+
+  await rawDb.send(new PutItemCommand({
+    TableName,
+    Item: toDynamoItem({
+      PK: `ORDER#${id}`,
+      SK: `DETAIL#STATUS_CHANGE#${now}`,
+      entityType: "ORDER_STATUS_AUDIT",
+      orderId: id,
+      status: "done",
+      createdAt: now
+    })
+  }));
+
+  await rawDb.send(new UpdateItemCommand({
+    TableName,
+    Key: toDynamoItem({
+      PK: `ORDER#${id}`,
+      SK: "DETAIL"
+    }),
+    UpdateExpression: "SET #status = :status, updatedAt = :updatedAt",
+    ConditionExpression: "attribute_exists(PK)",
+    ExpressionAttributeNames: {
+      "#status": "status"
+    },
+    ExpressionAttributeValues: toDynamoItem({
+      ":status": "done",
+      ":updatedAt": now
+    })
+  }));
+}
+
 export async function listOrdersByCustomer(email: string) {
   const result = await rawDb.send(new ScanCommand({
     TableName,
     FilterExpression: "entityType = :entityType AND customerEmail = :customerEmail",
+    ProjectionExpression: "PK, SK, id, customerEmail, #status, items, totalAmount, createdAt, updatedAt",
+    ExpressionAttributeNames: {
+      "#status": "status"
+    },
     ExpressionAttributeValues: toDynamoItem({
       ":entityType": "ORDER",
       ":customerEmail": email

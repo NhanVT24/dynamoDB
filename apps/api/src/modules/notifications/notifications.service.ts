@@ -1,16 +1,20 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { env } from "../../config/env.js";
 import { sqsClient } from "../../integrations/sqs/client.js";
+import { getOrderById, markOrderAsDone } from "../storefront/storefront.repository.js";
 import {
   createNotification,
   listNotificationsByCustomer,
   markNotificationAsRead,
+  markNotificationAsSent,
   type NotificationRecord
 } from "./notifications.repository.js";
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   async createPendingNotification(input: {
     email: string;
     title: string;
@@ -23,6 +27,7 @@ export class NotificationsService {
       status: "pending"
     });
 
+    this.logger.log(`notification.created id=${notification.id} channel=${notification.channel} email=${notification.customerEmail}`);
     await this.publishNotificationEvent(notification);
     return notification;
   }
@@ -34,6 +39,7 @@ export class NotificationsService {
     metadata?: Record<string, unknown>;
   }) {
     if (!env.SQS_AUDIT_QUEUE_URL) {
+      this.logger.warn(`audit.queue.disabled eventType=${input.eventType} resourceId=${input.resourceId ?? ""}`);
       return { queued: false };
     }
 
@@ -48,6 +54,8 @@ export class NotificationsService {
       })
     }));
 
+    this.logger.log(`audit.enqueued eventType=${input.eventType} resourceId=${input.resourceId ?? ""} queue=${env.SQS_AUDIT_QUEUE_URL}`);
+
     return { queued: true };
   }
 
@@ -55,7 +63,7 @@ export class NotificationsService {
     const items = await listNotificationsByCustomer(email);
     return {
       items,
-      pendingCount: items.filter((item) => item.status === "pending").length
+      pendingCount: items.filter((item) => !item.isRead).length
     };
   }
 
@@ -70,8 +78,18 @@ export class NotificationsService {
     return { success: true };
   }
 
+  async processQueueRecords(records: Array<{ body?: string }>) {
+    this.logger.log(`notification.queue.batch_received size=${records.length}`);
+    const results = await Promise.all(records.map((record) => this.processQueueRecord(record.body)));
+    this.logger.log(`notification.queue.batch_processed processed=${results.filter(Boolean).length}`);
+    return {
+      processed: results.filter(Boolean).length
+    };
+  }
+
   private async publishNotificationEvent(notification: NotificationRecord) {
     if (!env.SQS_NOTIFICATIONS_QUEUE_URL) {
+      this.logger.warn(`notification.queue.disabled notificationId=${notification.id}`);
       return { queued: false };
     }
 
@@ -89,6 +107,58 @@ export class NotificationsService {
       })
     }));
 
+    this.logger.log(`notification.enqueued notificationId=${notification.id} channel=${notification.channel} queue=${env.SQS_NOTIFICATIONS_QUEUE_URL}`);
+
     return { queued: true };
+  }
+
+  private async processQueueRecord(body: string | undefined) {
+    if (!body) {
+      return null;
+    }
+
+    const payload = JSON.parse(body) as {
+      type?: string;
+      notificationId?: string;
+      metadata?: Record<string, unknown>;
+    };
+
+    if (payload.type !== "notification.pending" || !payload.notificationId) {
+      this.logger.warn(`notification.queue.ignored payload=${body}`);
+      return null;
+    }
+
+    this.logger.log(`notification.queue.processing notificationId=${payload.notificationId} orderId=${String(payload.metadata?.orderId ?? "")}`);
+    await markNotificationAsSent(payload.notificationId);
+
+    const orderId = String(payload.metadata?.orderId ?? "").trim();
+    if (!orderId) {
+      this.logger.log(`notification.queue.completed notificationId=${payload.notificationId} orderCompleted=false`);
+      return { notificationId: payload.notificationId, orderCompleted: false };
+    }
+
+    await this.completeOrderIfReady(orderId);
+    this.logger.log(`notification.queue.completed notificationId=${payload.notificationId} orderId=${orderId} orderCompleted=true`);
+    return { notificationId: payload.notificationId, orderCompleted: true };
+  }
+
+  private async completeOrderIfReady(orderId: string) {
+    const order = await getOrderById(orderId);
+    if (!order || order.status === "done") {
+      return;
+    }
+
+    const notifications = await listNotificationsByCustomer(order.customerEmail);
+    const orderNotifications = notifications.filter((item) => String(item.metadata?.orderId ?? "") === orderId);
+    const systemSent = orderNotifications.some((item) => item.channel === "system" && item.status === "sent");
+    const emailSent = orderNotifications.some((item) => item.channel === "email" && item.status === "sent");
+
+    if (!systemSent || !emailSent) {
+      this.logger.log(`order.pending orderId=${orderId} systemSent=${systemSent} emailSent=${emailSent}`);
+      return;
+    }
+
+    await markOrderAsDone(orderId);
+    this.logger.log(`order.done orderId=${orderId}`);
   }
 }

@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, ReactNode } from "react";
 import { storeCategories, storeProducts } from "./store-data";
-import { fetchStorefrontProducts } from "./store-api";
+import { fetchStorefrontProductById, fetchStorefrontProducts } from "./store-api";
 import { readAuthSession, signOutFromCognitoHostedUi, type AuthSession } from "../lib/cognito-auth";
 import type { CartItem, StoreProduct } from "./store-types";
 import { calculateShipping, calculateSubtotal, formatCurrency, formatShortDate } from "./store-utils";
@@ -34,18 +34,55 @@ type StoreNotification = {
   title: string;
   message: string;
   status: "pending" | "sent" | "read";
+  isRead?: boolean;
   channel: "email" | "system";
   createdAt: string;
+  source?: "server" | "local";
 };
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 const themeStorageKey = "web-storefront-theme";
 const cartStorageKey = "web-storefront-cart";
+const localNotificationsStorageKey = "web-storefront-local-notifications";
+const notificationsUpdatedEvent = "storefront-notifications-updated";
+
+function readLocalNotifications(): StoreNotification[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const raw = window.localStorage.getItem(localNotificationsStorageKey);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as StoreNotification[];
+    return parsed.map((item) => ({
+      ...item,
+      isRead: Boolean(item.isRead ?? item.status === "read"),
+      source: "local"
+    }));
+  } catch {
+    window.localStorage.removeItem(localNotificationsStorageKey);
+    return [];
+  }
+}
+
+function writeLocalNotifications(items: StoreNotification[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(localNotificationsStorageKey, JSON.stringify(items));
+  window.dispatchEvent(new Event(notificationsUpdatedEvent));
+}
 
 export function StorefrontProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [items, setItems] = useState<CartItem[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [hasHydratedCart, setHasHydratedCart] = useState(false);
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem(themeStorageKey);
@@ -62,7 +99,11 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
         setItems(parsed);
       } catch {
         window.localStorage.removeItem(cartStorageKey);
+      } finally {
+        setHasHydratedCart(true);
       }
+    } else {
+      setHasHydratedCart(true);
     }
   }, []);
 
@@ -72,8 +113,11 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
+    if (!hasHydratedCart) {
+      return;
+    }
     window.localStorage.setItem(cartStorageKey, JSON.stringify(items));
-  }, [items]);
+  }, [hasHydratedCart, items]);
 
   function addCatalogItem(product: StoreProduct, quantity: number) {
     setItems((current) => {
@@ -228,15 +272,19 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!session?.idToken) {
-      setNotifications([]);
-      setPendingCount(0);
-      return;
-    }
-
     let cancelled = false;
 
     async function loadNotifications() {
+      const localItems = readLocalNotifications();
+
+      if (!session?.idToken) {
+        if (!cancelled) {
+          setNotifications(localItems);
+          setPendingCount(localItems.filter((item) => !item.isRead).length);
+        }
+        return;
+      }
+
       try {
         const response = await fetch("/api/lambda-proxy/api/notifications/me", {
           headers: {
@@ -254,19 +302,70 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
           return;
         }
 
-        setNotifications(payload.items ?? []);
-        setPendingCount(Number(payload.pendingCount ?? 0));
+        const serverItems = (payload.items ?? []).map((item) => ({ ...item, source: "server" as const }));
+        const mergedItems = [...localItems, ...serverItems]
+          .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+
+        setNotifications(mergedItems);
+        setPendingCount(Number(payload.pendingCount ?? 0) + localItems.filter((item) => !item.isRead).length);
       } catch {}
     }
 
     void loadNotifications();
+    const handleNotificationsUpdated = () => {
+      void loadNotifications();
+    };
+
+    window.addEventListener(notificationsUpdatedEvent, handleNotificationsUpdated);
     return () => {
       cancelled = true;
+      window.removeEventListener(notificationsUpdatedEvent, handleNotificationsUpdated);
     };
   }, [session?.idToken]);
 
-  if (!session) {
-    return null;
+  async function handleDismissNotification(item: StoreNotification) {
+    if (!session?.idToken) {
+      if (item.source === "local") {
+        const nextItems = readLocalNotifications().map((entry) =>
+          entry.id === item.id
+            ? { ...entry, isRead: true, status: "read" as const }
+            : entry
+        );
+        writeLocalNotifications(nextItems);
+      }
+      return;
+    }
+
+    if (item.source === "local") {
+      const nextItems = readLocalNotifications().map((entry) =>
+        entry.id === item.id
+          ? { ...entry, isRead: true, status: "read" as const }
+          : entry
+      );
+      writeLocalNotifications(nextItems);
+      return;
+    }
+    try {
+      const response = await fetch(`/api/lambda-proxy/api/notifications/${item.id}/read`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${session.idToken}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to dismiss notification.");
+      }
+
+      setNotifications((current) =>
+        current.map((entry) =>
+          entry.id === item.id
+            ? { ...entry, isRead: true, status: "read" as const }
+            : entry
+        )
+      );
+      setPendingCount((current) => Math.max(0, current - (!item.isRead ? 1 : 0)));
+    } catch {}
   }
 
   return (
@@ -297,10 +396,21 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
             ) : notifications.slice(0, 5).map((item) => (
               <div key={item.id} className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-100 bg-slate-50"}`}>
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold">{item.title}</p>
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${item.status === "pending" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
-                    {item.status}
-                  </span>
+                  <p className={`text-sm font-semibold ${item.isRead ? (isDark ? "text-slate-300" : "text-slate-500") : ""}`}>{item.title}</p>
+                  <div className="flex items-center gap-2">
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${!item.isRead ? "bg-amber-100 text-amber-700" : "bg-slate-200 text-slate-600"}`}>
+                      {item.isRead ? "read" : item.status}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void handleDismissNotification(item)}
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm transition ${isDark ? "bg-white/10 text-slate-300 hover:bg-white/15 hover:text-white" : "bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700"}`}
+                      aria-label="Tắt thông báo"
+                      title="Tắt thông báo"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
                 <p className={`mt-2 text-xs leading-5 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{item.message}</p>
               </div>
@@ -434,6 +544,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
             <nav className={`hidden items-center gap-2 rounded-full p-1 lg:flex ${isDark ? "bg-white/5" : "bg-slate-100"}`}>
               <Link href="/store" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname === "/store" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{"Trang ch\u1ee7"}</Link>
               <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{"S\u1ea3n ph\u1ea9m"}</Link>
+              <Link href="/store/orders" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Lịch sử mua</Link>
             </nav>
             <div className="ml-auto flex items-center gap-2">
               <NotificationBell session={session} isDark={isDark} />
@@ -494,7 +605,7 @@ export function HomeSections() {
     async function loadProducts() {
       try {
         const data = await fetchStorefrontProducts();
-        if (!cancelled) setProducts(data);
+        if (!cancelled) setProducts(data.items);
       } catch {}
     }
 
@@ -688,16 +799,31 @@ export function ProductDetailClient({ slug }: { slug: string }) {
   const { theme, addCatalogItem } = useStorefront();
   const isDark = theme === "dark";
   const [quantity, setQuantity] = useState(1);
-  const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [product, setProduct] = useState<StoreProduct | null>(null);
+  const [relatedProducts, setRelatedProducts] = useState<StoreProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadProducts() {
+      const productId = slug.split("-").pop();
+      if (!productId) {
+        if (!cancelled) setIsLoading(false);
+        return;
+      }
+
       try {
-        const data = await fetchStorefrontProducts();
-        if (!cancelled) setProducts(data);
+        const [detail, listing] = await Promise.all([
+          fetchStorefrontProductById(productId),
+          fetchStorefrontProducts({ category: "all", limit: "12" })
+        ]);
+        if (!cancelled) {
+          setProduct(detail);
+          setRelatedProducts(
+            listing.items.filter((item) => item.id !== detail.id && item.category === detail.category).slice(0, 4)
+          );
+        }
       } catch {
       } finally {
         if (!cancelled) setIsLoading(false);
@@ -709,8 +835,6 @@ export function ProductDetailClient({ slug }: { slug: string }) {
       cancelled = true;
     };
   }, []);
-
-  const product = products.find((item) => item.slug === slug) ?? null;
 
   if (isLoading) {
     return (
@@ -735,7 +859,6 @@ export function ProductDetailClient({ slug }: { slug: string }) {
     );
   }
 
-  const relatedProducts = products.filter((item) => item.id !== product.id && item.category === product.category).slice(0, 4);
   const canAdd = product.status !== "out_of_stock";
 
   return (

@@ -64,6 +64,34 @@
       ]
     }
   ],
+  "/SupermarketAwsStack/VnpayTmnCodeSsmPath": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VnpayTmnCodeSsmPath"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:51:33)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketAwsStack/VnpayPaymentUrlSsmPath": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VnpayPaymentUrlSsmPath"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:57:36)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
   "/SupermarketAwsStack/GoogleClientSecret": [
     {
       "type": "aws:cdk:logicalId",
@@ -72,7 +100,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:51:32)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:63:32)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -86,21 +114,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:58:29)",
-        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
-        "...node internals, ts-node, ts-node..."
-      ]
-    }
-  ],
-  "/SupermarketAwsStack/VnpayTmnCode": [
-    {
-      "type": "aws:cdk:logicalId",
-      "data": "VnpayTmnCode"
-    },
-    {
-      "type": "aws:cdk:creationStack",
-      "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:64:26)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:70:29)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -114,21 +128,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:70:29)",
-        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
-        "...node internals, ts-node, ts-node..."
-      ]
-    }
-  ],
-  "/SupermarketAwsStack/VnpayPaymentUrl": [
-    {
-      "type": "aws:cdk:logicalId",
-      "data": "VnpayPaymentUrl"
-    },
-    {
-      "type": "aws:cdk:creationStack",
-      "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:77:29)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:76:29)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -204,7 +204,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:520:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:537:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -218,7 +218,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:524:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:541:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -232,7 +232,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:528:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:545:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -246,7 +246,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:532:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -260,7 +260,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:536:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:553:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -274,7 +274,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:540:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:557:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -288,7 +288,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:544:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:561:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -302,7 +302,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:548:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:565:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -316,7 +316,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:552:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:569:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -330,7 +330,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:556:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:573:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -344,7 +344,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:560:5)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:577:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -552,7 +552,22 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Function2 in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:420:28)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:430:28)",
+        "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/SupermarketAwsStack/NotificationsQueueEventSource/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "NotificationsQueueEventSource95362BF3"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new EventSourceMapping2 in aws-cdk-lib...",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:474:5)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -567,7 +582,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new RestApi2 in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:463:17)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:480:17)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -582,7 +597,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new RestApi2 in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:463:17)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:480:17)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -597,7 +612,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new RestApi2 in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:463:17)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:480:17)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -612,7 +627,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new CognitoUserPoolsAuthorizer2 in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:472:31)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:489:31)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -702,7 +717,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addDomain in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:416:37)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:426:37)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -717,7 +732,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Function2 in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:420:28)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:430:28)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -732,7 +747,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new RestApi2 in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:463:17)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:480:17)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -747,7 +762,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new RestApi2 in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:463:17)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:480:17)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -762,7 +777,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new RestApi2 in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:463:17)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:480:17)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -792,7 +807,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addToRolePolicy in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:442:20)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:452:20)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -807,7 +822,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new RestApi2 in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:463:17)"
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:480:17)"
       ]
     }
   ],
@@ -820,7 +835,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...RootResource.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:476:14)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:493:14)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -835,7 +850,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...RootResource.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:476:14)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:493:14)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -850,7 +865,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...RootResource.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:476:14)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:493:14)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -865,7 +880,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...RootResource.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:480:37)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:497:37)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -880,7 +895,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...RootResource.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:485:34)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:502:34)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -895,7 +910,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...RootResource.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:514:36)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:531:36)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -910,7 +925,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...RootResource.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:480:37)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:497:37)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)"
       ]
     }
@@ -924,7 +939,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:481:20)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:498:20)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -939,7 +954,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:481:20)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:498:20)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -954,7 +969,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:481:20)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:498:20)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -969,7 +984,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...RootResource.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:485:34)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:502:34)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)"
       ]
     }
@@ -983,7 +998,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:486:42)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:503:42)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -998,7 +1013,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:495:44)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:512:44)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1013,7 +1028,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:504:42)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:521:42)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1028,7 +1043,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...RootResource.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:514:36)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:531:36)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)"
       ]
     }
@@ -1042,7 +1057,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:515:19)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:532:19)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1057,7 +1072,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:515:19)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:532:19)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1072,7 +1087,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:515:19)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:532:19)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1087,7 +1102,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:486:42)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:503:42)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)"
       ]
     }
@@ -1101,7 +1116,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:487:22)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:504:22)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1116,7 +1131,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:487:22)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:504:22)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1131,7 +1146,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:487:22)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:504:22)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1146,7 +1161,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:490:52)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:507:52)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1161,7 +1176,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:495:44)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:512:44)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)"
       ]
     }
@@ -1175,7 +1190,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:496:24)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:513:24)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1190,7 +1205,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:496:24)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:513:24)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1205,7 +1220,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:496:24)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:513:24)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1220,7 +1235,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:499:56)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:516:56)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1235,7 +1250,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:504:42)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:521:42)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)"
       ]
     }
@@ -1249,7 +1264,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:505:44)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:522:44)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1264,7 +1279,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:490:52)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:507:52)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)"
       ]
     }
@@ -1278,7 +1293,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:491:27)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:508:27)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1293,7 +1308,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:491:27)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:508:27)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1308,7 +1323,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:491:27)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:508:27)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1323,7 +1338,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:499:56)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:516:56)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)"
       ]
     }
@@ -1337,7 +1352,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:500:29)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:517:29)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1352,7 +1367,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:500:29)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:517:29)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1367,7 +1382,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:500:29)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:517:29)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1382,7 +1397,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:505:44)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:522:44)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)"
       ]
     }
@@ -1396,7 +1411,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:506:19)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:523:19)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1411,7 +1426,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:506:19)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:523:19)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1426,7 +1441,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:506:19)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:523:19)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1441,7 +1456,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:509:46)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:526:46)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -1456,7 +1471,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addResource in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:509:46)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:526:46)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)"
       ]
     }
@@ -1470,7 +1485,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:510:24)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:527:24)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1485,7 +1500,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:510:24)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:527:24)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node..."
       ]
@@ -1500,7 +1515,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...WrappedClass.addMethod in aws-cdk-lib...",
-        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:510:24)",
+        "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:527:24)",
         "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
         "...node internals, ts-node, ts-node..."
       ]

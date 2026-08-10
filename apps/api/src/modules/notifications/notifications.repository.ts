@@ -24,6 +24,7 @@ export type NotificationRecord = {
   message: string;
   channel: "email" | "system";
   status: "pending" | "sent" | "read";
+  isRead: boolean;
   metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -49,6 +50,7 @@ export async function createNotification(input: {
     message: input.message,
     channel: input.channel,
     status: input.status ?? "pending",
+    isRead: input.status === "read",
     metadata: input.metadata,
     createdAt: now,
     updatedAt: now
@@ -67,6 +69,11 @@ export async function listNotificationsByCustomer(email: string) {
   const result = await rawDb.send(new ScanCommand({
     TableName,
     FilterExpression: "entityType = :entityType AND customerEmail = :customerEmail",
+    ProjectionExpression: "PK, SK, id, customerEmail, title, message, #channel, #status, isRead, metadata, createdAt, updatedAt",
+    ExpressionAttributeNames: {
+      "#channel": "channel",
+      "#status": "status"
+    },
     ExpressionAttributeValues: toDynamoItem({
       ":entityType": "NOTIFICATION",
       ":customerEmail": email
@@ -75,6 +82,7 @@ export async function listNotificationsByCustomer(email: string) {
 
   return (result.Items ?? [])
     .map((item) => fromDynamoItem(item) as NotificationRecord | null)
+    .map((item) => item ? { ...item, isRead: Boolean(item.isRead ?? item.status === "read") } : item)
     .filter(Boolean)
     .sort((left, right) => String(right?.createdAt ?? "").localeCompare(String(left?.createdAt ?? "")));
 }
@@ -87,12 +95,33 @@ export async function markNotificationAsRead(id: string) {
       PK: `NOTIFICATION#${id}`,
       SK: "DETAIL"
     }),
-    UpdateExpression: "SET #status = :status, updatedAt = :updatedAt",
+    UpdateExpression: "SET #status = :status, isRead = :isRead, updatedAt = :updatedAt",
     ExpressionAttributeNames: {
       "#status": "status"
     },
     ExpressionAttributeValues: toDynamoItem({
       ":status": "read",
+      ":isRead": true,
+      ":updatedAt": now
+    })
+  }));
+}
+
+export async function markNotificationAsSent(id: string) {
+  const now = new Date().toISOString();
+  await rawDb.send(new UpdateItemCommand({
+    TableName,
+    Key: toDynamoItem({
+      PK: `NOTIFICATION#${id}`,
+      SK: "DETAIL"
+    }),
+    UpdateExpression: "SET #status = :status, updatedAt = :updatedAt",
+    ConditionExpression: "attribute_exists(PK)",
+    ExpressionAttributeNames: {
+      "#status": "status"
+    },
+    ExpressionAttributeValues: toDynamoItem({
+      ":status": "sent",
       ":updatedAt": now
     })
   }));

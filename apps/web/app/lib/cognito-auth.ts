@@ -42,7 +42,7 @@ function repairMojibake(value: string | undefined | null) {
   if (!text) return "";
 
   // Repair common UTF-8 text that was previously decoded as Latin-1/Windows-1252.
-  if (/[ÃÄÂáºá»]/.test(text)) {
+  if (/[ÃƒÆ’Ãƒâ€žÃƒâ€šÃƒÂ¡Ã‚ÂºÃƒÂ¡Ã‚Â»]/.test(text)) {
     try {
       const repaired = decodeURIComponent(escape(text));
       if (repaired) {
@@ -69,12 +69,31 @@ function getCognitoRegion() {
 }
 
 function getCognitoClientId() {
-  return getRequiredEnv("NEXT_PUBLIC_COGNITO_CLIENT_ID", process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID);
+  const value = getRequiredEnv("NEXT_PUBLIC_COGNITO_CLIENT_ID", process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID);
+  if (value.includes("your-cognito-client-id") || value.includes("replace-me")) {
+    throw new Error("Cognito Client ID đang là placeholder. Hãy cập nhật apps/web/.env.local bằng UserPoolClientId thật từ AWS.");
+  }
+
+  return value;
 }
 
 function getCognitoDomain() {
   const value = getRequiredEnv("NEXT_PUBLIC_COGNITO_DOMAIN", process.env.NEXT_PUBLIC_COGNITO_DOMAIN);
-  return value.replace(/\/+$/, "");
+  const normalized = value.replace(/\/+$/, "");
+
+  try {
+    const url = new URL(normalized);
+    const isAwsCognitoHost = /\.auth\.[a-z0-9-]+\.amazoncognito\.com$/i.test(url.hostname);
+    const isExampleValue = /your-cognito-domain/i.test(normalized);
+
+    if (!isAwsCognitoHost || isExampleValue) {
+      throw new Error("invalid");
+    }
+  } catch {
+    throw new Error("Cognito domain không hợp lệ. Hãy cập nhật apps/web/.env.local bằng CognitoHostedUiDomain thật từ AWS.");
+  }
+
+  return normalized;
 }
 
 function getRedirectUri() {
@@ -103,7 +122,7 @@ function mapCognitoError(target: string, error: CognitoErrorLike) {
   const rawMessage = String(error.message || "").trim();
 
   if (rawType === "UsernameExistsException") {
-    return "Email này đã được đăng ký. Hãy đăng nhập hoặc dùng email khác.";
+    return "Email đã được sử dụng.";
   }
 
   if (rawType === "UserNotFoundException") {
@@ -123,11 +142,11 @@ function mapCognitoError(target: string, error: CognitoErrorLike) {
   }
 
   if (rawType === "AliasExistsException") {
-    return "Email này đã gắn với một tài khoản khác.";
+    return "Email này đã được gắn với một tài khoản khác.";
   }
 
   if (rawType === "LimitExceededException" || rawType === "TooManyRequestsException") {
-    return "Bạn thao tác quá nhanh. Hãy thử lại sau ít phút.";
+    return "Bạn thao tác quá nhanh. Hãy thử lại sau vài phút.";
   }
 
   if (rawType === "PasswordHistoryPolicyViolationException") {
@@ -140,7 +159,7 @@ function mapCognitoError(target: string, error: CognitoErrorLike) {
 
   if (rawType === "NotAuthorizedException") {
     if (target === "InitiateAuth") {
-      return "Email hoặc mật khẩu không đúng.";
+      return "Email hoặc mật khẩu không chính xác. Hãy kiểm tra lại thông tin đăng nhập.";
     }
 
     if (target === "ConfirmForgotPassword") {

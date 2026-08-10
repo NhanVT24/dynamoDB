@@ -39,3 +39,21 @@ export type CartItem = {
   stock: number;
   image: string;
 };
+
+export type StoreOrderLine = {
+  productId: string;
+  productName: string;
+  price: number;
+  quantity: number;
+  lineTotal: number;
+};
+
+export type StoreOrder = {
+  id: string;
+  customerEmail: string;
+  status: string;
+  items: StoreOrderLine[];
+  totalAmount: number;
+  createdAt: string;
+  updatedAt: string;
+};

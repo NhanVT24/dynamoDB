@@ -1,0 +1,118 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { fetchMyOrders } from "../store-api";
+import type { StoreOrder } from "../store-types";
+import { formatCurrency, formatDateTime } from "../store-utils";
+
+function StatusBadge({ status }: { status: string }) {
+  const isPending = status === "pending";
+
+  return (
+    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${isPending ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+      {status}
+    </span>
+  );
+}
+
+export default function StoreOrdersPage() {
+  const [orders, setOrders] = useState<StoreOrder[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOrders() {
+      try {
+        const data = await fetchMyOrders();
+        if (!cancelled) {
+          setOrders(data);
+          setError("");
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(nextError instanceof Error ? nextError.message : "Không thể tải lịch sử mua hàng.");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadOrders();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <main className="px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
+        <div className="rounded-[2rem] bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 p-[1px]">
+          <div className="rounded-[calc(2rem-1px)] bg-white px-6 py-8 sm:px-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Lịch sử mua hàng</p>
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">Theo dõi toàn bộ đơn đã đặt</h1>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600">
+              Xem lại các đơn đã tạo, thời điểm mua, trạng thái hiện tại và chi tiết từng sản phẩm trong đơn hàng của bạn.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
+                Tiếp tục mua sắm
+              </Link>
+              <Link href="/store/checkout" className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700">
+                Tới thanh toán
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="mt-8 rounded-[1.75rem] border border-dashed border-slate-200 bg-white p-6 text-sm text-slate-500">
+            Đang tải lịch sử đơn hàng...
+          </div>
+        ) : error ? (
+          <div className="mt-8 rounded-[1.75rem] border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
+            {error}
+          </div>
+        ) : orders.length === 0 ? (
+          <div className="mt-8 rounded-[1.75rem] border border-dashed border-slate-200 bg-white p-6 text-sm text-slate-500">
+            Bạn chưa có đơn hàng nào tính đến ngày 7 tháng 8 năm 2026.
+          </div>
+        ) : (
+          <div className="mt-8 grid gap-5">
+            {orders.map((order) => (
+              <article key={order.id} className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.25)]">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Mã đơn {order.id.slice(0, 8)}</p>
+                    <h2 className="mt-3 text-2xl font-semibold text-slate-950">{order.items.length} dòng sản phẩm</h2>
+                    <p className="mt-2 text-sm text-slate-500">Đặt lúc {formatDateTime(order.createdAt)}</p>
+                  </div>
+                  <div className="text-right">
+                    <StatusBadge status={order.status} />
+                    <p className="mt-3 text-2xl font-bold text-slate-950">{formatCurrency(order.totalAmount)}</p>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-3">
+                  {order.items.map((item) => (
+                    <div key={`${order.id}-${item.productId}`} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3">
+                      <div>
+                        <p className="font-semibold text-slate-950">{item.productName}</p>
+                        <p className="mt-1 text-sm text-slate-500">SL {item.quantity} x {formatCurrency(item.price)}</p>
+                      </div>
+                      <strong className="text-slate-950">{formatCurrency(item.lineTotal)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
