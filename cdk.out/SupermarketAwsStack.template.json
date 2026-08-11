@@ -429,6 +429,19 @@
     "aws:cdk:path": "SupermarketAwsStack/AuditQueue/Resource"
    }
   },
+  "PaymentEventsQueueD28497E2": {
+   "Type": "AWS::SQS::Queue",
+   "Properties": {
+    "MessageRetentionPeriod": 345600,
+    "QueueName": "supermarket-payment-events",
+    "VisibilityTimeout": 30
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/PaymentEventsQueue/Resource"
+   }
+  },
   "CognitoTriggerFunctionServiceRoleF8897875": {
    "Type": "AWS::IAM::Role",
    "Properties": {
@@ -928,6 +941,36 @@
          "Arn"
         ]
        }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsQueueD28497E2",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:ChangeMessageVisibility",
+        "sqs:GetQueueUrl",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsQueueD28497E2",
+         "Arn"
+        ]
+       }
       }
      ],
      "Version": "2012-10-17"
@@ -978,6 +1021,9 @@
       },
       "SQS_AUDIT_QUEUE_URL": {
        "Ref": "AuditQueue1D3C234B"
+      },
+      "SQS_PAYMENT_EVENTS_QUEUE_URL": {
+       "Ref": "PaymentEventsQueueD28497E2"
       },
       "VNPAY_TMN_CODE": {
        "Fn::Join": [
@@ -1053,6 +1099,24 @@
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/NotificationsQueueEventSource/Resource"
+   }
+  },
+  "PaymentEventsQueueEventSourceB90EEFC4": {
+   "Type": "AWS::Lambda::EventSourceMapping",
+   "Properties": {
+    "BatchSize": 10,
+    "EventSourceArn": {
+     "Fn::GetAtt": [
+      "PaymentEventsQueueD28497E2",
+      "Arn"
+     ]
+    },
+    "FunctionName": {
+     "Ref": "SupermarketApiFunctionD4E09F97"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/PaymentEventsQueueEventSource/Resource"
    }
   },
   "SupermarketApiGatewayD32A94E9": {
@@ -2886,6 +2950,11 @@
   "AuditQueueUrl": {
    "Value": {
     "Ref": "AuditQueue1D3C234B"
+   }
+  },
+  "PaymentEventsQueueUrl": {
+   "Value": {
+    "Ref": "PaymentEventsQueueD28497E2"
    }
   },
   "UserPoolId": {

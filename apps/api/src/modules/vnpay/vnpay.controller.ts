@@ -18,7 +18,7 @@ export class VnpayController {
   }
 
   @Get("ipn")
-  handleIpn(@Query() rawQuery: Record<string, unknown>) {
+  async handleIpn(@Query() rawQuery: Record<string, unknown>) {
     return this.vnpayService.verifyIpn(rawQuery);
   }
 }

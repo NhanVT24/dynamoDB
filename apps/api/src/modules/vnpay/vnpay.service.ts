@@ -183,11 +183,38 @@ export class VnpayService {
     };
   }
 
-  verifyIpn(rawQuery: Record<string, unknown>) {
+  async verifyIpn(rawQuery: Record<string, unknown>) {
     const result = this.verifyReturn(rawQuery);
     this.logger.log(`payment.ipn_checked txnRef=${result.txnRef} valid=${result.isValidSignature} status=${result.transactionStatus}`);
+
+    if (result.isValidSignature && result.transactionStatus === "success") {
+      const orderIdMatch = result.orderInfo.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+      const email = this.extractEmailFromRawQuery(rawQuery);
+
+      if (email) {
+        await this.notificationsService.publishPaymentCompletedEvent({
+          email,
+          txnRef: result.txnRef,
+          amount: result.amount,
+          orderInfo: result.orderInfo,
+          orderId: orderIdMatch?.[0],
+          responseCode: result.responseCode,
+          transactionNo: result.transactionNo,
+          bankCode: result.bankCode,
+          payDate: result.payDate
+        });
+      } else {
+        this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=missing_email`);
+      }
+    }
+
     return result.isValidSignature
       ? { RspCode: "00", Message: "Confirm Success" }
       : { RspCode: "97", Message: "Invalid Checksum" };
+  }
+
+  private extractEmailFromRawQuery(rawQuery: Record<string, unknown>) {
+    const directEmail = String(rawQuery.email ?? rawQuery.vnp_OrderInfoEmail ?? "").trim().toLowerCase();
+    return directEmail || "";
   }
 }

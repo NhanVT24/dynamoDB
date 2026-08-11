@@ -176,6 +176,12 @@ export class AwsApiStack extends Stack {
       retentionPeriod: Duration.days(4)
     });
 
+    const paymentEventsQueue = new sqs.Queue(this, "PaymentEventsQueue", {
+      queueName: "supermarket-payment-events",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(4)
+    });
+
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
       functionName: "supermarket-cognito-trigger",
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -441,6 +447,7 @@ exports.handler = async (event) => {
         S3_PUBLIC_BASE_URL: `https://${productImagesBucket.bucketName}.s3.${this.region}.amazonaws.com`,
         SQS_NOTIFICATIONS_QUEUE_URL: notificationsQueue.queueUrl,
         SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
+        SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
         VNPAY_TMN_CODE: vnpayTmnCodeValue,
         VNPAY_HASH_SECRET: vnpayHashSecret.valueAsString,
         VNPAY_PAYMENT_URL: vnpayPaymentUrlValue,
@@ -470,10 +477,18 @@ exports.handler = async (event) => {
     notificationsQueue.grantSendMessages(lambdaFunction);
     notificationsQueue.grantConsumeMessages(lambdaFunction);
     auditQueue.grantSendMessages(lambdaFunction);
+    paymentEventsQueue.grantSendMessages(lambdaFunction);
+    paymentEventsQueue.grantConsumeMessages(lambdaFunction);
 
     new lambda.EventSourceMapping(this, "NotificationsQueueEventSource", {
       target: lambdaFunction,
       eventSourceArn: notificationsQueue.queueArn,
+      batchSize: 10
+    });
+
+    new lambda.EventSourceMapping(this, "PaymentEventsQueueEventSource", {
+      target: lambdaFunction,
+      eventSourceArn: paymentEventsQueue.queueArn,
       batchSize: 10
     });
 
@@ -556,6 +571,10 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "AuditQueueUrl", {
       value: auditQueue.queueUrl
+    });
+
+    new CfnOutput(this, "PaymentEventsQueueUrl", {
+      value: paymentEventsQueue.queueUrl
     });
 
     new CfnOutput(this, "UserPoolId", {

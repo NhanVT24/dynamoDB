@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { PutItemCommand, ScanCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import { DeleteItemCommand, PutItemCommand, ScanCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
@@ -124,5 +124,16 @@ export async function markNotificationAsSent(id: string) {
       ":status": "sent",
       ":updatedAt": now
     })
+  }));
+}
+
+export async function deleteNotification(id: string) {
+  await rawDb.send(new DeleteItemCommand({
+    TableName,
+    Key: toDynamoItem({
+      PK: `NOTIFICATION#${id}`,
+      SK: "DETAIL"
+    }),
+    ConditionExpression: "attribute_exists(PK)"
   }));
 }

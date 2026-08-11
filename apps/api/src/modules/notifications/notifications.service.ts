@@ -5,6 +5,7 @@ import { sqsClient } from "../../integrations/sqs/client.js";
 import { getOrderById, markOrderAsDone } from "../storefront/storefront.repository.js";
 import {
   createNotification,
+  deleteNotification,
   listNotificationsByCustomer,
   markNotificationAsRead,
   markNotificationAsSent,
@@ -59,6 +60,43 @@ export class NotificationsService {
     return { queued: true };
   }
 
+  async publishPaymentCompletedEvent(input: {
+    email: string;
+    txnRef: string;
+    amount: number;
+    orderInfo: string;
+    orderId?: string;
+    responseCode: string;
+    transactionNo: string;
+    bankCode: string;
+    payDate: string;
+  }) {
+    if (!env.SQS_PAYMENT_EVENTS_QUEUE_URL) {
+      this.logger.warn(`payment.queue.disabled txnRef=${input.txnRef}`);
+      return { queued: false };
+    }
+
+    await sqsClient.send(new SendMessageCommand({
+      QueueUrl: env.SQS_PAYMENT_EVENTS_QUEUE_URL,
+      MessageBody: JSON.stringify({
+        type: "payment.completed",
+        email: input.email,
+        txnRef: input.txnRef,
+        amount: input.amount,
+        orderInfo: input.orderInfo,
+        orderId: input.orderId ?? "",
+        responseCode: input.responseCode,
+        transactionNo: input.transactionNo,
+        bankCode: input.bankCode,
+        payDate: input.payDate,
+        createdAt: new Date().toISOString()
+      })
+    }));
+
+    this.logger.log(`payment.enqueued txnRef=${input.txnRef} queue=${env.SQS_PAYMENT_EVENTS_QUEUE_URL}`);
+    return { queued: true };
+  }
+
   async listForCustomer(email: string) {
     const items = await listNotificationsByCustomer(email);
     return {
@@ -75,6 +113,17 @@ export class NotificationsService {
     }
 
     await markNotificationAsRead(id);
+    return { success: true };
+  }
+
+  async remove(email: string, id: string) {
+    const notifications = await listNotificationsByCustomer(email);
+    const target = notifications.find((item) => item.id === id);
+    if (!target) {
+      throw new NotFoundException("Notification not found");
+    }
+
+    await deleteNotification(id);
     return { success: true };
   }
 
@@ -119,9 +168,22 @@ export class NotificationsService {
 
     const payload = JSON.parse(body) as {
       type?: string;
+      email?: string;
+      txnRef?: string;
+      amount?: number;
+      orderInfo?: string;
+      orderId?: string;
+      responseCode?: string;
+      transactionNo?: string;
+      bankCode?: string;
+      payDate?: string;
       notificationId?: string;
       metadata?: Record<string, unknown>;
     };
+
+    if (payload.type === "payment.completed") {
+      return this.processPaymentCompletedEvent(payload);
+    }
 
     if (payload.type !== "notification.pending" || !payload.notificationId) {
       this.logger.warn(`notification.queue.ignored payload=${body}`);
@@ -140,6 +202,75 @@ export class NotificationsService {
     await this.completeOrderIfReady(orderId);
     this.logger.log(`notification.queue.completed notificationId=${payload.notificationId} orderId=${orderId} orderCompleted=true`);
     return { notificationId: payload.notificationId, orderCompleted: true };
+  }
+
+  private async processPaymentCompletedEvent(payload: {
+    email?: string;
+    txnRef?: string;
+    amount?: number;
+    orderInfo?: string;
+    orderId?: string;
+    responseCode?: string;
+    transactionNo?: string;
+    bankCode?: string;
+    payDate?: string;
+  }) {
+    if (!payload.email || !payload.txnRef) {
+      this.logger.warn(`payment.queue.ignored txnRef=${payload.txnRef ?? ""}`);
+      return null;
+    }
+
+    const email = payload.email.trim().toLowerCase();
+    const orderId = payload.orderId?.trim() || "";
+    const amount = Number(payload.amount ?? 0);
+
+    this.logger.log(`payment.queue.processing txnRef=${payload.txnRef} orderId=${orderId}`);
+
+    await this.createPendingNotification({
+      email,
+      channel: "system",
+      title: "Thanh toan thanh cong",
+      message: `Giao dich ${payload.txnRef} da duoc xac nhan thanh toan thanh cong.`,
+      metadata: {
+        orderId,
+        txnRef: payload.txnRef,
+        amount,
+        orderInfo: payload.orderInfo ?? "",
+        paymentStatus: "success"
+      }
+    });
+
+    await this.createPendingNotification({
+      email,
+      channel: "email",
+      title: "Email xac nhan thanh toan dang cho gui",
+      message: `He thong da xep hang email xac nhan thanh toan cho giao dich ${payload.txnRef}.`,
+      metadata: {
+        orderId,
+        txnRef: payload.txnRef,
+        amount,
+        template: "payment-success"
+      }
+    });
+
+    await this.publishAuditLog({
+      eventType: "payments.vnpay.completed",
+      email,
+      resourceId: payload.txnRef,
+      metadata: {
+        orderId,
+        amount,
+        orderInfo: payload.orderInfo ?? "",
+        responseCode: payload.responseCode ?? "",
+        transactionNo: payload.transactionNo ?? "",
+        bankCode: payload.bankCode ?? "",
+        payDate: payload.payDate ?? "",
+        status: "success"
+      }
+    });
+
+    this.logger.log(`payment.queue.completed txnRef=${payload.txnRef} orderId=${orderId}`);
+    return { txnRef: payload.txnRef, queuedNotifications: 2, auditQueued: true };
   }
 
   private async completeOrderIfReady(orderId: string) {

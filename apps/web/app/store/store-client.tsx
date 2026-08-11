@@ -368,6 +368,32 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
     } catch {}
   }
 
+  async function handleDeleteNotification(item: StoreNotification) {
+    if (!session?.idToken || item.source === "local") {
+      const nextItems = readLocalNotifications().filter((entry) => entry.id !== item.id);
+      writeLocalNotifications(nextItems);
+      setNotifications((current) => current.filter((entry) => entry.id !== item.id));
+      setPendingCount((current) => Math.max(0, current - (!item.isRead ? 1 : 0)));
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/lambda-proxy/api/notifications/${item.id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${session.idToken}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete notification.");
+      }
+
+      setNotifications((current) => current.filter((entry) => entry.id !== item.id));
+      setPendingCount((current) => Math.max(0, current - (!item.isRead ? 1 : 0)));
+    } catch {}
+  }
+
   return (
     <div className="relative">
       <button
@@ -413,6 +439,24 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
                   </div>
                 </div>
                 <p className={`mt-2 text-xs leading-5 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{item.message}</p>
+                <div className="mt-3 flex items-center gap-2">
+                  {!item.isRead ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleDismissNotification(item)}
+                      className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-white/10 text-slate-200 hover:bg-white/15 hover:text-white" : "bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
+                    >
+                      Danh dau da doc
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteNotification(item)}
+                    className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-rose-500/15 text-rose-200 hover:bg-rose-500/25 hover:text-white" : "bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"}`}
+                  >
+                    Xoa
+                  </button>
+                </div>
               </div>
             ))}
           </div>

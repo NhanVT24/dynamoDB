@@ -19,6 +19,7 @@ export const env = z.object({
   S3_PRESIGN_EXPIRES_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   SQS_NOTIFICATIONS_QUEUE_URL: z.string().optional(),
   SQS_AUDIT_QUEUE_URL: z.string().optional(),
+  SQS_PAYMENT_EVENTS_QUEUE_URL: z.string().optional(),
   NEXT_PUBLIC_API_URL: z.string().url().optional(),
   VNPAY_TMN_CODE: z.string().min(1),
   VNPAY_HASH_SECRET: z.string().min(1),
