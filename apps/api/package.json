@@ -18,12 +18,13 @@
     "db:localize": "tsx src/scripts/localize-products.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.850.0",
-    "@aws-sdk/client-sqs": "^3.1105.0",
-    "@aws-sdk/client-s3": "^3.1098.0",
-    "@aws-sdk/lib-dynamodb": "^3.850.0",
-    "@aws-sdk/s3-request-presigner": "^3.1104.0",
-    "@aws-sdk/util-dynamodb": "^3.996.7",
+    "@aws-sdk/client-dynamodb": "3.1095.0",
+    "@aws-sdk/client-s3": "3.1095.0",
+    "@aws-sdk/client-sqs": "3.1095.0",
+    "@aws-sdk/core": "3.977.6",
+    "@aws-sdk/lib-dynamodb": "3.1095.0",
+    "@aws-sdk/s3-request-presigner": "3.1095.0",
+    "@aws-sdk/util-dynamodb": "3.996.7",
     "@fastify/aws-lambda": "^6.4.0",
     "@fastify/cors": "^11.0.1",
     "@nestjs/common": "^11.1.28",
@@ -36,6 +37,9 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "zod": "^4.0.5"
+  },
+  "overrides": {
+    "@aws-sdk/core": "3.977.6"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

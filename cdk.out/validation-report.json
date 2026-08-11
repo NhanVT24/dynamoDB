@@ -1,5 +1,59 @@
 {
   "version": "54.0.0",
   "title": "Validation Report",
-  "pluginReports": []
+  "pluginReports": [
+    {
+      "pluginName": "CloudFormation Validate",
+      "pluginVersion": "1.6.0",
+      "conclusion": "success",
+      "violations": [
+        {
+          "ruleName": "W2531",
+          "description": "Runtime: Runtime 'nodejs20.x' was deprecated on '2026-04-30'. Creation was disabled on '2027-02-01' and update on '2027-03-03'. Please consider updating to 'nodejs24.x'",
+          "severity": "warning",
+          "ruleMetadata": {
+            "category": "Deprecation"
+          },
+          "violatingConstructs": [
+            {
+              "constructPath": "SupermarketAwsStack/CognitoTriggerFunction/Resource",
+              "constructFqn": "aws-cdk-lib.aws_lambda.CfnFunction",
+              "libraryVersion": "2.263.0",
+              "cloudFormationResource": {
+                "templatePath": "SupermarketAwsStack.template.json",
+                "logicalId": "CognitoTriggerFunction313F0716",
+                "propertyPaths": [
+                  "Properties.Runtime"
+                ]
+              },
+              "stackTraces": [
+                "...new Function2 in aws-cdk-lib...",
+                "new AwsApiStack (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:179:36)",
+                "<anonymous> (D:\\JAVA\\Doan\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "...node internals, ts-node, ts-node..."
+              ]
+            },
+            {
+              "constructPath": "SupermarketAwsStack/SupermarketApiFunction/Resource",
+              "constructFqn": "aws-cdk-lib.aws_lambda.CfnFunction",
+              "libraryVersion": "2.263.0",
+              "cloudFormationResource": {
+                "templatePath": "SupermarketAwsStack.template.json",
+                "logicalId": "SupermarketApiFunctionD4E09F97",
+                "propertyPaths": [
+                  "Properties.Runtime"
+                ]
+              },
+              "stackTraces": [
+                "...new Function2 in aws-cdk-lib...",
+                "new AwsApiStack (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:430:28)",
+                "<anonymous> (D:\\JAVA\\Doan\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "...node internals, ts-node, ts-node..."
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }

@@ -524,7 +524,7 @@
       "Arn"
      ]
     },
-    "Runtime": "nodejs24.x",
+    "Runtime": "nodejs20.x",
     "Timeout": 10
    },
    "DependsOn": [
@@ -994,7 +994,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "b1fe755d880f958a11476c773f4e2f07d73dac3ec4ba1adc0c5e1583913feb14.zip"
+     "S3Key": "94423c24280a64a90c2fd1295fbd2257892b2f9f0a11a1f28e47cbe6668b3054.zip"
     },
     "Environment": {
      "Variables": {
@@ -1069,7 +1069,7 @@
       "Arn"
      ]
     },
-    "Runtime": "nodejs24.x",
+    "Runtime": "nodejs20.x",
     "Timeout": 10
    },
    "DependsOn": [
@@ -1078,7 +1078,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.b1fe755d880f958a11476c773f4e2f07d73dac3ec4ba1adc0c5e1583913feb14.zip",
+    "aws:asset:path": "asset.94423c24280a64a90c2fd1295fbd2257892b2f9f0a11a1f28e47cbe6668b3054.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -2875,7 +2875,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VRwW7bMAz9luasaF0yDMNuabIVOxT1ku00DIUss64SS/REKpln+N8HyXbioeuhJz7yUY+P1EIu3i/l9ZU60VwXh3llctnuWOmDWD+6THllgcELdaKHtmicsljkcv3ovqm8AkFL2d4EfQCO7T360c6s+W3c7ONsqhoVaCkTRbJvXQXGDVTAcJ/vQTPNup+ipzKsjG4uqn3+Cu3+wY4VgwU3lb5RBJ2gXyTbrwECxCEJdKJSNi+UbD8Hp9mgi9QUZ+CtIYrZpyM43mHwGu5UXRtXxobn1U4YZWW7xSoNSvGyXI86obF0hlG23wl8hlhF8oxHsK4MOJ5SQ2VMN2iVcdOG55Vbj6E+v/hSgGPDTebxaArwt4hl7/Sljk7Q8kERAZNcxSBUbUrFcFKNbLdAvKpNWvUCV1pjcCw2UFfY2GGJSbZjVaapPdgCpRvGrxJ3wE9YRHJAIzsMGXB/wdE1rQI/oTd/wCcD56zrxDoQo/2/yj/UuHKykXaN9oavvg9cB+6EwwLknt4cF+/k2w/y+mpPxsx9cGwsyG0f/wKZCWDNaAMAAA=="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VRwW7bMAz9luasaFkC7LCbm6xFD0W9ZDsNQyHLrKvEEj2RSpYZ/vdBsp146HbYiY981OMjtZTLDyu5uFEnmuvyMK9NIdsdK30Q6xeXK68sMHihTvTclmenLJaFXL+4L6qoQdBKtrdBH4Bje4++tTNrfho3+zibqkYFWslEkexbs8C4gRoYnoo9aKZZ9130VI610eerap//h3b/YMeKwYKbSt8qgk7QD5Lt5wAB4pAEOlErW5RKtnfBaTboIjXFOXhriGL26QiOdxi8hkfVNMZVseFttRNGWdlusU6DUrwu16NOaKycYZTtVwKfI9aRvOARrGsDjqfUUBnTDVpl3LThbeXeY2guLx5KcGz4nHs8mhL8PWLVO/1XRydo9ayIgElmMQjVmEoxnNRZtlsgzhqTVr3CTGsMjsUGmhrPdlhiku1YVWlqD7ZA6Ybxq8Qj8CuWkRzQyA5DBtxfcHRNWeBX9OYX+GTgknWdWAditH9X+YMaV0420q7R3vDVT4GbwJ1wWILc07vjciGXC/n+Zk/GzH1wbCzIbR9/A/GM6VxoAwAA"
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/CDKMetadata/Default"
