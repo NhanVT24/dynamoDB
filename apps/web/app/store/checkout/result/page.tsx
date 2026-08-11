@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { readAuthSession } from "../../../lib/cognito-auth";
+import { useStorefront } from "../../store-client";
 import { formatCurrency } from "../../../store/store-utils";
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
@@ -28,6 +29,7 @@ type ReturnPayload = {
 
 export default function CheckoutResultPage() {
   const searchParams = useSearchParams();
+  const { clearCart } = useStorefront();
   const [result, setResult] = useState<ReturnPayload | null>(null);
   const [error, setError] = useState("");
   const [hasBroadcastSuccess, setHasBroadcastSuccess] = useState(false);
@@ -118,6 +120,7 @@ export default function CheckoutResultPage() {
       const rawPendingCheckout = window.localStorage.getItem(pendingCheckoutStorageKey);
       if (!rawPendingCheckout) {
         window.localStorage.removeItem(cartStorageKey);
+        clearCart();
         return;
       }
 
@@ -132,6 +135,7 @@ export default function CheckoutResultPage() {
       if (!pendingCheckout?.items?.length) {
         window.localStorage.removeItem(pendingCheckoutStorageKey);
         window.localStorage.removeItem(cartStorageKey);
+        clearCart();
         return;
       }
 
@@ -163,6 +167,7 @@ export default function CheckoutResultPage() {
         window.sessionStorage.setItem(processedKey, "1");
         window.localStorage.removeItem(cartStorageKey);
         window.localStorage.removeItem(pendingCheckoutStorageKey);
+        clearCart();
       } catch (finalizeError) {
         setError(finalizeError instanceof Error ? finalizeError.message : "Không thể tạo đơn hàng sau thanh toán.");
       } finally {
@@ -171,7 +176,7 @@ export default function CheckoutResultPage() {
     }
 
     void finalizeSuccessfulCheckout();
-  }, [result]);
+  }, [clearCart, result]);
 
   const isSuccess = result?.transactionStatus === "success" && result.isValidSignature;
 

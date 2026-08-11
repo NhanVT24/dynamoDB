@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -256,7 +256,11 @@ function CartDrawer() {
           <div className="mt-4 flex justify-between border-t border-white/20 pt-4 text-lg font-semibold"><span>Tổng</span><span>{formatCurrency(total)}</span></div>
           <div className="mt-4 grid gap-3">
             <button onClick={clearCart} className="rounded-full border border-white/20 px-4 py-3 font-semibold">Xóa toàn bộ</button>
-            <Link href="/store/checkout" className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600">
+            <Link
+              href="/store/checkout"
+              onClick={() => toggleDrawer(false)}
+              className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600"
+            >
               Thanh toán sandbox
             </Link>
           </div>
@@ -270,6 +274,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
   const [notifications, setNotifications] = useState<StoreNotification[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -322,6 +327,36 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       window.removeEventListener(notificationsUpdatedEvent, handleNotificationsUpdated);
     };
   }, [session?.idToken]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current) {
+        return;
+      }
+
+      if (!containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [open]);
 
   async function handleDismissNotification(item: StoreNotification) {
     if (!session?.idToken) {
@@ -394,14 +429,70 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
     } catch {}
   }
 
+  async function handleMarkAllAsRead() {
+    const unreadItems = notifications.filter((item) => !item.isRead);
+    if (unreadItems.length === 0) {
+      return;
+    }
+
+    const localUnread = unreadItems.filter((item) => item.source === "local" || !session?.idToken);
+    if (localUnread.length > 0) {
+      const unreadIds = new Set(localUnread.map((item) => item.id));
+      const nextItems = readLocalNotifications().map((entry) =>
+        unreadIds.has(entry.id)
+          ? { ...entry, isRead: true, status: "read" as const }
+          : entry
+      );
+      writeLocalNotifications(nextItems);
+    }
+
+    const serverUnread = unreadItems.filter((item) => item.source !== "local");
+    if (session?.idToken && serverUnread.length > 0) {
+      try {
+        await Promise.all(serverUnread.map(async (item) => {
+          const response = await fetch(`/api/lambda-proxy/api/notifications/${item.id}/read`, {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${session.idToken}`
+            }
+          });
+
+          if (!response.ok) {
+            throw new Error("Failed to mark all notifications as read.");
+          }
+        }));
+      } catch {
+        return;
+      }
+    }
+
+    setNotifications((current) =>
+      current.map((item) => ({ ...item, isRead: true, status: "read" as const }))
+    );
+    setPendingCount(0);
+  }
+
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className={`relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${isDark ? "border-white/10 bg-white/5 text-slate-100" : "border-slate-200 bg-white text-slate-700"}`}
+        aria-label="Mở thông báo"
+        className={`relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition-colors ${isDark ? "border-white/20 bg-white text-slate-900 hover:bg-slate-100" : "border-slate-900 bg-white text-slate-900 hover:bg-slate-100"}`}
       >
-        🔔
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 24 24"
+          className="h-5 w-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M15 18H5.5a1 1 0 0 1-.8-1.6l1.3-1.7V10a6 6 0 1 1 12 0v4.7l1.3 1.7a1 1 0 0 1-.8 1.6H15" />
+          <path d="M9.5 18a2.5 2.5 0 0 0 5 0" />
+        </svg>
         {pendingCount > 0 ? (
           <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-rose-500 px-1 text-[11px] font-bold text-white">
             {pendingCount}
@@ -409,12 +500,23 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
         ) : null}
       </button>
       {open ? (
-        <div className={`absolute right-0 mt-3 w-80 rounded-[1.5rem] border p-4 shadow-2xl ${isDark ? "border-white/10 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
+        <div className={`absolute right-0 mt-3 w-[21rem] rounded-[1.5rem] border p-4 shadow-2xl ${isDark ? "border-white/10 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold">Thông báo</p>
-            <span className="text-xs text-orange-500">{pendingCount} pending</span>
+            <span className="text-xs text-orange-500">{pendingCount} chưa đọc</span>
           </div>
-          <div className="mt-3 space-y-3">
+          {notifications.length > 0 ? (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => void handleMarkAllAsRead()}
+                className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-white/10 text-slate-200 hover:bg-white/15 hover:text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900"}`}
+              >
+                Đánh dấu tất cả đã đọc
+              </button>
+            </div>
+          ) : null}
+          <div className="mt-3 max-h-[26rem] space-y-3 overflow-y-auto pr-1">
             {notifications.length === 0 ? (
               <div className={`rounded-2xl border border-dashed p-4 text-sm ${isDark ? "border-white/10 text-slate-300" : "border-slate-200 text-slate-500"}`}>
                 Chưa có thông báo nào.
@@ -422,31 +524,17 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
             ) : notifications.slice(0, 5).map((item) => (
               <div key={item.id} className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-100 bg-slate-50"}`}>
                 <div className="flex items-center justify-between gap-3">
-                  <p className={`text-sm font-semibold ${item.isRead ? (isDark ? "text-slate-300" : "text-slate-500") : ""}`}>{item.title}</p>
-                  <div className="flex items-center gap-2">
-                    <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${!item.isRead ? "bg-amber-100 text-amber-700" : "bg-slate-200 text-slate-600"}`}>
-                      {item.isRead ? "read" : item.status}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => void handleDismissNotification(item)}
-                      className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm transition ${isDark ? "bg-white/10 text-slate-300 hover:bg-white/15 hover:text-white" : "bg-white text-slate-500 hover:bg-slate-100 hover:text-slate-700"}`}
-                      aria-label="Tắt thông báo"
-                      title="Tắt thông báo"
-                    >
-                      ×
-                    </button>
-                  </div>
+                  <p className={`line-clamp-2 text-sm font-semibold ${item.isRead ? (isDark ? "text-slate-300" : "text-slate-500") : ""}`}>{item.title}</p>
                 </div>
-                <p className={`mt-2 text-xs leading-5 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{item.message}</p>
-                <div className="mt-3 flex items-center gap-2">
+                <p className={`mt-2 line-clamp-3 text-xs leading-5 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{item.message}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   {!item.isRead ? (
                     <button
                       type="button"
                       onClick={() => void handleDismissNotification(item)}
                       className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-white/10 text-slate-200 hover:bg-white/15 hover:text-white" : "bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
                     >
-                      Danh dau da doc
+                      Đánh dấu đã đọc
                     </button>
                   ) : null}
                   <button
@@ -454,7 +542,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
                     onClick={() => void handleDeleteNotification(item)}
                     className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-rose-500/15 text-rose-200 hover:bg-rose-500/25 hover:text-white" : "bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"}`}
                   >
-                    Xoa
+                    Xóa
                   </button>
                 </div>
               </div>
@@ -659,7 +747,6 @@ export function HomeSections() {
     };
   }, []);
 
-  const featuredProducts = products.filter((item) => item.featured).slice(0, 8);
   const bestSellerProducts = [...products].sort((a, b) => b.soldCount - a.soldCount).slice(0, 8);
   const flashSaleProducts = [...products].sort((a, b) => (b.originalPrice - b.price) - (a.originalPrice - a.price)).slice(0, 4);
   const newArrivals = [...products].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 8);
@@ -721,7 +808,6 @@ export function HomeSections() {
         </div>
       </section>
 
-      <ProductShowcase title="Nổi bật" products={featuredProducts} />
       <ProductShowcase title="Bán chạy" products={bestSellerProducts} />
       <ProductShowcase title="Flash Pick" products={flashSaleProducts} />
       <ProductShowcase title="Newest" products={newArrivals} />
@@ -851,7 +937,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
     let cancelled = false;
 
     async function loadProducts() {
-      const productId = slug.split("-").pop();
+      const productId = slug.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)?.[0];
       if (!productId) {
         if (!cancelled) setIsLoading(false);
         return;

@@ -13,7 +13,7 @@ export class VnpayController {
   }
 
   @Get("return")
-  handleReturn(@Query() rawQuery: Record<string, unknown>) {
+  async handleReturn(@Query() rawQuery: Record<string, unknown>) {
     return this.vnpayService.verifyReturn(rawQuery);
   }
 

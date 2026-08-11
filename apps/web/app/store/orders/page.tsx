@@ -20,6 +20,8 @@ export default function StoreOrdersPage() {
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 6;
 
   useEffect(() => {
     let cancelled = false;
@@ -30,6 +32,7 @@ export default function StoreOrdersPage() {
         if (!cancelled) {
           setOrders(data);
           setError("");
+          setPage(1);
         }
       } catch (nextError) {
         if (!cancelled) {
@@ -47,6 +50,10 @@ export default function StoreOrdersPage() {
       cancelled = true;
     };
   }, []);
+
+  const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const paginatedOrders = orders.slice((safePage - 1) * pageSize, safePage * pageSize);
 
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
@@ -82,8 +89,17 @@ export default function StoreOrdersPage() {
             Bạn chưa có đơn hàng nào tính đến ngày 7 tháng 8 năm 2026.
           </div>
         ) : (
-          <div className="mt-8 grid gap-5">
-            {orders.map((order) => (
+          <div className="mt-8">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-slate-500">
+                Hiển thị <span className="font-semibold text-slate-950">{paginatedOrders.length}</span> / <span className="font-semibold text-slate-950">{orders.length}</span> đơn hàng
+              </p>
+              <p className="text-sm text-slate-500">
+                Trang <span className="font-semibold text-slate-950">{safePage}</span> / <span className="font-semibold text-slate-950">{totalPages}</span>
+              </p>
+            </div>
+            <div className="grid gap-5">
+            {paginatedOrders.map((order) => (
               <article key={order.id} className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.25)]">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
@@ -110,6 +126,25 @@ export default function StoreOrdersPage() {
                 </div>
               </article>
             ))}
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={safePage <= 1}
+                className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage <= 1 ? "cursor-not-allowed bg-slate-200 text-slate-400" : "bg-white text-slate-950 shadow-sm"}`}
+              >
+                Trang trước
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={safePage >= totalPages}
+                className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage >= totalPages ? "cursor-not-allowed bg-slate-200 text-slate-400" : "bg-gradient-to-r from-orange-500 to-red-500 text-white"}`}
+              >
+                Trang sau
+              </button>
+            </div>
           </div>
         )}
       </div>

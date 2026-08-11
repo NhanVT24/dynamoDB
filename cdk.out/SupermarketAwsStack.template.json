@@ -55,7 +55,7 @@
   },
   "VnpayIpnUrl": {
    "Type": "String",
-   "Default": "http://localhost:3000/api/lambda-proxy/api/payments/vnpay/ipn",
+   "Default": "https://rrt1ukhcpj.execute-api.ap-southeast-1.amazonaws.com/prod/api/payments/vnpay/ipn",
    "Description": "VNPay IPN callback URL"
   },
   "BootstrapVersion": {
@@ -429,11 +429,33 @@
     "aws:cdk:path": "SupermarketAwsStack/AuditQueue/Resource"
    }
   },
+  "PaymentEventsDlq81714538": {
+   "Type": "AWS::SQS::Queue",
+   "Properties": {
+    "MessageRetentionPeriod": 1209600,
+    "QueueName": "supermarket-payment-events-dlq",
+    "VisibilityTimeout": 30
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/PaymentEventsDlq/Resource"
+   }
+  },
   "PaymentEventsQueueD28497E2": {
    "Type": "AWS::SQS::Queue",
    "Properties": {
     "MessageRetentionPeriod": 345600,
     "QueueName": "supermarket-payment-events",
+    "RedrivePolicy": {
+     "deadLetterTargetArn": {
+      "Fn::GetAtt": [
+       "PaymentEventsDlq81714538",
+       "Arn"
+      ]
+     },
+     "maxReceiveCount": 3
+    },
     "VisibilityTimeout": 30
    },
    "UpdateReplacePolicy": "Delete",
@@ -971,6 +993,22 @@
          "Arn"
         ]
        }
+      },
+      {
+       "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:ChangeMessageVisibility",
+        "sqs:GetQueueUrl",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsDlq81714538",
+         "Arn"
+        ]
+       }
       }
      ],
      "Version": "2012-10-17"
@@ -994,7 +1032,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "94423c24280a64a90c2fd1295fbd2257892b2f9f0a11a1f28e47cbe6668b3054.zip"
+     "S3Key": "b2c4dee44f71744ae55927a1d8f1db020a952c7747d7a46b4e69a56e96992b6d.zip"
     },
     "Environment": {
      "Variables": {
@@ -1078,7 +1116,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.94423c24280a64a90c2fd1295fbd2257892b2f9f0a11a1f28e47cbe6668b3054.zip",
+    "aws:asset:path": "asset.b2c4dee44f71744ae55927a1d8f1db020a952c7747d7a46b4e69a56e96992b6d.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -1183,7 +1221,7 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Account"
    }
   },
-  "SupermarketApiGatewayDeployment3BDE38514a45d28e521764d929c3358e255108e7": {
+  "SupermarketApiGatewayDeployment3BDE38519fa5aa7278939bbea08964320b913303": {
    "Type": "AWS::ApiGateway::Deployment",
    "Properties": {
     "Description": "Automatically created by the RestApi construct",
@@ -1195,6 +1233,12 @@
     "SupermarketApiGatewayproxyANY40C8E0D5",
     "SupermarketApiGatewayproxyOPTIONSF7D54AE3",
     "SupermarketApiGatewayproxyAD8FA136",
+    "SupermarketApiGatewayapinotificationsproxyANYB481AEA3",
+    "SupermarketApiGatewayapinotificationsproxyOPTIONS5E29077F",
+    "SupermarketApiGatewayapinotificationsproxy898371AF",
+    "SupermarketApiGatewayapinotificationsANYD5E720A1",
+    "SupermarketApiGatewayapinotificationsOPTIONSAB6D1DD7",
+    "SupermarketApiGatewayapinotifications896C54A4",
     "SupermarketApiGatewayapiOPTIONSCB5BA1AD",
     "SupermarketApiGatewayapipaymentsOPTIONSC75B6A74",
     "SupermarketApiGatewayapipayments22D03519",
@@ -1232,7 +1276,7 @@
    "Type": "AWS::ApiGateway::Stage",
    "Properties": {
     "DeploymentId": {
-     "Ref": "SupermarketApiGatewayDeployment3BDE38514a45d28e521764d929c3358e255108e7"
+     "Ref": "SupermarketApiGatewayDeployment3BDE38519fa5aa7278939bbea08964320b913303"
     },
     "RestApiId": {
      "Ref": "SupermarketApiGatewayD32A94E9"
@@ -2291,6 +2335,336 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/ANY/Resource"
    }
   },
+  "SupermarketApiGatewayapinotifications896C54A4": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapiB7B395D3"
+    },
+    "PathPart": "notifications",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/notifications/Resource"
+   }
+  },
+  "SupermarketApiGatewayapinotificationsOPTIONSAB6D1DD7": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapinotifications896C54A4"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/notifications/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapinotificationsANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapinotifications08FDF191": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/api/notifications"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/notifications/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.notifications"
+   }
+  },
+  "SupermarketApiGatewayapinotificationsANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapinotificationsE9AB80DA": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/api/notifications"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/notifications/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.notifications"
+   }
+  },
+  "SupermarketApiGatewayapinotificationsANYD5E720A1": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketApiFunctionD4E09F97",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapinotifications896C54A4"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/notifications/ANY/Resource"
+   }
+  },
+  "SupermarketApiGatewayapinotificationsproxy898371AF": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapinotifications896C54A4"
+    },
+    "PathPart": "{proxy+}",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/notifications/{proxy+}/Resource"
+   }
+  },
+  "SupermarketApiGatewayapinotificationsproxyOPTIONS5E29077F": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapinotificationsproxy898371AF"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/notifications/{proxy+}/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapinotificationsproxyANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapinotificationsproxy8082210F": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/api/notifications/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/notifications/{proxy+}/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.notifications.{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayapinotificationsproxyANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapinotificationsproxyDD21FAB3": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketApiFunctionD4E09F97",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/api/notifications/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/notifications/{proxy+}/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.notifications.{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayapinotificationsproxyANYB481AEA3": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketApiFunctionD4E09F97",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapinotificationsproxy898371AF"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/notifications/{proxy+}/ANY/Resource"
+   }
+  },
   "SupermarketApiGatewayapipayments22D03519": {
    "Type": "AWS::ApiGateway::Resource",
    "Properties": {
@@ -2875,7 +3249,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VRwW7bMAz9luasaFkC7LCbm6xFD0W9ZDsNQyHLrKvEEj2RSpYZ/vdBsp146HbYiY981OMjtZTLDyu5uFEnmuvyMK9NIdsdK30Q6xeXK68sMHihTvTclmenLJaFXL+4L6qoQdBKtrdBH4Bje4++tTNrfho3+zibqkYFWslEkexbs8C4gRoYnoo9aKZZ9130VI610eerap//h3b/YMeKwYKbSt8qgk7QD5Lt5wAB4pAEOlErW5RKtnfBaTboIjXFOXhriGL26QiOdxi8hkfVNMZVseFttRNGWdlusU6DUrwu16NOaKycYZTtVwKfI9aRvOARrGsDjqfUUBnTDVpl3LThbeXeY2guLx5KcGz4nHs8mhL8PWLVO/1XRydo9ayIgElmMQjVmEoxnNRZtlsgzhqTVr3CTGsMjsUGmhrPdlhiku1YVWlqD7ZA6Ybxq8Qj8CuWkRzQyA5DBtxfcHRNWeBX9OYX+GTgknWdWAditH9X+YMaV0420q7R3vDVT4GbwJ1wWILc07vjciGXC/n+Zk/GzH1wbCzIbR9/A/GM6VxoAwAA"
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VRwW7bMAz9luasaF0yDMNuabIVOxT1ku00DIUss64SS/REKpln+N8HyXbioeuhJz7yUY+P1EIu3i/l9ZU60VwXh3llctnuWOmDWD+6THllgcELdaKHtmicsljkcv3ovqm8AkFL2d4EfQCO7T360c6s+W3c7ONsqhoVaCkTRbJvXQXGDVTAcJ/vQTPNup+ipzKsjG4uqn3+Cu3+wY4VgwU3lb5RBJ2gXyTbrwECxCEJdKJSNi+UbD8Hp9mgi9QUZ+CtIYrZpyM43mHwGu5UXRtXxobn1U4YZWW7xSoNSvGyXI86obF0hlG23wl8hlhF8oxHsK4MOJ5SQ2VMN2iVcdOG55Vbj6E+v/hSgGPDTebxaArwt4hl7/Sljk7Q8kERAZNcxSBUbUrFcFKNbLdAvKpNWvUCV1pjcCw2UFfY2GGJSbZjVaapPdgCpRvGrxJ3wE9YRHJAIzsMGXB/wdE1rQI/oTd/wCcD56zrxDoQo/2/yj/UuHKykXaN9oavvg9cB+6EwwLknt4cF+/k2w/y+mpPxsx9cGwsyG0f/wKZCWDNaAMAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/CDKMetadata/Default"
@@ -2955,6 +3329,11 @@
   "PaymentEventsQueueUrl": {
    "Value": {
     "Ref": "PaymentEventsQueueD28497E2"
+   }
+  },
+  "PaymentEventsDlqUrl": {
+   "Value": {
+    "Ref": "PaymentEventsDlq81714538"
    }
   },
   "UserPoolId": {

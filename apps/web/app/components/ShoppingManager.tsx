@@ -493,7 +493,7 @@ export default function ShoppingManager({
 
   async function loadSummary(nextFilters: Filters = filters) {
     try {
-      const params = new URLSearchParams({ pageLimit: "50", maxPages: "10" });
+      const params = new URLSearchParams({ pageLimit: "48", maxPages: "10" });
       if (normalizeCategoryValue(nextFilters.category) !== "all") params.set("category", normalizeCategoryValue(nextFilters.category));
       if (nextFilters.status) params.set("status", nextFilters.status);
       if (nextFilters.updatedAtFrom) params.set("updatedAtFrom", nextFilters.updatedAtFrom);

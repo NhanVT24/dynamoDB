@@ -165,8 +165,8 @@ export class StorefrontService {
     await this.notificationsService.createPendingNotification({
       email,
       channel: "system",
-      title: "Don hang dang cho xu ly",
-      message: `Don hang ${order.id} da vao hang doi xu ly thong bao he thong.`,
+      title: "Đơn hàng đang chờ xử lý",
+      message: `Đơn hàng ${order.id} đã vào hàng đợi xử lý thông báo hệ thống.`,
       metadata: {
         orderId: order.id,
         totalAmount: order.totalAmount,
@@ -177,8 +177,8 @@ export class StorefrontService {
     await this.notificationsService.createPendingNotification({
       email,
       channel: "email",
-      title: "Email xac nhan dang cho gui",
-      message: `He thong da xep hang email xac nhan cho don ${order.id}. Don se chuyen sang done sau khi gui xong.`,
+      title: "Email xác nhận đang chờ gửi",
+      message: `Hệ thống đã xếp hàng email xác nhận cho đơn ${order.id}. Đơn sẽ chuyển sang done sau khi gửi xong.`,
       metadata: {
         orderId: order.id,
         template: "order-confirmation"

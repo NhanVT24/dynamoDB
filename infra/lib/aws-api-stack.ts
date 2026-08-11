@@ -88,7 +88,7 @@ export class AwsApiStack extends Stack {
 
     const vnpayIpnUrl = new CfnParameter(this, "VnpayIpnUrl", {
       type: "String",
-      default: "http://localhost:3000/api/lambda-proxy/api/payments/vnpay/ipn",
+      default: "https://rrt1ukhcpj.execute-api.ap-southeast-1.amazonaws.com/prod/api/payments/vnpay/ipn",
       description: "VNPay IPN callback URL"
     });
 
@@ -176,10 +176,20 @@ export class AwsApiStack extends Stack {
       retentionPeriod: Duration.days(4)
     });
 
+    const paymentEventsDlq = new sqs.Queue(this, "PaymentEventsDlq", {
+      queueName: "supermarket-payment-events-dlq",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14)
+    });
+
     const paymentEventsQueue = new sqs.Queue(this, "PaymentEventsQueue", {
       queueName: "supermarket-payment-events",
       visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(4)
+      retentionPeriod: Duration.days(4),
+      deadLetterQueue: {
+        queue: paymentEventsDlq,
+        maxReceiveCount: 3
+      }
     });
 
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
@@ -479,6 +489,7 @@ exports.handler = async (event) => {
     auditQueue.grantSendMessages(lambdaFunction);
     paymentEventsQueue.grantSendMessages(lambdaFunction);
     paymentEventsQueue.grantConsumeMessages(lambdaFunction);
+    paymentEventsDlq.grantConsumeMessages(lambdaFunction);
 
     new lambda.EventSourceMapping(this, "NotificationsQueueEventSource", {
       target: lambdaFunction,
@@ -533,6 +544,15 @@ exports.handler = async (event) => {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
+    const notificationsResource = apiResource.addResource("notifications");
+    notificationsResource.addMethod("ANY", lambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+    const notificationsProxyResource = notificationsResource.addResource("{proxy+}");
+    notificationsProxyResource.addMethod("ANY", lambdaIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+
     const paymentsResource = apiResource.addResource("payments");
     const vnpayResource = paymentsResource.addResource("vnpay");
     vnpayResource.addMethod("ANY", lambdaIntegration, {
@@ -575,6 +595,10 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "PaymentEventsQueueUrl", {
       value: paymentEventsQueue.queueUrl
+    });
+
+    new CfnOutput(this, "PaymentEventsDlqUrl", {
+      value: paymentEventsDlq.queueUrl
     });
 
     new CfnOutput(this, "UserPoolId", {

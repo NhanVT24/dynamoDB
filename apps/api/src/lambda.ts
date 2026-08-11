@@ -12,7 +12,11 @@ const notificationsService = app.get(NotificationsService);
 export const handler = async (event: any, context: unknown) => {
   if (Array.isArray(event?.Records) && event.Records.every((record: any) => record?.eventSource === "aws:sqs")) {
     const result = await notificationsService.processQueueRecords(event.Records);
-    console.log("[lambda] processed sqs event", result);
+    console.log("[lambda] processed sqs event", {
+      recordCount: event.Records.length,
+      processed: result?.processed ?? 0,
+      items: result?.items ?? []
+    });
     return result;
   }
 
@@ -23,7 +27,8 @@ export const handler = async (event: any, context: unknown) => {
   const rewritablePrefixes = [
     "/api/storefront",
     "/api/products",
-    "/api/payments/vnpay"
+    "/api/payments/vnpay",
+    "/api/notifications"
   ];
 
   for (const prefix of rewritablePrefixes) {
