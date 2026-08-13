@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { GetItemCommand, PutItemCommand, ScanCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import { DeleteItemCommand, GetItemCommand, PutItemCommand, ScanCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
@@ -18,6 +18,21 @@ type OrderLine = {
 type CreateOrderPayload = {
   email: string;
   items: Array<{ productId: string; quantity: number }>;
+};
+
+export type StorefrontOrderQueuePayload = {
+  type: "storefront.order.requested";
+  requestId: string;
+  email: string;
+  items: Array<{ productId: string; quantity: number }>;
+  createdAt: string;
+};
+
+export type ProductSelectionLock = {
+  productId: string;
+  customerEmail: string;
+  requestId: string;
+  lockedUntil: string;
 };
 
 export type StorefrontOrderRecord = {
@@ -39,6 +54,13 @@ function toDynamoItem(item: Record<string, unknown>) {
 
 function fromDynamoItem(item?: Record<string, AttributeValue>) {
   return item ? (unmarshall(item) as Record<string, any>) : null;
+}
+
+function buildProductLockKey(productId: string) {
+  return {
+    PK: `PRODUCT_LOCK#${productId}`,
+    SK: "RESERVATION"
+  };
 }
 
 export async function listStorefrontProducts(query: Record<string, any>) {
@@ -110,6 +132,81 @@ export async function createStorefrontOrder(input: CreateOrderPayload) {
   }));
 
   return orderRecord;
+}
+
+export async function acquireProductSelectionLock(input: { productId: string; email: string; requestId: string; holdSeconds: number }) {
+  const now = Date.now();
+  const lockUntil = new Date(now + input.holdSeconds * 1000).toISOString();
+  const ttl = Math.floor((now + input.holdSeconds * 1000) / 1000);
+
+  await rawDb.send(new PutItemCommand({
+    TableName,
+    Item: toDynamoItem({
+      ...buildProductLockKey(input.productId),
+      entityType: "PRODUCT_SELECTION_LOCK",
+      productId: input.productId,
+      customerEmail: input.email,
+      requestId: input.requestId,
+      lockedUntil: lockUntil,
+      ttl,
+      createdAt: new Date(now).toISOString()
+    }),
+    ConditionExpression: "attribute_not_exists(PK) OR lockedUntil < :now",
+    ExpressionAttributeValues: toDynamoItem({
+      ":now": new Date(now).toISOString()
+    })
+  }));
+
+  return {
+    productId: input.productId,
+    customerEmail: input.email,
+    requestId: input.requestId,
+    lockedUntil: lockUntil
+  } satisfies ProductSelectionLock;
+}
+
+export async function releaseProductSelectionLock(productId: string, requestId?: string) {
+  const deleteInput = {
+    TableName,
+    Key: toDynamoItem(buildProductLockKey(productId))
+  } as const;
+
+  if (!requestId) {
+    await rawDb.send(new DeleteItemCommand(deleteInput));
+    return;
+  }
+
+  await rawDb.send(new DeleteItemCommand({
+    ...deleteInput,
+    ConditionExpression: "requestId = :requestId",
+    ExpressionAttributeValues: toDynamoItem({
+      ":requestId": requestId
+    })
+  }));
+}
+
+export async function getActiveProductSelectionLock(productId: string) {
+  const result = await rawDb.send(new GetItemCommand({
+    TableName,
+    Key: toDynamoItem(buildProductLockKey(productId))
+  }));
+
+  const item = fromDynamoItem(result.Item);
+  if (!item) {
+    return null;
+  }
+
+  const lockedUntil = String(item.lockedUntil ?? "");
+  if (!lockedUntil || Date.parse(lockedUntil) <= Date.now()) {
+    return null;
+  }
+
+  return {
+    productId: String(item.productId ?? productId),
+    customerEmail: String(item.customerEmail ?? ""),
+    requestId: String(item.requestId ?? ""),
+    lockedUntil
+  } satisfies ProductSelectionLock;
 }
 
 export async function getOrderById(id: string) {

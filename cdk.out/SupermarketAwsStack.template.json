@@ -58,6 +58,11 @@
    "Default": "https://rrt1ukhcpj.execute-api.ap-southeast-1.amazonaws.com/prod/api/payments/vnpay/ipn",
    "Description": "VNPay IPN callback URL"
   },
+  "SesFromEmail": {
+   "Type": "String",
+   "Default": "nhan18072020@gmail.com",
+   "Description": "Verified SES sender email address"
+  },
   "BootstrapVersion": {
    "Type": "AWS::SSM::Parameter::Value<String>",
    "Default": "/cdk-bootstrap/hnb659fds/version",
@@ -427,6 +432,41 @@
    "DeletionPolicy": "Delete",
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/AuditQueue/Resource"
+   }
+  },
+  "StorefrontOrdersDlqF9C05761": {
+   "Type": "AWS::SQS::Queue",
+   "Properties": {
+    "MessageRetentionPeriod": 1209600,
+    "QueueName": "supermarket-storefront-orders-dlq",
+    "VisibilityTimeout": 30
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/StorefrontOrdersDlq/Resource"
+   }
+  },
+  "StorefrontOrdersQueueCA45F131": {
+   "Type": "AWS::SQS::Queue",
+   "Properties": {
+    "MessageRetentionPeriod": 345600,
+    "QueueName": "supermarket-storefront-orders",
+    "RedrivePolicy": {
+     "deadLetterTargetArn": {
+      "Fn::GetAtt": [
+       "StorefrontOrdersDlqF9C05761",
+       "Arn"
+      ]
+     },
+     "maxReceiveCount": 3
+    },
+    "VisibilityTimeout": 30
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/StorefrontOrdersQueue/Resource"
    }
   },
   "PaymentEventsDlq81714538": {
@@ -973,6 +1013,52 @@
        "Effect": "Allow",
        "Resource": {
         "Fn::GetAtt": [
+         "StorefrontOrdersQueueCA45F131",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:ChangeMessageVisibility",
+        "sqs:GetQueueUrl",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "StorefrontOrdersQueueCA45F131",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:ChangeMessageVisibility",
+        "sqs:GetQueueUrl",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "StorefrontOrdersDlqF9C05761",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
          "PaymentEventsQueueD28497E2",
          "Arn"
         ]
@@ -1009,6 +1095,14 @@
          "Arn"
         ]
        }
+      },
+      {
+       "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
       }
      ],
      "Version": "2012-10-17"
@@ -1032,7 +1126,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "b2c4dee44f71744ae55927a1d8f1db020a952c7747d7a46b4e69a56e96992b6d.zip"
+     "S3Key": "f7a29fc8212fa0b1f8d8b63c49b9a929a4afd014c5efd2c97eed8e489ea877fa.zip"
     },
     "Environment": {
      "Variables": {
@@ -1062,6 +1156,12 @@
       },
       "SQS_PAYMENT_EVENTS_QUEUE_URL": {
        "Ref": "PaymentEventsQueueD28497E2"
+      },
+      "SQS_STOREFRONT_ORDERS_QUEUE_URL": {
+       "Ref": "StorefrontOrdersQueueCA45F131"
+      },
+      "SES_FROM_EMAIL": {
+       "Ref": "SesFromEmail"
       },
       "VNPAY_TMN_CODE": {
        "Fn::Join": [
@@ -1116,7 +1216,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.b2c4dee44f71744ae55927a1d8f1db020a952c7747d7a46b4e69a56e96992b6d.zip",
+    "aws:asset:path": "asset.f7a29fc8212fa0b1f8d8b63c49b9a929a4afd014c5efd2c97eed8e489ea877fa.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -1155,6 +1255,24 @@
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/PaymentEventsQueueEventSource/Resource"
+   }
+  },
+  "StorefrontOrdersQueueEventSourceCDD8B6FD": {
+   "Type": "AWS::Lambda::EventSourceMapping",
+   "Properties": {
+    "BatchSize": 10,
+    "EventSourceArn": {
+     "Fn::GetAtt": [
+      "StorefrontOrdersQueueCA45F131",
+      "Arn"
+     ]
+    },
+    "FunctionName": {
+     "Ref": "SupermarketApiFunctionD4E09F97"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/StorefrontOrdersQueueEventSource/Resource"
    }
   },
   "SupermarketApiGatewayD32A94E9": {
@@ -3324,6 +3442,16 @@
   "AuditQueueUrl": {
    "Value": {
     "Ref": "AuditQueue1D3C234B"
+   }
+  },
+  "StorefrontOrdersQueueUrl": {
+   "Value": {
+    "Ref": "StorefrontOrdersQueueCA45F131"
+   }
+  },
+  "StorefrontOrdersDlqUrl": {
+   "Value": {
+    "Ref": "StorefrontOrdersDlqF9C05761"
    }
   },
   "PaymentEventsQueueUrl": {

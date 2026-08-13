@@ -2,16 +2,26 @@ import "reflect-metadata";
 import awsLambdaFastify from "@fastify/aws-lambda";
 import { createNestApp } from "./app.js";
 import { NotificationsService } from "./modules/notifications/notifications.service.js";
+import { StorefrontService } from "./modules/storefront/storefront.service.js";
 
 const app = await createNestApp();
 const proxy = awsLambdaFastify(app.getHttpAdapter().getInstance(), {
   pathParameterUsedAsPath: "proxy"
 });
 const notificationsService = app.get(NotificationsService);
+const storefrontService = app.get(StorefrontService);
 
 export const handler = async (event: any, context: unknown) => {
   if (Array.isArray(event?.Records) && event.Records.every((record: any) => record?.eventSource === "aws:sqs")) {
-    const result = await notificationsService.processQueueRecords(event.Records);
+    const firstPayload = (() => {
+      try {
+        return JSON.parse(String(event.Records[0]?.body ?? ""));
+      } catch {
+        return null;
+      }
+    })();
+    const queueHandler = firstPayload?.type === "storefront.order.requested" ? storefrontService : notificationsService;
+    const result = await queueHandler.processQueueRecords(event.Records);
     console.log("[lambda] processed sqs event", {
       recordCount: event.Records.length,
       processed: result?.processed ?? 0,

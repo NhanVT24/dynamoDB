@@ -28,7 +28,7 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:195:36)",
+                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:217:36)",
                 "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
@@ -46,7 +46,7 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:446:28)",
+                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:468:28)",
                 "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]

@@ -11,6 +11,7 @@ import { formatCurrency } from "../store-utils";
 import { SectionTitle, useStorefront } from "../store-client";
 
 type SortMode = "newest" | "oldest" | "price-asc" | "price-desc" | "best-seller";
+type PaginationToken = number | "ellipsis";
 
 function normalizeVietnameseText(value: string | undefined) {
   return String(value ?? "")
@@ -23,14 +24,48 @@ function normalizeVietnameseText(value: string | undefined) {
     .trim();
 }
 
+function buildPaginationTokens(currentPage: number, totalPages: number): PaginationToken[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set<number>([
+    1,
+    2,
+    totalPages - 1,
+    totalPages,
+    Math.max(1, currentPage - 1),
+    currentPage,
+    Math.min(totalPages, currentPage + 1)
+  ]);
+
+  const sortedPages = [...pages].filter((page) => page >= 1 && page <= totalPages).sort((a, b) => a - b);
+  const tokens: PaginationToken[] = [];
+
+  for (const page of sortedPages) {
+    const previous = tokens[tokens.length - 1];
+    if (typeof previous === "number" && page - previous > 1) {
+      tokens.push("ellipsis");
+    }
+    tokens.push(page);
+  }
+
+  return tokens;
+}
+
 function ProductCard({ product }: { product: StoreProduct }) {
   const { addCatalogItem, theme } = useStorefront();
   const imageRef = useRef<HTMLImageElement | null>(null);
   const isDark = theme === "dark";
   const discountPercent = Math.max(0, Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100));
-  const isOut = product.status === "out_of_stock";
+  const isUnavailable = product.status === "out_of_stock" || product.isLocked;
 
   function handleDragStart(event: DragEvent<HTMLElement>) {
+    if (isUnavailable) {
+      event.preventDefault();
+      return;
+    }
+
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData("application/x-store-product-id", product.id);
     event.dataTransfer.setData("application/x-store-product", JSON.stringify(product));
@@ -42,16 +77,32 @@ function ProductCard({ product }: { product: StoreProduct }) {
 
   return (
     <article
-      draggable={!isOut}
+      draggable={!isUnavailable}
       onDragStartCapture={handleDragStart}
-      className={`group relative overflow-hidden rounded-[1.75rem] border ${isDark ? "border-white/10 bg-slate-900/85" : "border-slate-200 bg-white shadow-[0_20px_70px_-48px_rgba(15,23,42,0.35)]"} ${isOut ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing"}`}
+      className={`group relative overflow-hidden rounded-[1.75rem] border ${
+        isDark ? "border-white/10 bg-slate-900/85" : "border-slate-200 bg-white shadow-[0_20px_70px_-48px_rgba(15,23,42,0.35)]"
+      } ${isUnavailable ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing"}`}
     >
       <Link href={`/store/products/${product.slug}`} className="absolute inset-0 z-10" aria-label={product.name} />
       <div className="relative overflow-hidden">
-        <img ref={imageRef} src={product.imageUrl} alt={product.name} className="h-64 w-full object-cover transition duration-500 group-hover:scale-105" draggable={false} />
+        <img
+          ref={imageRef}
+          src={product.imageUrl}
+          alt={product.name}
+          className="h-64 w-full object-cover transition duration-500 group-hover:scale-105"
+          draggable={false}
+        />
         <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-4 pt-4 transition duration-300 group-hover:opacity-0">
-          <span className="rounded-full bg-orange-500 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white">-{discountPercent}%</span>
-          <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "bg-white/10 text-slate-200" : "bg-white/90 text-slate-700"}`}>{product.category}</span>
+          <span className="rounded-full bg-orange-500 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white">
+            -{discountPercent}%
+          </span>
+          <span
+            className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+              isDark ? "bg-white/10 text-slate-200" : "bg-white/90 text-slate-700"
+            }`}
+          >
+            {product.category}
+          </span>
         </div>
         <div className="absolute inset-0 z-20 bg-slate-950/0 transition duration-300 group-hover:bg-slate-950/72" />
         <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center px-6 text-center opacity-0 transition duration-300 group-hover:opacity-100">
@@ -67,10 +118,10 @@ function ProductCard({ product }: { product: StoreProduct }) {
               event.stopPropagation();
               addCatalogItem(product, 1);
             }}
-            disabled={isOut}
+            disabled={isUnavailable}
             className="pointer-events-auto mt-5 inline-flex min-w-[9rem] items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400"
           >
-            {isOut ? "Hết hàng" : "Thêm vào giỏ"}
+            {product.isLocked ? "Đang được giữ" : product.status === "out_of_stock" ? "Hết hàng" : "Thêm vào giỏ"}
           </button>
         </div>
       </div>
@@ -80,16 +131,25 @@ function ProductCard({ product }: { product: StoreProduct }) {
           <span className={isDark ? "text-slate-600" : "text-slate-300"}>•</span>
           <span className={isDark ? "text-slate-400" : "text-slate-500"}>{product.location}</span>
         </div>
-        <h3 className={`mt-2 line-clamp-2 min-h-14 text-lg font-semibold leading-7 ${isDark ? "text-white" : "text-slate-950"}`}>{product.name}</h3>
-        <p className={`mt-2 line-clamp-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{product.description}</p>
+        <h3 className={`mt-2 line-clamp-2 min-h-14 text-lg font-semibold leading-7 ${isDark ? "text-white" : "text-slate-950"}`}>
+          {product.name}
+        </h3>
+        <p className={`mt-2 line-clamp-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+          {product.description}
+        </p>
         <div className="mt-3 flex items-center gap-2 text-sm">
           <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-600">★ {product.rating}</span>
-          <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>Đã bán {product.soldCount}</span>
+          <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
+            Đã bán {product.soldCount}
+          </span>
         </div>
         <div className="mt-4">
           <div className="text-[13px] text-slate-400 line-through">{formatCurrency(product.originalPrice)}</div>
           <strong className="text-2xl font-bold text-orange-500">{formatCurrency(product.price)}</strong>
         </div>
+        {product.isLocked ? (
+          <p className="mt-3 text-sm font-medium text-amber-600">Sản phẩm này đang được giữ tạm thời, vui lòng thử lại sau.</p>
+        ) : null}
       </div>
     </article>
   );
@@ -190,6 +250,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
   const safePage = Math.min(page, totalPages);
   const paginatedProducts = filteredProducts.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
+  const paginationTokens = buildPaginationTokens(safePage, totalPages);
 
   return (
     <section className="px-4 py-10 sm:px-6 lg:px-8">
@@ -206,7 +267,11 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
                 placeholder="Nhập tên, thương hiệu hoặc mô tả bạn muốn tìm..."
-                className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${isDark ? "border-white/10 bg-slate-900 text-white placeholder:text-slate-500 focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400 focus:border-orange-500"}`}
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${
+                  isDark
+                    ? "border-white/10 bg-slate-900 text-white placeholder:text-slate-500 focus:border-orange-500"
+                    : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400 focus:border-orange-500"
+                }`}
               />
             </label>
             <label className="flex flex-col gap-2">
@@ -214,7 +279,9 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
               <select
                 value={activeCategory}
                 onChange={(event) => updateFilters({ category: event.target.value })}
-                className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${isDark ? "border-white/10 bg-slate-900 text-white focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 focus:border-orange-500"}`}
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${
+                  isDark ? "border-white/10 bg-slate-900 text-white focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 focus:border-orange-500"
+                }`}
               >
                 <option value="Tất cả">Tất cả</option>
                 {storeCategories.map((item) => (
@@ -229,7 +296,9 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
               <select
                 value={activeSort}
                 onChange={(event) => updateFilters({ sort: event.target.value as SortMode })}
-                className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${isDark ? "border-white/10 bg-slate-900 text-white focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 focus:border-orange-500"}`}
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${
+                  isDark ? "border-white/10 bg-slate-900 text-white focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 focus:border-orange-500"
+                }`}
               >
                 <option value="newest">Mới cập nhật</option>
                 <option value="oldest">Cũ hơn</option>
@@ -241,7 +310,9 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
           </div>
         </div>
         <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-          {paginatedProducts.map((product) => <ProductCard key={product.id} product={product} />)}
+          {paginatedProducts.map((product) => (
+            <ProductCard key={product.id} product={product} />
+          ))}
         </div>
         {loading ? <p className={`mt-6 text-sm ${isDark ? "text-slate-300" : "text-slate-500"}`}>Đang tải sản phẩm...</p> : null}
         {!loading && error ? <p className="mt-6 text-sm font-medium text-rose-500">{error}</p> : null}
@@ -251,25 +322,49 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
               type="button"
               onClick={() => setPage((current) => Math.max(1, current - 1))}
               disabled={safePage <= 1}
-              className={`rounded-full px-5 py-3 text-sm font-semibold transition ${safePage <= 1 ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white hover:bg-white/10" : "bg-white text-slate-950 shadow-sm hover:bg-slate-50"}`}
+              className={`rounded-full px-5 py-3 text-sm font-semibold transition ${
+                safePage <= 1
+                  ? "cursor-not-allowed bg-slate-200 text-slate-400"
+                  : isDark
+                    ? "bg-white/5 text-white hover:bg-white/10"
+                    : "bg-white text-slate-950 shadow-sm hover:bg-slate-50"
+              }`}
             >
               Trang trước
             </button>
-            {Array.from({ length: totalPages }, (_, index) => index + 1).map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setPage(value)}
-                className={`h-11 min-w-11 rounded-full px-4 text-sm font-semibold transition ${value === safePage ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-white text-slate-700 shadow-sm hover:bg-slate-50"}`}
-              >
-                {value}
-              </button>
-            ))}
+            {paginationTokens.map((token, index) =>
+              token === "ellipsis" ? (
+                <span key={`ellipsis-${index}`} className={`px-2 text-sm font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                  ...
+                </span>
+              ) : (
+                <button
+                  key={token}
+                  type="button"
+                  onClick={() => setPage(token)}
+                  className={`h-11 min-w-11 rounded-full px-4 text-sm font-semibold transition ${
+                    token === safePage
+                      ? "bg-gradient-to-r from-orange-500 to-red-500 text-white"
+                      : isDark
+                        ? "bg-white/5 text-slate-200 hover:bg-white/10"
+                        : "bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+                  }`}
+                >
+                  {token}
+                </button>
+              )
+            )}
             <button
               type="button"
               onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
               disabled={safePage >= totalPages}
-              className={`rounded-full px-5 py-3 text-sm font-semibold transition ${safePage >= totalPages ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white hover:bg-white/10" : "bg-white text-slate-950 shadow-sm hover:bg-slate-50"}`}
+              className={`rounded-full px-5 py-3 text-sm font-semibold transition ${
+                safePage >= totalPages
+                  ? "cursor-not-allowed bg-slate-200 text-slate-400"
+                  : isDark
+                    ? "bg-white/5 text-white hover:bg-white/10"
+                    : "bg-white text-slate-950 shadow-sm hover:bg-slate-50"
+              }`}
             >
               Trang sau
             </button>

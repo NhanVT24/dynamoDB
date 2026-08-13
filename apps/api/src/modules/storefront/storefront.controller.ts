@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Logger, Param, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Logger, Param, Post, Query, Req } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { shoppingParamsSchema } from "../shopping/shopping.query-schemas.js";
 import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
@@ -24,6 +24,7 @@ export class StorefrontController {
   }
 
   @Post("orders")
+  @HttpCode(HttpStatus.ACCEPTED)
   createOrder(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {

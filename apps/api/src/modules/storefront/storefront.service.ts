@@ -1,8 +1,23 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import crypto from "node:crypto";
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
+import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { TtlCache } from "../../common/cache/ttl-cache.js";
+import { env } from "../../config/env.js";
+import { sendOrderConfirmationEmail } from "../../integrations/ses/order-mailer.js";
+import { sqsClient } from "../../integrations/sqs/client.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
-import { createStorefrontOrder, getStorefrontProductById, listOrdersByCustomer, listStorefrontProducts } from "./storefront.repository.js";
+import {
+  acquireProductSelectionLock,
+  createStorefrontOrder,
+  getActiveProductSelectionLock,
+  getStorefrontProductById,
+  listOrdersByCustomer,
+  listStorefrontProducts,
+  releaseProductSelectionLock,
+  type StorefrontOrderQueuePayload
+} from "./storefront.repository.js";
 import type { CreateStorefrontOrderInput } from "./storefront.schema.js";
 
 type ProductRecord = Record<string, any>;
@@ -15,6 +30,7 @@ type PublicProductListResponse = {
     hasNextPage: boolean;
   };
 };
+
 type PublicProductSummary = {
   id: string;
   name: string;
@@ -30,6 +46,8 @@ type PublicProductSummary = {
   location?: string;
   featured?: boolean;
   updatedAt?: string;
+  isLocked?: boolean;
+  lockedUntil?: string;
 };
 
 type PublicProductDetail = PublicProductSummary & {
@@ -38,8 +56,30 @@ type PublicProductDetail = PublicProductSummary & {
   attributes: Record<string, unknown>;
 };
 
+type StorefrontQueueResult =
+  | {
+      type: "storefront.order.requested";
+      requestId: string;
+      orderId: string;
+      customer: string;
+      status: "pending";
+      totalAmount: number;
+      itemCount: number;
+    }
+  | {
+      type: "storefront.order.failed";
+      requestId: string;
+      orderId: "";
+      customer: string;
+      status: "failed";
+      totalAmount: 0;
+      itemCount: number;
+      failureReason: string;
+    };
+
 const listCache = new TtlCache<PublicProductListResponse>(20_000);
 const detailCache = new TtlCache<PublicProductDetail>(30_000);
+const PRODUCT_SELECTION_HOLD_SECONDS = 60;
 
 function buildListCacheKey(query: Record<string, unknown>) {
   return JSON.stringify(Object.keys(query).sort().map((key) => [key, query[key as keyof typeof query]]));
@@ -60,7 +100,9 @@ function toPublicProductSummary(item: ProductRecord): PublicProductSummary {
     soldCount: item.soldCount == null ? undefined : Number(item.soldCount),
     location: item.location ? String(item.location) : undefined,
     featured: Boolean(item.featured),
-    updatedAt: item.updatedAt ? String(item.updatedAt) : undefined
+    updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
+    isLocked: Boolean(item.isLocked),
+    lockedUntil: item.lockedUntil ? String(item.lockedUntil) : undefined
   };
 }
 
@@ -109,8 +151,14 @@ function toPublicProductDetail(item: ProductRecord): PublicProductDetail {
     updatedAt: updatedAt ? String(updatedAt) : undefined,
     description: description ? String(description) : undefined,
     sku: sku ? String(sku) : undefined,
+    isLocked: Boolean(item.isLocked),
+    lockedUntil: item.lockedUntil ? String(item.lockedUntil) : undefined,
     attributes
   };
+}
+
+function isInsufficientStockError(error: unknown) {
+  return error instanceof Error && error.message.startsWith("Insufficient stock for ");
 }
 
 @Injectable()
@@ -129,8 +177,19 @@ export class StorefrontService {
     }
 
     const result = await listStorefrontProducts(query);
+    const itemsWithLockState = await Promise.all(
+      result.items.map(async (item) => {
+        const lock = await getActiveProductSelectionLock(String(item.id));
+        return {
+          ...item,
+          isLocked: Boolean(lock),
+          lockedUntil: lock?.lockedUntil
+        };
+      })
+    );
+
     const shaped = {
-      items: result.items.map((item) => toPublicProductSummary(item)),
+      items: itemsWithLockState.map((item) => toPublicProductSummary(item)),
       pageInfo: {
         limit: result.limit,
         cursor: result.cursor,
@@ -150,65 +209,267 @@ export class StorefrontService {
     }
 
     const item = await getStorefrontProductById(id);
-    if (!item) throw new NotFoundException("Product not found");
+    if (!item) {
+      throw new NotFoundException("Không tìm thấy sản phẩm.");
+    }
 
-    const shaped = toPublicProductDetail(item);
+    const lock = await getActiveProductSelectionLock(id);
+    const shaped = toPublicProductDetail({
+      ...item,
+      isLocked: Boolean(lock),
+      lockedUntil: lock?.lockedUntil
+    });
     detailCache.set(id, shaped);
     return shaped;
   }
 
   async createOrder(email: string, input: CreateStorefrontOrderInput) {
-    const order = await createStorefrontOrder({ email, items: input.items });
-    this.invalidateProductCaches(input.items.map((item) => item.productId));
-    this.logger.log(`order.created orderId=${order.id} customer=${email} status=${order.status} totalAmount=${order.totalAmount} itemCount=${order.items.length}`);
+    if (!env.SQS_STOREFRONT_ORDERS_QUEUE_URL) {
+      this.logger.warn(`order.queue.disabled customer=${email}`);
+      throw new Error("Hàng đợi xử lý đơn hàng chưa được cấu hình.");
+    }
 
-    await this.notificationsService.createPendingNotification({
-      email,
-      channel: "system",
-      title: "Đơn hàng đang chờ xử lý",
-      message: `Đơn hàng ${order.id} đã vào hàng đợi xử lý thông báo hệ thống.`,
-      metadata: {
-        orderId: order.id,
-        totalAmount: order.totalAmount,
-        itemCount: order.items.length
+    await this.precheckStock(email, input.items);
+
+    const requestId = crypto.randomUUID();
+    const lockedProductIds: string[] = [];
+
+    try {
+      for (const item of input.items) {
+        await acquireProductSelectionLock({
+          productId: item.productId,
+          email,
+          requestId,
+          holdSeconds: PRODUCT_SELECTION_HOLD_SECONDS
+        });
+        lockedProductIds.push(item.productId);
       }
-    });
+    } catch (error) {
+      await this.releaseSelectionLocks(lockedProductIds, requestId);
 
-    await this.notificationsService.createPendingNotification({
-      email,
-      channel: "email",
-      title: "Email xác nhận đang chờ gửi",
-      message: `Hệ thống đã xếp hàng email xác nhận cho đơn ${order.id}. Đơn sẽ chuyển sang done sau khi gửi xong.`,
-      metadata: {
-        orderId: order.id,
-        template: "order-confirmation"
+      if (error instanceof ConditionalCheckFailedException) {
+        const blockedProductId = input.items.find((item) => !lockedProductIds.includes(item.productId))?.productId ?? input.items[0]?.productId ?? "";
+        this.logger.warn(`order.prevented_locked requestId=${requestId} customer=${email} productId=${blockedProductId} holdSeconds=${PRODUCT_SELECTION_HOLD_SECONDS}`);
+        throw new ConflictException("Sản phẩm đang được giữ tạm thời trong 1 phút. Vui lòng thử lại sau.");
       }
-    });
 
-    await this.notificationsService.publishAuditLog({
-      eventType: "storefront.order.created",
+      throw error;
+    }
+
+    const payload: StorefrontOrderQueuePayload = {
+      type: "storefront.order.requested",
+      requestId,
       email,
-      resourceId: order.id,
-      metadata: {
-        totalAmount: order.totalAmount,
-        itemCount: order.items.length,
-        status: order.status
-      }
-    });
+      items: input.items,
+      createdAt: new Date().toISOString()
+    };
 
-    this.logger.log(`order.enqueued orderId=${order.id} notificationChannels=system,email audit=true`);
+    await sqsClient.send(new SendMessageCommand({
+      QueueUrl: env.SQS_STOREFRONT_ORDERS_QUEUE_URL,
+      MessageBody: JSON.stringify(payload)
+    }));
 
-    return order;
+    this.logger.log(`order.requested_enqueued requestId=${requestId} customer=${email} itemCount=${input.items.length} lockedProductIds=${lockedProductIds.join(",")}`);
+    return {
+      success: true,
+      queued: true,
+      requestId,
+      message: "Yêu cầu đặt hàng đã được đưa vào queue để xử lý."
+    };
+  }
+
+  async processQueueRecords(records: Array<{ body?: string }>) {
+    this.logger.log(`storefront.queue.batch_received size=${records.length}`);
+    const results = await Promise.all(records.map((record) => this.processQueueRecord(record.body)));
+    const processedItems = results.filter(Boolean);
+    this.logger.log(`storefront.queue.batch_processed processed=${processedItems.length} items=${JSON.stringify(processedItems)}`);
+    return {
+      processed: processedItems.length,
+      items: processedItems
+    };
   }
 
   listMyOrders(email: string) {
     return listOrdersByCustomer(email);
   }
 
+  private async processQueueRecord(body: string | undefined) {
+    if (!body) {
+      this.logger.warn("storefront.queue.record.empty");
+      return null;
+    }
+
+    const payload = JSON.parse(body) as Partial<StorefrontOrderQueuePayload>;
+    if (payload.type !== "storefront.order.requested" || !payload.email || !Array.isArray(payload.items) || payload.items.length === 0) {
+      this.logger.warn(`storefront.queue.ignored payload=${body}`);
+      return null;
+    }
+
+    this.logger.log(`storefront.queue.processing requestId=${payload.requestId ?? ""} customer=${payload.email} itemCount=${payload.items.length}`);
+    return this.finalizeQueuedOrder(payload.email, payload.items, payload.requestId);
+  }
+
+  private async finalizeQueuedOrder(
+    email: string,
+    items: CreateStorefrontOrderInput["items"],
+    requestId?: string
+  ): Promise<StorefrontQueueResult> {
+    try {
+      const order = await createStorefrontOrder({ email, items });
+      this.invalidateProductCaches(items.map((item) => item.productId));
+      this.logger.log(`order.created orderId=${order.id} requestId=${requestId ?? ""} customer=${email} status=${order.status} totalAmount=${order.totalAmount} itemCount=${order.items.length}`);
+
+      await this.notificationsService.createPendingNotification({
+        email,
+        channel: "system",
+        title: "Đơn hàng đang chờ xử lý",
+        message: `Đơn hàng ${order.id} đã vào hàng đợi xử lý thông báo hệ thống.`,
+        metadata: {
+          requestId: requestId ?? "",
+          orderId: order.id,
+          totalAmount: order.totalAmount,
+          itemCount: order.items.length
+        }
+      });
+
+      await this.notificationsService.createPendingNotification({
+        email,
+        channel: "email",
+        title: "Email xác nhận đang chờ gửi",
+        message: `Hệ thống đã xếp hàng email xác nhận cho đơn ${order.id}. Đơn sẽ chuyển sang done sau khi gửi xong.`,
+        metadata: {
+          orderId: order.id,
+          template: "order-confirmation"
+        }
+      });
+
+      await this.notificationsService.publishAuditLog({
+        eventType: "storefront.order.created",
+        email,
+        resourceId: order.id,
+        metadata: {
+          totalAmount: order.totalAmount,
+          itemCount: order.items.length,
+          status: order.status,
+          requestId: requestId ?? ""
+        }
+      });
+
+      if (env.SES_FROM_EMAIL) {
+        try {
+          await sendOrderConfirmationEmail({
+            toEmail: email,
+            orderId: order.id,
+            totalAmount: order.totalAmount,
+            createdAt: order.createdAt,
+            items: order.items.map((item) => ({
+              productName: item.productName,
+              quantity: item.quantity,
+              lineTotal: item.lineTotal
+            }))
+          });
+          this.logger.log(`order.email_sent orderId=${order.id} requestId=${requestId ?? ""} to=${email}`);
+        } catch (error) {
+          this.logger.warn(`order.email_failed orderId=${order.id} requestId=${requestId ?? ""} to=${email} error=${error instanceof Error ? error.message : "unknown"}`);
+        }
+      } else {
+        this.logger.warn(`order.email_skipped orderId=${order.id} requestId=${requestId ?? ""} reason=ses_not_configured`);
+      }
+
+      this.logger.log(`order.enqueued orderId=${order.id} requestId=${requestId ?? ""} notificationChannels=system audit=true`);
+      return {
+        type: "storefront.order.requested",
+        requestId: requestId ?? "",
+        orderId: order.id,
+        customer: email,
+        status: "pending",
+        totalAmount: order.totalAmount,
+        itemCount: order.items.length
+      };
+    } catch (error) {
+      if (isInsufficientStockError(error)) {
+        const failureReason = "Thanh toán thất bại vì sản phẩm không còn đủ tồn kho.";
+        this.logger.warn(
+          `order.failed_after_queue requestId=${requestId ?? ""} customer=${email} reason=insufficient_stock error=${error.message}`
+        );
+
+        await this.notificationsService.createPendingNotification({
+          email,
+          channel: "system",
+          title: "Thanh toán thất bại",
+          message: failureReason,
+          metadata: {
+            requestId: requestId ?? "",
+            itemCount: items.length,
+            failureCode: "insufficient_stock",
+            failureReason
+          }
+        });
+
+        await this.notificationsService.publishAuditLog({
+          eventType: "storefront.order.failed",
+          email,
+          resourceId: requestId ?? "",
+          metadata: {
+            status: "failed",
+            itemCount: items.length,
+            requestId: requestId ?? "",
+            failureCode: "insufficient_stock",
+            failureReason
+          }
+        });
+
+        return {
+          type: "storefront.order.failed",
+          requestId: requestId ?? "",
+          orderId: "",
+          customer: email,
+          status: "failed",
+          totalAmount: 0,
+          itemCount: items.length,
+          failureReason
+        };
+      }
+
+      throw error;
+    } finally {
+      await this.releaseSelectionLocks(items.map((item) => item.productId), requestId);
+    }
+  }
+
   private invalidateProductCaches(productIds: string[]) {
     listCache.clear();
     for (const productId of productIds) {
       detailCache.delete(productId);
+    }
+  }
+
+  private async releaseSelectionLocks(productIds: string[], requestId?: string) {
+    await Promise.all(productIds.map(async (productId) => {
+      try {
+        await releaseProductSelectionLock(productId, requestId);
+      } catch (error) {
+        this.logger.warn(`order.lock_release_failed requestId=${requestId ?? ""} productId=${productId} error=${error instanceof Error ? error.message : "unknown"}`);
+      }
+    }));
+  }
+
+  private async precheckStock(email: string, items: CreateStorefrontOrderInput["items"]) {
+    for (const item of items) {
+      const product = await getStorefrontProductById(item.productId);
+
+      if (!product) {
+        this.logger.warn(`order.rejected_precheck_missing_product customer=${email} productId=${item.productId}`);
+        throw new NotFoundException(`Không tìm thấy sản phẩm ${item.productId}.`);
+      }
+
+      const availableStock = Number(product.stock ?? 0);
+      if (availableStock < item.quantity) {
+        this.logger.warn(
+          `order.rejected_precheck_stock customer=${email} productId=${item.productId} requested=${item.quantity} available=${availableStock}`
+        );
+        throw new ConflictException(`Sản phẩm ${product.name} không đủ tồn kho.`);
+      }
     }
   }
 }

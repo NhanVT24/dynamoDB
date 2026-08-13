@@ -92,6 +92,12 @@ export class AwsApiStack extends Stack {
       description: "VNPay IPN callback URL"
     });
 
+    const sesFromEmail = new CfnParameter(this, "SesFromEmail", {
+      type: "String",
+      default: "nhan18072020@gmail.com",
+      description: "Verified SES sender email address"
+    });
+
     const table = new dynamodb.CfnTable(this, "MarketplaceProductsTable", {
       tableName: dynamoTableName.valueAsString,
       billingMode: "PAY_PER_REQUEST",
@@ -174,6 +180,22 @@ export class AwsApiStack extends Stack {
       queueName: "supermarket-audit-log",
       visibilityTimeout: Duration.seconds(30),
       retentionPeriod: Duration.days(4)
+    });
+
+    const storefrontOrdersDlq = new sqs.Queue(this, "StorefrontOrdersDlq", {
+      queueName: "supermarket-storefront-orders-dlq",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14)
+    });
+
+    const storefrontOrdersQueue = new sqs.Queue(this, "StorefrontOrdersQueue", {
+      queueName: "supermarket-storefront-orders",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(4),
+      deadLetterQueue: {
+        queue: storefrontOrdersDlq,
+        maxReceiveCount: 3
+      }
     });
 
     const paymentEventsDlq = new sqs.Queue(this, "PaymentEventsDlq", {
@@ -458,6 +480,8 @@ exports.handler = async (event) => {
         SQS_NOTIFICATIONS_QUEUE_URL: notificationsQueue.queueUrl,
         SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
         SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
+        SQS_STOREFRONT_ORDERS_QUEUE_URL: storefrontOrdersQueue.queueUrl,
+        SES_FROM_EMAIL: sesFromEmail.valueAsString,
         VNPAY_TMN_CODE: vnpayTmnCodeValue,
         VNPAY_HASH_SECRET: vnpayHashSecret.valueAsString,
         VNPAY_PAYMENT_URL: vnpayPaymentUrlValue,
@@ -487,9 +511,16 @@ exports.handler = async (event) => {
     notificationsQueue.grantSendMessages(lambdaFunction);
     notificationsQueue.grantConsumeMessages(lambdaFunction);
     auditQueue.grantSendMessages(lambdaFunction);
+    storefrontOrdersQueue.grantSendMessages(lambdaFunction);
+    storefrontOrdersQueue.grantConsumeMessages(lambdaFunction);
+    storefrontOrdersDlq.grantConsumeMessages(lambdaFunction);
     paymentEventsQueue.grantSendMessages(lambdaFunction);
     paymentEventsQueue.grantConsumeMessages(lambdaFunction);
     paymentEventsDlq.grantConsumeMessages(lambdaFunction);
+    lambdaFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["ses:SendEmail", "ses:SendRawEmail"],
+      resources: ["*"]
+    }));
 
     new lambda.EventSourceMapping(this, "NotificationsQueueEventSource", {
       target: lambdaFunction,
@@ -500,6 +531,12 @@ exports.handler = async (event) => {
     new lambda.EventSourceMapping(this, "PaymentEventsQueueEventSource", {
       target: lambdaFunction,
       eventSourceArn: paymentEventsQueue.queueArn,
+      batchSize: 10
+    });
+
+    new lambda.EventSourceMapping(this, "StorefrontOrdersQueueEventSource", {
+      target: lambdaFunction,
+      eventSourceArn: storefrontOrdersQueue.queueArn,
       batchSize: 10
     });
 
@@ -591,6 +628,14 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "AuditQueueUrl", {
       value: auditQueue.queueUrl
+    });
+
+    new CfnOutput(this, "StorefrontOrdersQueueUrl", {
+      value: storefrontOrdersQueue.queueUrl
+    });
+
+    new CfnOutput(this, "StorefrontOrdersDlqUrl", {
+      value: storefrontOrdersDlq.queueUrl
     });
 
     new CfnOutput(this, "PaymentEventsQueueUrl", {

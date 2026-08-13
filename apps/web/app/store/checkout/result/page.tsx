@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { readAuthSession } from "../../../lib/cognito-auth";
 import { useStorefront } from "../../store-client";
@@ -13,6 +13,7 @@ const notificationsUpdatedEvent = "storefront-notifications-updated";
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
 const cartStorageKey = "web-storefront-cart";
 const processedPaymentPrefix = "web-storefront-payment-processed-";
+const pendingOrderRequestPrefix = "web-storefront-order-request-";
 
 type ReturnPayload = {
   isValidSignature: boolean;
@@ -27,6 +28,30 @@ type ReturnPayload = {
   payDate: string;
 };
 
+type FinalizeOrderPayload = {
+  success?: boolean;
+  queued?: boolean;
+  requestId?: string;
+  message?: string;
+};
+
+type NotificationApiItem = {
+  id: string;
+  title: string;
+  message: string;
+  status: "pending" | "sent" | "read";
+  isRead?: boolean;
+  channel: "email" | "system";
+  createdAt: string;
+  metadata?: Record<string, unknown>;
+};
+
+type QueueTrackingState = "idle" | "polling" | "done" | "failed";
+
+function getPendingOrderRequestKey(txnRef: string) {
+  return `${pendingOrderRequestPrefix}${txnRef}`;
+}
+
 export default function CheckoutResultPage() {
   const searchParams = useSearchParams();
   const { clearCart } = useStorefront();
@@ -34,6 +59,10 @@ export default function CheckoutResultPage() {
   const [error, setError] = useState("");
   const [hasBroadcastSuccess, setHasBroadcastSuccess] = useState(false);
   const [isFinalizingOrder, setIsFinalizingOrder] = useState(false);
+  const [requestId, setRequestId] = useState("");
+  const [queueState, setQueueState] = useState<QueueTrackingState>("idle");
+  const [queueMessage, setQueueMessage] = useState("");
+  const [matchedNotification, setMatchedNotification] = useState<NotificationApiItem | null>(null);
 
   useEffect(() => {
     async function verifyPayment() {
@@ -52,7 +81,7 @@ export default function CheckoutResultPage() {
         const response = await fetch(`${apiBaseUrl}/api/payments/vnpay/return?${query}`, {
           cache: "no-store"
         });
-        const payload = await response.json().catch(() => null) as ReturnPayload | null;
+        const payload = (await response.json().catch(() => null)) as ReturnPayload | null;
 
         if (!response.ok || !payload) {
           throw new Error("Không thể xác minh kết quả thanh toán.");
@@ -68,6 +97,18 @@ export default function CheckoutResultPage() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (!result?.txnRef) {
+      return;
+    }
+
+    const savedRequestId = window.sessionStorage.getItem(getPendingOrderRequestKey(result.txnRef));
+    if (savedRequestId) {
+      setRequestId(savedRequestId);
+      setQueueState("polling");
+    }
+  }, [result?.txnRef]);
+
+  useEffect(() => {
     if (!result || hasBroadcastSuccess) {
       return;
     }
@@ -79,7 +120,7 @@ export default function CheckoutResultPage() {
 
     try {
       const raw = window.localStorage.getItem(localNotificationsStorageKey);
-      const current = raw ? JSON.parse(raw) as Array<Record<string, unknown>> : [];
+      const current = raw ? (JSON.parse(raw) as Array<Record<string, unknown>>) : [];
       const notificationId = `payment-success-${result.txnRef}`;
       const existed = current.some((item) => String(item.id) === notificationId);
 
@@ -146,6 +187,8 @@ export default function CheckoutResultPage() {
       }
 
       setIsFinalizingOrder(true);
+      setQueueState("idle");
+      setQueueMessage("");
 
       try {
         const response = await fetch(`${apiBaseUrl}/api/storefront/orders`, {
@@ -159,15 +202,20 @@ export default function CheckoutResultPage() {
           })
         });
 
-        const payload = await response.json().catch(() => null) as { message?: string } | null;
-        if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as FinalizeOrderPayload | null;
+        if (!response.ok || !payload?.requestId) {
           throw new Error(payload?.message || "Không thể tạo đơn hàng sau khi thanh toán thành công.");
         }
 
         window.sessionStorage.setItem(processedKey, "1");
+        window.sessionStorage.setItem(getPendingOrderRequestKey(result.txnRef), payload.requestId);
         window.localStorage.removeItem(cartStorageKey);
         window.localStorage.removeItem(pendingCheckoutStorageKey);
         clearCart();
+
+        setRequestId(payload.requestId);
+        setQueueState("polling");
+        setQueueMessage(payload.message || "Đơn hàng đã được đưa vào queue, hệ thống sẽ tự kiểm tra trạng thái.");
       } catch (finalizeError) {
         setError(finalizeError instanceof Error ? finalizeError.message : "Không thể tạo đơn hàng sau thanh toán.");
       } finally {
@@ -178,7 +226,106 @@ export default function CheckoutResultPage() {
     void finalizeSuccessfulCheckout();
   }, [clearCart, result]);
 
+  useEffect(() => {
+    if (!requestId || !result?.txnRef || queueState === "done" || queueState === "failed") {
+      return;
+    }
+
+    const session = readAuthSession();
+    if (!session?.idToken || !apiBaseUrl) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function pollQueueResult() {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/notifications/me`, {
+          headers: {
+            Authorization: `Bearer ${session.idToken}`
+          },
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          throw new Error("Không thể kiểm tra trạng thái xử lý đơn hàng.");
+        }
+
+        const payload = (await response.json()) as { items?: NotificationApiItem[] };
+        const notification = (payload.items ?? []).find((item) => String(item.metadata?.requestId ?? "") === requestId);
+
+        if (!notification || cancelled) {
+          return;
+        }
+
+        setMatchedNotification(notification);
+
+        const failureCode = String(notification.metadata?.failureCode ?? "").trim();
+        if (failureCode) {
+          setQueueState("failed");
+          setQueueMessage(notification.message);
+          window.sessionStorage.removeItem(getPendingOrderRequestKey(result.txnRef));
+          return;
+        }
+
+        setQueueState("done");
+        setQueueMessage(notification.message);
+        window.sessionStorage.removeItem(getPendingOrderRequestKey(result.txnRef));
+      } catch (pollError) {
+        if (!cancelled) {
+          setQueueMessage(pollError instanceof Error ? pollError.message : "Không thể kiểm tra trạng thái queue lúc này.");
+        }
+      }
+    }
+
+    void pollQueueResult();
+    const intervalId = window.setInterval(() => {
+      void pollQueueResult();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [queueState, requestId, result?.txnRef]);
+
   const isSuccess = result?.transactionStatus === "success" && result.isValidSignature;
+
+  const queuePanel = useMemo(() => {
+    if (!isSuccess || !requestId) {
+      return null;
+    }
+
+    if (queueState === "polling" || isFinalizingOrder) {
+      return {
+        tone: "border-cyan-200 bg-cyan-50 text-cyan-700",
+        title: "Đang theo dõi queue",
+        message: queueMessage || "Đơn hàng đã vào queue. Client đang kiểm tra trạng thái mỗi 5 giây."
+      };
+    }
+
+    if (queueState === "done") {
+      return {
+        tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        title: "Queue đã xử lý xong",
+        message: queueMessage || "Đơn hàng đã được queue xử lý thành công."
+      };
+    }
+
+    if (queueState === "failed") {
+      return {
+        tone: "border-amber-200 bg-amber-50 text-amber-700",
+        title: "Queue đã trả về thất bại",
+        message: queueMessage || "Queue đã xử lý nhưng đơn hàng không thành công."
+      };
+    }
+
+    return {
+      tone: "border-slate-200 bg-slate-50 text-slate-700",
+      title: "Đã tạo yêu cầu",
+      message: queueMessage || "Yêu cầu đã được ghi nhận, chuẩn bị kiểm tra trạng thái queue."
+    };
+  }, [isFinalizingOrder, isSuccess, queueMessage, queueState, requestId]);
 
   return (
     <main className="px-4 py-12 sm:px-6 lg:px-8">
@@ -191,13 +338,15 @@ export default function CheckoutResultPage() {
         </h1>
         <p className="mt-4 text-sm leading-7 text-slate-600">
           {isSuccess
-            ? "Đơn hàng demo đã được VNPay sandbox phản hồi thành công. Bạn có thể tiếp tục mua sắm hoặc quay lại giỏ hàng để kiểm tra."
+            ? "Sau khi VNPay sandbox xác nhận thành công, hệ thống sẽ đẩy yêu cầu tạo đơn vào queue rồi client tự kiểm tra lại trạng thái qua API."
             : "Nếu bạn vừa hủy giao dịch hoặc gặp lỗi, bạn có thể quay lại cửa hàng và thử lại bất cứ lúc nào."}
         </p>
 
-        {isSuccess && isFinalizingOrder ? (
-          <div className="mt-6 rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-700">
-            Đang ghi nhận đơn hàng và xóa giỏ hàng sau thanh toán...
+        {queuePanel ? (
+          <div className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${queuePanel.tone}`}>
+            <p className="font-semibold">{queuePanel.title}</p>
+            <p className="mt-1">{queuePanel.message}</p>
+            <p className="mt-2 text-xs opacity-80">Request ID: {requestId}</p>
           </div>
         ) : null}
 
@@ -228,12 +377,20 @@ export default function CheckoutResultPage() {
           </div>
         ) : null}
 
+        {matchedNotification ? (
+          <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Thông báo từ queue</p>
+            <h2 className="mt-3 text-lg font-semibold text-slate-950">{matchedNotification.title}</h2>
+            <p className="mt-2 text-sm leading-7 text-slate-600">{matchedNotification.message}</p>
+          </div>
+        ) : null}
+
         <div className="mt-8 flex flex-wrap gap-3">
           <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
             Tiếp tục mua sắm
           </Link>
-          <Link href="/store/checkout" className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700">
-            Quay lại thanh toán
+          <Link href="/store/orders" className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700">
+            Xem lịch sử mua hàng
           </Link>
         </div>
       </div>

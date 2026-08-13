@@ -6,14 +6,55 @@ import { fetchMyOrders } from "../store-api";
 import type { StoreOrder } from "../store-types";
 import { formatCurrency, formatDateTime } from "../store-utils";
 
+type PaginationToken = number | "ellipsis";
+
 function StatusBadge({ status }: { status: string }) {
-  const isPending = status === "pending";
+  const normalizedStatus = String(status).toLowerCase();
+  const isPending = normalizedStatus === "pending";
+  const isFailed = normalizedStatus === "failed";
 
   return (
-    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${isPending ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+    <span
+      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${
+        isPending
+          ? "bg-amber-100 text-amber-700"
+          : isFailed
+            ? "bg-rose-100 text-rose-700"
+            : "bg-emerald-100 text-emerald-700"
+      }`}
+    >
       {status}
     </span>
   );
+}
+
+function buildPaginationTokens(currentPage: number, totalPages: number): PaginationToken[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set<number>([
+    1,
+    2,
+    totalPages - 1,
+    totalPages,
+    Math.max(1, currentPage - 1),
+    currentPage,
+    Math.min(totalPages, currentPage + 1)
+  ]);
+
+  const sortedPages = [...pages].filter((page) => page >= 1 && page <= totalPages).sort((a, b) => a - b);
+  const tokens: PaginationToken[] = [];
+
+  for (const page of sortedPages) {
+    const previous = tokens[tokens.length - 1];
+    if (typeof previous === "number" && page - previous > 1) {
+      tokens.push("ellipsis");
+    }
+    tokens.push(page);
+  }
+
+  return tokens;
 }
 
 export default function StoreOrdersPage() {
@@ -54,6 +95,7 @@ export default function StoreOrdersPage() {
   const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const paginatedOrders = orders.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const paginationTokens = buildPaginationTokens(safePage, totalPages);
 
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
@@ -86,7 +128,7 @@ export default function StoreOrdersPage() {
           </div>
         ) : orders.length === 0 ? (
           <div className="mt-8 rounded-[1.75rem] border border-dashed border-slate-200 bg-white p-6 text-sm text-slate-500">
-            Bạn chưa có đơn hàng nào tính đến ngày 7 tháng 8 năm 2026.
+            Bạn chưa có đơn hàng nào tính đến ngày 12 tháng 8 năm 2026.
           </div>
         ) : (
           <div className="mt-8">
@@ -99,35 +141,35 @@ export default function StoreOrdersPage() {
               </p>
             </div>
             <div className="grid gap-5">
-            {paginatedOrders.map((order) => (
-              <article key={order.id} className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.25)]">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Mã đơn {order.id.slice(0, 8)}</p>
-                    <h2 className="mt-3 text-2xl font-semibold text-slate-950">{order.items.length} dòng sản phẩm</h2>
-                    <p className="mt-2 text-sm text-slate-500">Đặt lúc {formatDateTime(order.createdAt)}</p>
-                  </div>
-                  <div className="text-right">
-                    <StatusBadge status={order.status} />
-                    <p className="mt-3 text-2xl font-bold text-slate-950">{formatCurrency(order.totalAmount)}</p>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid gap-3">
-                  {order.items.map((item) => (
-                    <div key={`${order.id}-${item.productId}`} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3">
-                      <div>
-                        <p className="font-semibold text-slate-950">{item.productName}</p>
-                        <p className="mt-1 text-sm text-slate-500">SL {item.quantity} x {formatCurrency(item.price)}</p>
-                      </div>
-                      <strong className="text-slate-950">{formatCurrency(item.lineTotal)}</strong>
+              {paginatedOrders.map((order) => (
+                <article key={order.id} className="rounded-[1.75rem] border border-slate-200 bg-white p-5 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.25)]">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Mã đơn {order.id.slice(0, 8)}</p>
+                      <h2 className="mt-3 text-2xl font-semibold text-slate-950">{order.items.length} dòng sản phẩm</h2>
+                      <p className="mt-2 text-sm text-slate-500">Đặt lúc {formatDateTime(order.createdAt)}</p>
                     </div>
-                  ))}
-                </div>
-              </article>
-            ))}
+                    <div className="text-right">
+                      <StatusBadge status={order.status} />
+                      <p className="mt-3 text-2xl font-bold text-slate-950">{formatCurrency(order.totalAmount)}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-3">
+                    {order.items.map((item) => (
+                      <div key={`${order.id}-${item.productId}`} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3">
+                        <div>
+                          <p className="font-semibold text-slate-950">{item.productName}</p>
+                          <p className="mt-1 text-sm text-slate-500">SL {item.quantity} x {formatCurrency(item.price)}</p>
+                        </div>
+                        <strong className="text-slate-950">{formatCurrency(item.lineTotal)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              ))}
             </div>
-            <div className="mt-6 flex items-center justify-end gap-3">
+            <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={() => setPage((current) => Math.max(1, current - 1))}
@@ -136,6 +178,20 @@ export default function StoreOrdersPage() {
               >
                 Trang trước
               </button>
+              {paginationTokens.map((token, index) =>
+                token === "ellipsis" ? (
+                  <span key={`ellipsis-${index}`} className="px-2 text-sm font-semibold text-slate-500">...</span>
+                ) : (
+                  <button
+                    key={token}
+                    type="button"
+                    onClick={() => setPage(token)}
+                    className={`h-11 min-w-11 rounded-full px-4 text-sm font-semibold ${token === safePage ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : "bg-white text-slate-700 shadow-sm"}`}
+                  >
+                    {token}
+                  </button>
+                )
+              )}
               <button
                 type="button"
                 onClick={() => setPage((current) => Math.min(totalPages, current + 1))}

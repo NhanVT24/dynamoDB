@@ -24,6 +24,8 @@ export type StoreProduct = {
   imageUrl: string;
   location: string;
   updatedAt: string;
+  isLocked?: boolean;
+  lockedUntil?: string;
   badge?: string;
   specs: string[];
 };

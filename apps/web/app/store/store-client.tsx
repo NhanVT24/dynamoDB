@@ -40,6 +40,8 @@ type StoreNotification = {
   source?: "server" | "local";
 };
 
+type PaginationToken = number | "ellipsis";
+
 const StoreContext = createContext<StoreContextValue | null>(null);
 const themeStorageKey = "web-storefront-theme";
 const cartStorageKey = "web-storefront-cart";
@@ -76,6 +78,56 @@ function writeLocalNotifications(items: StoreNotification[]) {
 
   window.localStorage.setItem(localNotificationsStorageKey, JSON.stringify(items));
   window.dispatchEvent(new Event(notificationsUpdatedEvent));
+}
+
+function mergeNotifications(localItems: StoreNotification[], serverItems: StoreNotification[]) {
+  const merged = new Map<string, StoreNotification>();
+
+  for (const item of [...serverItems, ...localItems]) {
+    const existing = merged.get(item.id);
+    if (!existing) {
+      merged.set(item.id, item);
+      continue;
+    }
+
+    merged.set(item.id, {
+      ...existing,
+      ...item,
+      isRead: Boolean(existing.isRead || item.isRead),
+      source: existing.source === "server" || item.source === "server" ? "server" : item.source
+    });
+  }
+
+  return [...merged.values()].sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+}
+
+function buildPaginationTokens(currentPage: number, totalPages: number): PaginationToken[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set<number>([
+    1,
+    2,
+    totalPages - 1,
+    totalPages,
+    Math.max(1, currentPage - 1),
+    currentPage,
+    Math.min(totalPages, currentPage + 1)
+  ]);
+
+  const sortedPages = [...pages].filter((page) => page >= 1 && page <= totalPages).sort((a, b) => a - b);
+  const tokens: PaginationToken[] = [];
+
+  for (const page of sortedPages) {
+    const previous = tokens[tokens.length - 1];
+    if (typeof previous === "number" && page - previous > 1) {
+      tokens.push("ellipsis");
+    }
+    tokens.push(page);
+  }
+
+  return tokens;
 }
 
 export function StorefrontProvider({ children }: { children: ReactNode }) {
@@ -120,6 +172,10 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
   }, [hasHydratedCart, items]);
 
   function addCatalogItem(product: StoreProduct, quantity: number) {
+    if (product.status === "out_of_stock" || product.isLocked) {
+      return;
+    }
+
     setItems((current) => {
       const existing = current.find((item) => item.variantId === product.id);
       if (existing) {
@@ -308,8 +364,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
         }
 
         const serverItems = (payload.items ?? []).map((item) => ({ ...item, source: "server" as const }));
-        const mergedItems = [...localItems, ...serverItems]
-          .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+        const mergedItems = mergeNotifications(localItems, serverItems);
 
         setNotifications(mergedItems);
         setPendingCount(Number(payload.pendingCount ?? 0) + localItems.filter((item) => !item.isRead).length);
@@ -559,7 +614,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
   const imageRef = useRef<HTMLImageElement | null>(null);
   const isDark = theme === "dark";
   const discountPercent = Math.max(0, Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100));
-  const isOut = product.status === "out_of_stock";
+  const isUnavailable = product.status === "out_of_stock" || product.isLocked;
 
   function handleDragStart(event: DragEvent<HTMLElement>) {
     event.dataTransfer.effectAllowed = "copy";
@@ -571,9 +626,9 @@ function ProductCard({ product }: { product: StoreProduct }) {
 
   return (
     <article
-      draggable={!isOut}
+      draggable={!isUnavailable}
       onDragStartCapture={handleDragStart}
-      className={`group relative overflow-hidden rounded-[1.75rem] border ${isDark ? "border-white/10 bg-slate-900/85" : "border-slate-200 bg-white shadow-[0_20px_70px_-48px_rgba(15,23,42,0.35)]"} ${isOut ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing"}`}
+      className={`group relative overflow-hidden rounded-[1.75rem] border ${isDark ? "border-white/10 bg-slate-900/85" : "border-slate-200 bg-white shadow-[0_20px_70px_-48px_rgba(15,23,42,0.35)]"} ${isUnavailable ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing"}`}
     >
       <Link href={`/store/products/${product.slug}`} className="absolute inset-0 z-10" aria-label={product.name} />
       <div className="relative overflow-hidden">
@@ -596,10 +651,10 @@ function ProductCard({ product }: { product: StoreProduct }) {
               event.stopPropagation();
               addCatalogItem(product, 1);
             }}
-            disabled={isOut}
+            disabled={isUnavailable}
             className="pointer-events-auto mt-5 inline-flex min-w-[9rem] items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400"
           >
-            {isOut ? "Hết hàng" : "Thêm vào giỏ"}
+            {product.isLocked ? "Đang được giữ" : isUnavailable ? "Hết hàng" : "Thêm vào giỏ"}
           </button>
         </div>
       </div>
@@ -619,6 +674,9 @@ function ProductCard({ product }: { product: StoreProduct }) {
           <div className="text-[13px] text-slate-400 line-through">{formatCurrency(product.originalPrice)}</div>
           <strong className="text-2xl font-bold text-orange-500">{formatCurrency(product.price)}</strong>
         </div>
+        {product.isLocked ? (
+          <p className="mt-3 text-sm font-medium text-amber-600">Sản phẩm này đang được giữ tạm thời, vui lòng thử lại sau.</p>
+        ) : null}
       </div>
     </article>
   );
@@ -885,6 +943,7 @@ export function ProductsPageClient({
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
   const safePage = Math.min(page, totalPages);
   const paginatedProducts = filteredProducts.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
+  const paginationTokens = buildPaginationTokens(safePage, totalPages);
 
   return (
     <section className="px-4 py-10 sm:px-6 lg:px-8">
@@ -913,13 +972,15 @@ export function ProductsPageClient({
         <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {paginatedProducts.map((product) => <ProductCard key={product.id} product={product} />)}
         </div>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage <= 1 ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>Trang trước</button>
-          {Array.from({ length: totalPages }, (_, index) => index + 1).map((value) => (
-            <button key={value} type="button" onClick={() => setPage(value)} className={`h-11 min-w-11 rounded-full px-4 text-sm font-semibold ${value === safePage ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200" : "bg-white text-slate-700 shadow-sm"}`}>{value}</button>
-          ))}
-          <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage >= totalPages ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>Trang sau</button>
-        </div>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage <= 1 ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>Trang trước</button>
+            {paginationTokens.map((token, index) => token === "ellipsis" ? (
+              <span key={`ellipsis-${index}`} className={`px-2 text-sm font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>...</span>
+            ) : (
+              <button key={token} type="button" onClick={() => setPage(token)} className={`h-11 min-w-11 rounded-full px-4 text-sm font-semibold ${token === safePage ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200" : "bg-white text-slate-700 shadow-sm"}`}>{token}</button>
+            ))}
+            <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage >= totalPages ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>Trang sau</button>
+          </div>
       </div>
     </section>
   );
@@ -989,7 +1050,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
     );
   }
 
-  const canAdd = product.status !== "out_of_stock";
+  const canAdd = product.status !== "out_of_stock" && !product.isLocked;
 
   return (
     <section className="px-4 py-10 sm:px-6 lg:px-8">
@@ -1021,8 +1082,11 @@ export function ProductDetailClient({ slug }: { slug: string }) {
                 <span className="min-w-12 text-center font-semibold">{quantity}</span>
                 <button type="button" onClick={() => setQuantity((current) => Math.min(product.stock || 1, current + 1))} className="rounded-full p-3">+</button>
               </div>
-              <button type="button" onClick={() => addCatalogItem(product, quantity)} disabled={!canAdd} className="inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400">{canAdd ? "Thêm vào giỏ hàng" : "Hết hàng"}</button>
+              <button type="button" onClick={() => addCatalogItem(product, quantity)} disabled={!canAdd} className="inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400">{product.isLocked ? "Đang được giữ" : canAdd ? "Thêm vào giỏ hàng" : "Hết hàng"}</button>
             </div>
+            {product.isLocked ? (
+              <p className="text-sm font-medium text-amber-600">Sản phẩm này đang được giữ tạm thời nên bạn chưa thể chọn ngay lúc này.</p>
+            ) : null}
           </div>
         </div>
         <div className="mt-14">
