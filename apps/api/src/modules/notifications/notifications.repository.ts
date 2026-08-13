@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { DeleteItemCommand, PutItemCommand, ScanCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import { BatchWriteItemCommand, DeleteItemCommand, PutItemCommand, ScanCommand, UpdateItemCommand, type AttributeValue, type WriteRequest } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
@@ -131,4 +131,28 @@ export async function deleteNotification(id: string) {
     }),
     ConditionExpression: "attribute_exists(PK)"
   }));
+}
+
+export async function deleteNotifications(ids: string[]) {
+  if (ids.length === 0) {
+    return;
+  }
+
+  for (let index = 0; index < ids.length; index += 25) {
+    const batch = ids.slice(index, index + 25);
+    const requests: WriteRequest[] = batch.map((id) => ({
+      DeleteRequest: {
+        Key: toDynamoItem({
+          PK: `NOTIFICATION#${id}`,
+          SK: "DETAIL"
+        })
+      }
+    }));
+
+    await rawDb.send(new BatchWriteItemCommand({
+      RequestItems: {
+        [TableName]: requests
+      }
+    }));
+  }
 }

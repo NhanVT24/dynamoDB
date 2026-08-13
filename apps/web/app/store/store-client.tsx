@@ -484,6 +484,38 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
     } catch {}
   }
 
+  async function handleDeleteAllNotifications() {
+    if (notifications.length === 0) {
+      return;
+    }
+
+    const hasLocalItems = notifications.some((item) => item.source === "local" || !session?.idToken);
+    if (hasLocalItems) {
+      writeLocalNotifications([]);
+    }
+
+    const serverItems = notifications.filter((item) => item.source !== "local");
+    if (session?.idToken && serverItems.length > 0) {
+      try {
+        const response = await fetch("/api/lambda-proxy/api/notifications", {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${session.idToken}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to delete all notifications.");
+        }
+      } catch {
+        return;
+      }
+    }
+
+    setNotifications([]);
+    setPendingCount(0);
+  }
+
   async function handleMarkAllAsRead() {
     const unreadItems = notifications.filter((item) => !item.isRead);
     if (unreadItems.length === 0) {
@@ -555,13 +587,20 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
         ) : null}
       </button>
       {open ? (
-        <div className={`absolute right-0 mt-3 w-[21rem] rounded-[1.5rem] border p-4 shadow-2xl ${isDark ? "border-white/10 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
+        <div className={`absolute right-0 mt-3 w-[26rem] max-w-[calc(100vw-1.5rem)] rounded-[1.5rem] border p-4 shadow-2xl ${isDark ? "border-white/10 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold">Thông báo</p>
             <span className="text-xs text-orange-500">{pendingCount} chưa đọc</span>
           </div>
           {notifications.length > 0 ? (
-            <div className="mt-3 flex justify-end">
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => void handleDeleteAllNotifications()}
+                className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-rose-500/15 text-rose-200 hover:bg-rose-500/25 hover:text-white" : "bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"}`}
+              >
+                Xóa tất cả
+              </button>
               <button
                 type="button"
                 onClick={() => void handleMarkAllAsRead()}
@@ -576,7 +615,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
               <div className={`rounded-2xl border border-dashed p-4 text-sm ${isDark ? "border-white/10 text-slate-300" : "border-slate-200 text-slate-500"}`}>
                 Chưa có thông báo nào.
               </div>
-            ) : notifications.slice(0, 5).map((item) => (
+            ) : notifications.map((item) => (
               <div key={item.id} className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-100 bg-slate-50"}`}>
                 <div className="flex items-center justify-between gap-3">
                   <p className={`line-clamp-2 text-sm font-semibold ${item.isRead ? (isDark ? "text-slate-300" : "text-slate-500") : ""}`}>{item.title}</p>

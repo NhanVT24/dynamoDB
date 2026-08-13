@@ -17,6 +17,17 @@ type SendOrderConfirmationEmailInput = {
   items: OrderMailLine[];
 };
 
+type SendPaymentFailureEmailInput = {
+  toEmail: string;
+  txnRef: string;
+  totalAmount: number;
+  orderInfo: string;
+  failureReason: string;
+  responseCode?: string;
+  bankCode?: string;
+  payDate?: string;
+};
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("vi-VN", {
     style: "currency",
@@ -36,6 +47,12 @@ function escapeHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function assertSesConfigured() {
+  if (!env.SES_FROM_EMAIL) {
+    throw new Error("Thieu cau hinh SES_FROM_EMAIL.");
+  }
 }
 
 function buildOrderConfirmationHtml(input: SendOrderConfirmationEmailInput) {
@@ -81,7 +98,63 @@ function buildOrderConfirmationHtml(input: SendOrderConfirmationEmailInput) {
             <div style="margin-top:8px;font-size:28px;font-weight:800;color:#ea580c;">${escapeHtml(formatCurrency(input.totalAmount))}</div>
           </div>
           <p style="margin:24px 0 0;font-size:14px;line-height:1.7;color:#475569;">
-            Cảm ơn bạn đã mua sắm tại NovaX Market. Nếu cần kiểm tra lại đơn hàng, bạn có thể xem ngay trong lịch sử mua hàng trên hệ thống.
+            Cảm ơn bạn đã mua sắm tại NovaX Market. ếu cần kiểm tra lại đơn hàng, bạn có thể xem ngay trong lịch sử mua hàng trên hệ thống.
+          </p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildPaymentFailureHtml(input: SendPaymentFailureEmailInput) {
+  const resolvedPayDate = input.payDate?.trim() ? formatDate(input.payDate) : "Chua ghi nhan";
+  const responseCode = input.responseCode?.trim() || "--";
+  const bankCode = input.bankCode?.trim() || "--";
+
+  return `
+    <div style="margin:0;padding:24px;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a;">
+      <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:24px;overflow:hidden;">
+        <div style="padding:28px 32px;background:linear-gradient(135deg,#f97316,#dc2626);color:#ffffff;">
+          <div style="font-size:12px;font-weight:700;letter-spacing:0.24em;text-transform:uppercase;">NovaX Market</div>
+          <h1 style="margin:12px 0 0;font-size:28px;line-height:1.3;">Thanh toan chua thanh cong</h1>
+        </div>
+        <div style="padding:32px;">
+          <p style="margin:0 0 12px;font-size:16px;line-height:1.7;">Xin chào <strong>${escapeHtml(input.toEmail)}</strong>,</p>
+          <p style="margin:0 0 20px;font-size:16px;line-height:1.7;">
+            Hệ thống ghi nhận trạng thái giao dịch <strong>${escapeHtml(input.txnRef)}</strong> chưa hoàn tất trên VNPAY.
+          </p>
+          <div style="padding:20px;border-radius:20px;background:#fff1f2;border:1px solid #fda4af;">
+            <p style="margin:0 0 8px;font-size:14px;color:#9f1239;">Lý do</p>
+            <p style="margin:0 0 16px;font-size:18px;font-weight:700;color:#881337;">${escapeHtml(input.failureReason)}</p>
+            <p style="margin:0 0 8px;font-size:14px;color:#9f1239;">Mã giao dịch</p>
+            <p style="margin:0;font-size:16px;font-weight:600;color:#881337;">${escapeHtml(input.txnRef)}</p>
+          </div>
+          <table style="width:100%;margin-top:24px;border-collapse:collapse;">
+            <tbody>
+              <tr>
+                <td style="padding:10px 0;color:#64748b;">Số tiền</td>
+                <td style="padding:10px 0;text-align:right;font-weight:700;color:#0f172a;">${escapeHtml(formatCurrency(input.totalAmount))}</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 0;color:#64748b;border-top:1px solid #e2e8f0;">Nội dung giao dịch</td>
+                <td style="padding:10px 0;text-align:right;color:#0f172a;border-top:1px solid #e2e8f0;">${escapeHtml(input.orderInfo)}</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 0;color:#64748b;border-top:1px solid #e2e8f0;">Mã phản hồi</td>
+                <td style="padding:10px 0;text-align:right;color:#0f172a;border-top:1px solid #e2e8f0;">${escapeHtml(responseCode)}</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 0;color:#64748b;border-top:1px solid #e2e8f0;">Ngân hàng</td>
+                <td style="padding:10px 0;text-align:right;color:#0f172a;border-top:1px solid #e2e8f0;">${escapeHtml(bankCode)}</td>
+              </tr>
+              <tr>
+                <td style="padding:10px 0;color:#64748b;border-top:1px solid #e2e8f0;">Thời điểm ghi nhận</td>
+                <td style="padding:10px 0;text-align:right;color:#0f172a;border-top:1px solid #e2e8f0;">${escapeHtml(resolvedPayDate)}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p style="margin:24px 0 0;font-size:14px;line-height:1.7;color:#475569;">
+            Bạn có thể thử lại thanh toán hoặc liên hệ với ngân hàng để biết thêm chi tiết. Nếu cần hỗ trợ, vui lòng liên hệ với bộ phận chăm sóc khách hàng của NovaX Market.
           </p>
         </div>
       </div>
@@ -90,9 +163,7 @@ function buildOrderConfirmationHtml(input: SendOrderConfirmationEmailInput) {
 }
 
 export async function sendOrderConfirmationEmail(input: SendOrderConfirmationEmailInput) {
-  if (!env.SES_FROM_EMAIL) {
-    throw new Error("Thiếu cấu hình SES_FROM_EMAIL.");
-  }
+  assertSesConfigured();
 
   await sesClient.send(new SendEmailCommand({
     FromEmailAddress: env.SES_FROM_EMAIL,
@@ -108,6 +179,31 @@ export async function sendOrderConfirmationEmail(input: SendOrderConfirmationEma
         Body: {
           Html: {
             Data: buildOrderConfirmationHtml(input),
+            Charset: "UTF-8"
+          }
+        }
+      }
+    }
+  }));
+}
+
+export async function sendPaymentFailureEmail(input: SendPaymentFailureEmailInput) {
+  assertSesConfigured();
+
+  await sesClient.send(new SendEmailCommand({
+    FromEmailAddress: env.SES_FROM_EMAIL,
+    Destination: {
+      ToAddresses: [input.toEmail]
+    },
+    Content: {
+      Simple: {
+        Subject: {
+          Data: `Thanh toán thành công cho giao dịch ${input.txnRef}`,
+          Charset: "UTF-8"
+        },
+        Body: {
+          Html: {
+            Data: buildPaymentFailureHtml(input),
             Charset: "UTF-8"
           }
         }

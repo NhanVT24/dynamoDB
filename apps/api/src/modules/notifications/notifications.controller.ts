@@ -37,43 +37,19 @@ export class NotificationsController {
     return this.notificationsService.remove(principal.email, id);
   }
 
-  @Post("test/payment-dlq")
-  enqueuePaymentDlqDemo(@Req() request: FastifyRequest) {
+  @Delete()
+  removeAll(@Req() request: FastifyRequest) {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal) {
       return { success: false };
     }
 
-    return this.notificationsService.enqueueDlqDemoEvent(principal.email);
-  }
-
-  @Post("test/payment-success")
-  enqueuePaymentSuccessDemo(@Req() request: FastifyRequest) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal) {
-      return { success: false };
-    }
-
-    return this.notificationsService.enqueuePaymentSuccessDemoEvent(principal.email);
-  }
-
-  @Post("test/payment-failed")
-  enqueuePaymentFailedDemo(@Req() request: FastifyRequest) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal) {
-      return { success: false };
-    }
-
-    return this.notificationsService.enqueuePaymentFailedDemoEvent(principal.email);
-  }
-
-  @Post("test/payment-failed-dlq")
-  enqueueFailedPaymentDlqDemo(@Req() request: FastifyRequest) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal) {
-      return { success: false };
-    }
-
-    return this.notificationsService.enqueueFailedPaymentDlqDemoEvent(principal.email);
+    return this.notificationsService.removeAll(principal.email);
   }
 }
+
+
+
+
+
+

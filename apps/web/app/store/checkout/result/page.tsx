@@ -1,13 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { readAuthSession } from "../../../lib/cognito-auth";
 import { useStorefront } from "../../store-client";
 import { formatCurrency } from "../../../store/store-utils";
 
-const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 const localNotificationsStorageKey = "web-storefront-local-notifications";
 const notificationsUpdatedEvent = "storefront-notifications-updated";
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
@@ -17,7 +16,7 @@ const pendingOrderRequestPrefix = "web-storefront-order-request-";
 
 type ReturnPayload = {
   isValidSignature: boolean;
-  transactionStatus: "success" | "failed";
+  transactionStatus: "success" | "failed" | "expired";
   message: string;
   txnRef: string;
   amount: number;
@@ -55,6 +54,7 @@ function getPendingOrderRequestKey(txnRef: string) {
 export default function CheckoutResultPage() {
   const searchParams = useSearchParams();
   const { clearCart } = useStorefront();
+  const verifiedQueryRef = useRef("");
   const [result, setResult] = useState<ReturnPayload | null>(null);
   const [error, setError] = useState("");
   const [hasBroadcastSuccess, setHasBroadcastSuccess] = useState(false);
@@ -66,29 +66,32 @@ export default function CheckoutResultPage() {
 
   useEffect(() => {
     async function verifyPayment() {
-      if (!apiBaseUrl) {
-        setError("Thiếu NEXT_PUBLIC_API_URL để kiểm tra trạng thái thanh toán.");
-        return;
-      }
-
       const query = searchParams.toString();
       if (!query) {
         setError("Không nhận được dữ liệu phản hồi từ VNPay.");
         return;
       }
 
+      if (verifiedQueryRef.current === query) {
+        return;
+      }
+
+      verifiedQueryRef.current = query;
+      setError("");
+
       try {
-        const response = await fetch(`${apiBaseUrl}/api/payments/vnpay/return?${query}`, {
+        const response = await fetch(`/api/lambda-proxy/api/payments/vnpay/return?${query}`, {
           cache: "no-store"
         });
-        const payload = (await response.json().catch(() => null)) as ReturnPayload | null;
+        const payload = (await response.json().catch(() => null)) as ReturnPayload | { message?: string } | null;
 
-        if (!response.ok || !payload) {
-          throw new Error("Không thể xác minh kết quả thanh toán.");
+        if (!response.ok || !payload || !("txnRef" in payload)) {
+          throw new Error(payload?.message || "Không thể xác minh kết quả thanh toán.");
         }
 
         setResult(payload);
       } catch (verificationError) {
+        verifiedQueryRef.current = "";
         setError(verificationError instanceof Error ? verificationError.message : "Không thể xác minh kết quả thanh toán.");
       }
     }
@@ -144,7 +147,7 @@ export default function CheckoutResultPage() {
 
   useEffect(() => {
     async function finalizeSuccessfulCheckout() {
-      if (!result || !apiBaseUrl) {
+      if (!result) {
         return;
       }
 
@@ -191,7 +194,7 @@ export default function CheckoutResultPage() {
       setQueueMessage("");
 
       try {
-        const response = await fetch(`${apiBaseUrl}/api/storefront/orders`, {
+        const response = await fetch("/api/lambda-proxy/api/storefront/orders", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -232,7 +235,7 @@ export default function CheckoutResultPage() {
     }
 
     const session = readAuthSession();
-    if (!session?.idToken || !apiBaseUrl) {
+    if (!session?.idToken) {
       return;
     }
 
@@ -240,7 +243,7 @@ export default function CheckoutResultPage() {
 
     async function pollQueueResult() {
       try {
-        const response = await fetch(`${apiBaseUrl}/api/notifications/me`, {
+        const response = await fetch("/api/lambda-proxy/api/notifications/me", {
           headers: {
             Authorization: `Bearer ${session.idToken}`
           },

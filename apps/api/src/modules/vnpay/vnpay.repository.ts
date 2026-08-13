@@ -9,7 +9,9 @@ function toDynamoItem(item: Record<string, unknown>) {
   return marshall(item, { removeUndefinedValues: true });
 }
 
-type PaymentSessionRecord = {
+export type PaymentSessionStatus = "pending" | "success" | "failed" | "expired";
+
+export type PaymentSessionRecord = {
   PK: string;
   SK: string;
   entityType: "PAYMENT_SESSION";
@@ -17,9 +19,11 @@ type PaymentSessionRecord = {
   email?: string;
   orderInfo: string;
   amount: number;
-  status: "pending" | "success" | "failed";
+  status: PaymentSessionStatus;
   createdAt: string;
   updatedAt: string;
+  expiresAt: string;
+  finalizedAt?: string;
   paidAt?: string;
   paymentEventEnqueuedAt?: string;
   responseCode?: string;
@@ -33,6 +37,7 @@ export async function createPaymentSession(input: {
   email?: string;
   orderInfo: string;
   amount: number;
+  expiresAt: string;
 }) {
   const now = new Date().toISOString();
   const record: PaymentSessionRecord = {
@@ -45,7 +50,8 @@ export async function createPaymentSession(input: {
     amount: input.amount,
     status: "pending",
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    expiresAt: input.expiresAt
   };
 
   await rawDb.send(new PutItemCommand({
@@ -71,13 +77,27 @@ export async function getPaymentSessionByTxnRef(txnRef: string) {
 
 export async function updatePaymentSessionStatus(input: {
   txnRef: string;
-  status: "success" | "failed";
+  status: Exclude<PaymentSessionStatus, "pending">;
   responseCode: string;
   transactionNo: string;
   bankCode: string;
   payDate: string;
 }) {
   const now = new Date().toISOString();
+  const shouldSetPaidAt = input.status === "success";
+  const updateSegments = [
+    "SET #status = :status",
+    "updatedAt = :updatedAt",
+    "finalizedAt = :finalizedAt",
+    "responseCode = :responseCode",
+    "transactionNo = :transactionNo",
+    "bankCode = :bankCode",
+    "payDate = :payDate"
+  ];
+
+  if (shouldSetPaidAt) {
+    updateSegments.push("paidAt = :paidAt");
+  }
 
   await rawDb.send(new UpdateItemCommand({
     TableName,
@@ -85,14 +105,16 @@ export async function updatePaymentSessionStatus(input: {
       PK: `PAYMENT#${input.txnRef}`,
       SK: "DETAIL"
     }),
-    ConditionExpression: "attribute_exists(PK)",
-    UpdateExpression: "SET #status = :status, updatedAt = :updatedAt, paidAt = :paidAt, responseCode = :responseCode, transactionNo = :transactionNo, bankCode = :bankCode, payDate = :payDate",
+    ConditionExpression: "attribute_exists(PK) AND #status = :pendingStatus",
+    UpdateExpression: updateSegments.join(", "),
     ExpressionAttributeNames: {
       "#status": "status"
     },
     ExpressionAttributeValues: toDynamoItem({
       ":status": input.status,
+      ":pendingStatus": "pending",
       ":updatedAt": now,
+      ":finalizedAt": now,
       ":paidAt": now,
       ":responseCode": input.responseCode,
       ":transactionNo": input.transactionNo,

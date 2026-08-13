@@ -6,6 +6,7 @@ import { getOrderById, markOrderAsDone } from "../storefront/storefront.reposito
 import {
   createNotification,
   deleteNotification,
+  deleteNotifications,
   listNotificationsByCustomer,
   markNotificationAsRead,
   markNotificationAsSent,
@@ -61,7 +62,6 @@ export class NotificationsService {
     }));
 
     this.logger.log(`audit.enqueued eventType=${input.eventType} resourceId=${input.resourceId ?? ""} queue=${env.SQS_AUDIT_QUEUE_URL}`);
-
     return { queued: true };
   }
 
@@ -175,92 +175,10 @@ export class NotificationsService {
     return { success: true };
   }
 
-  async enqueueDlqDemoEvent(email: string) {
-    const txnRef = `DLQ-${Date.now()}`;
-    await this.publishPaymentCompletedEvent({
-      email,
-      txnRef,
-      amount: 99000,
-      orderInfo: "Mo phong DLQ payment.completed",
-      responseCode: "00",
-      transactionNo: "DLQ-DEMO",
-      bankCode: "TEST",
-      payDate: new Date().toISOString(),
-      forceFail: true
-    });
-
-    this.logger.warn(`payment.dlq_demo.enqueued txnRef=${txnRef}`);
-    return {
-      success: true,
-      txnRef,
-      message: "Da dua message forceFail vao payment events queue. Sau 3 lan retry, message se vao DLQ."
-    };
-  }
-
-  async enqueueFailedPaymentDlqDemoEvent(email: string) {
-    const txnRef = `DLQ-FAILED-${Date.now()}`;
-    await this.publishPaymentFailedEvent({
-      email,
-      txnRef,
-      amount: 199000,
-      orderInfo: "Mo phong DLQ payment.failed",
-      responseCode: "24",
-      transactionNo: "DLQ-FAILED-DEMO",
-      bankCode: "TEST",
-      payDate: new Date().toISOString(),
-      failureReason: "Khách hàng đã hủy giao dịch trên VNPay.",
-      forceFail: true
-    });
-
-    this.logger.warn(`payment.failed_dlq_demo.enqueued txnRef=${txnRef}`);
-    return {
-      success: true,
-      txnRef,
-      message: "Da dua message payment.failed forceFail vao payment events queue. Sau 3 lan retry, message se vao DLQ."
-    };
-  }
-
-  async enqueuePaymentSuccessDemoEvent(email: string) {
-    const txnRef = `TEST-SUCCESS-${Date.now()}`;
-    await this.publishPaymentCompletedEvent({
-      email,
-      txnRef,
-      amount: 2994000,
-      orderInfo: "Mo phong payment.completed chay song song",
-      responseCode: "00",
-      transactionNo: `SUCCESS-${Date.now()}`,
-      bankCode: "VNPAY",
-      payDate: new Date().toISOString()
-    });
-
-    this.logger.log(`payment.success_demo.enqueued txnRef=${txnRef}`);
-    return {
-      success: true,
-      txnRef,
-      message: "Da dua message payment.completed vao payment events queue."
-    };
-  }
-
-  async enqueuePaymentFailedDemoEvent(email: string) {
-    const txnRef = `TEST-FAILED-${Date.now()}`;
-    await this.publishPaymentFailedEvent({
-      email,
-      txnRef,
-      amount: 2994000,
-      orderInfo: "Mo phong payment.failed chay song song",
-      responseCode: "24",
-      transactionNo: `FAILED-${Date.now()}`,
-      bankCode: "VNPAY",
-      payDate: new Date().toISOString(),
-      failureReason: "Khách hàng đã hủy giao dịch trên VNPay."
-    });
-
-    this.logger.log(`payment.failed_demo.enqueued txnRef=${txnRef}`);
-    return {
-      success: true,
-      txnRef,
-      message: "Da dua message payment.failed vao payment events queue."
-    };
+  async removeAll(email: string) {
+    const notifications = await listNotificationsByCustomer(email);
+    await deleteNotifications(notifications.map((item) => item.id));
+    return { success: true, deletedCount: notifications.length };
   }
 
   async processQueueRecords(records: Array<{ body?: string }>) {
@@ -295,7 +213,6 @@ export class NotificationsService {
     }));
 
     this.logger.log(`notification.enqueued notificationId=${notification.id} channel=${notification.channel} queue=${env.SQS_NOTIFICATIONS_QUEUE_URL}`);
-
     return { queued: true };
   }
 
@@ -319,6 +236,7 @@ export class NotificationsService {
       forceFail?: boolean;
       notificationId?: string;
       metadata?: Record<string, unknown>;
+      failureReason?: string;
     };
 
     if (payload.type === "payment.completed") {
@@ -370,10 +288,10 @@ export class NotificationsService {
     responseCode?: string;
     transactionNo?: string;
     bankCode?: string;
-      payDate?: string;
-      forceFail?: boolean;
-      failureReason?: string;
-    }) {
+    payDate?: string;
+    forceFail?: boolean;
+    failureReason?: string;
+  }) {
     if (!payload.email || !payload.txnRef) {
       this.logger.warn(`payment.queue.ignored txnRef=${payload.txnRef ?? ""}`);
       return null;
@@ -404,19 +322,6 @@ export class NotificationsService {
       }
     });
 
-    await this.createPendingNotification({
-      email,
-      channel: "email",
-      title: "Email xác nhận thanh toán đang chờ gửi",
-      message: `Hệ thống đã xếp hàng email xác nhận thanh toán cho giao dịch ${payload.txnRef}.`,
-      metadata: {
-        orderId,
-        txnRef: payload.txnRef,
-        amount,
-        template: "payment-success"
-      }
-    });
-
     await this.publishAuditLog({
       eventType: "payments.vnpay.completed",
       email,
@@ -438,7 +343,7 @@ export class NotificationsService {
       type: "payment.completed",
       txnRef: payload.txnRef,
       orderId,
-      queuedNotifications: 2,
+      queuedNotifications: 1,
       auditQueued: true
     };
   }

@@ -54,6 +54,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const isNotificationsMeRead = isReadOnlyMethod && url.startsWith("/api/notifications/me");
     const isNotificationReadMutation = method === "PATCH" && /^\/api\/notifications\/[^/]+\/read(?:\?|$)/.test(url);
     const isNotificationDeleteMutation = method === "DELETE" && /^\/api\/notifications\/[^/]+(?:\?|$)/.test(url);
+    const isNotificationDeleteAllMutation = method === "DELETE" && /^\/api\/notifications(?:\?|$)/.test(url);
     const isStorefrontOrderMutation = method === "POST" && url === "/api/storefront/orders";
     const isPublicVnpayRequest =
       url === "/api/payments/vnpay" ||
@@ -77,7 +78,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       return;
     }
 
-    if (isNotificationReadMutation || isNotificationDeleteMutation) {
+    if (isNotificationReadMutation || isNotificationDeleteMutation || isNotificationDeleteAllMutation) {
       const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
       if (principal) {
         return;
