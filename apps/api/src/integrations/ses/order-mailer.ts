@@ -28,6 +28,17 @@ type SendPaymentFailureEmailInput = {
   payDate?: string;
 };
 
+type SendOrderFailureEmailInput = {
+  toEmail: string;
+  requestId?: string;
+  failureReason: string;
+  items: Array<{
+    productId: string;
+    productName?: string;
+    quantity: number;
+  }>;
+};
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("vi-VN", {
     style: "currency",
@@ -51,7 +62,7 @@ function escapeHtml(value: string) {
 
 function assertSesConfigured() {
   if (!env.SES_FROM_EMAIL) {
-    throw new Error("Thieu cau hinh SES_FROM_EMAIL.");
+    throw new Error("Thiếu cấu hình SES_FROM_EMAIL.");
   }
 }
 
@@ -98,7 +109,7 @@ function buildOrderConfirmationHtml(input: SendOrderConfirmationEmailInput) {
             <div style="margin-top:8px;font-size:28px;font-weight:800;color:#ea580c;">${escapeHtml(formatCurrency(input.totalAmount))}</div>
           </div>
           <p style="margin:24px 0 0;font-size:14px;line-height:1.7;color:#475569;">
-            Cảm ơn bạn đã mua sắm tại NovaX Market. ếu cần kiểm tra lại đơn hàng, bạn có thể xem ngay trong lịch sử mua hàng trên hệ thống.
+            Cảm ơn bạn đã mua sắm tại NovaX Market. Nếu cần kiểm tra lại đơn hàng, bạn có thể xem ngay trong lịch sử mua hàng trên hệ thống.
           </p>
         </div>
       </div>
@@ -107,7 +118,7 @@ function buildOrderConfirmationHtml(input: SendOrderConfirmationEmailInput) {
 }
 
 function buildPaymentFailureHtml(input: SendPaymentFailureEmailInput) {
-  const resolvedPayDate = input.payDate?.trim() ? formatDate(input.payDate) : "Chua ghi nhan";
+  const resolvedPayDate = input.payDate?.trim() ? formatDate(input.payDate) : "Chưa ghi nhận";
   const responseCode = input.responseCode?.trim() || "--";
   const bankCode = input.bankCode?.trim() || "--";
 
@@ -116,7 +127,7 @@ function buildPaymentFailureHtml(input: SendPaymentFailureEmailInput) {
       <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:24px;overflow:hidden;">
         <div style="padding:28px 32px;background:linear-gradient(135deg,#f97316,#dc2626);color:#ffffff;">
           <div style="font-size:12px;font-weight:700;letter-spacing:0.24em;text-transform:uppercase;">NovaX Market</div>
-          <h1 style="margin:12px 0 0;font-size:28px;line-height:1.3;">Thanh toan chua thanh cong</h1>
+          <h1 style="margin:12px 0 0;font-size:28px;line-height:1.3;">Thanh toán chưa thành công</h1>
         </div>
         <div style="padding:32px;">
           <p style="margin:0 0 12px;font-size:16px;line-height:1.7;">Xin chào <strong>${escapeHtml(input.toEmail)}</strong>,</p>
@@ -162,6 +173,45 @@ function buildPaymentFailureHtml(input: SendPaymentFailureEmailInput) {
   `;
 }
 
+function buildOrderFailureHtml(input: SendOrderFailureEmailInput) {
+  const rows = input.items.map((item) => `
+    <tr>
+      <td style="padding:12px 0;border-bottom:1px solid #e2e8f0;color:#0f172a;">${escapeHtml(item.productName?.trim() || item.productId)}</td>
+      <td style="padding:12px 0;border-bottom:1px solid #e2e8f0;color:#475569;text-align:center;">${item.quantity}</td>
+    </tr>
+  `).join("");
+
+  return `
+    <div style="margin:0;padding:24px;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a;">
+      <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:24px;overflow:hidden;">
+        <div style="padding:28px 32px;background:linear-gradient(135deg,#fb923c,#dc2626);color:#ffffff;">
+          <div style="font-size:12px;font-weight:700;letter-spacing:0.24em;text-transform:uppercase;">NovaX Market</div>
+          <h1 style="margin:12px 0 0;font-size:28px;line-height:1.3;">Đơn hàng chưa thể xử lý</h1>
+        </div>
+        <div style="padding:32px;">
+          <p style="margin:0 0 12px;font-size:16px;line-height:1.7;">Xin chào <strong>${escapeHtml(input.toEmail)}</strong>,</p>
+          <p style="margin:0 0 20px;font-size:16px;line-height:1.7;">Hệ thống chưa thể hoàn tất yêu cầu đặt hàng của bạn.</p>
+          <div style="padding:20px;border-radius:20px;background:#fff1f2;border:1px solid #fda4af;">
+            <p style="margin:0 0 8px;font-size:14px;color:#9f1239;">Lý do</p>
+            <p style="margin:0;font-size:18px;font-weight:700;color:#881337;">${escapeHtml(input.failureReason)}</p>
+          </div>
+          ${input.requestId ? `<p style="margin:20px 0 0;font-size:14px;color:#475569;">Mã yêu cầu: <strong>${escapeHtml(input.requestId)}</strong></p>` : ""}
+          <table style="width:100%;margin-top:24px;border-collapse:collapse;">
+            <thead>
+              <tr>
+                <th style="padding:0 0 12px;text-align:left;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Sản phẩm</th>
+                <th style="padding:0 0 12px;text-align:center;font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:#64748b;">Số lượng</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <p style="margin:24px 0 0;font-size:14px;line-height:1.7;color:#475569;">Bạn có thể thử lại sau hoặc chọn sản phẩm khác. Nếu cần hỗ trợ thêm, vui lòng liên hệ NovaX Market.</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 export async function sendOrderConfirmationEmail(input: SendOrderConfirmationEmailInput) {
   assertSesConfigured();
 
@@ -198,12 +248,37 @@ export async function sendPaymentFailureEmail(input: SendPaymentFailureEmailInpu
     Content: {
       Simple: {
         Subject: {
-          Data: `Thanh toán thành công cho giao dịch ${input.txnRef}`,
+          Data: `Thanh toán không thành công cho giao dịch ${input.txnRef}`,
           Charset: "UTF-8"
         },
         Body: {
           Html: {
             Data: buildPaymentFailureHtml(input),
+            Charset: "UTF-8"
+          }
+        }
+      }
+    }
+  }));
+}
+
+export async function sendOrderFailureEmail(input: SendOrderFailureEmailInput) {
+  assertSesConfigured();
+
+  await sesClient.send(new SendEmailCommand({
+    FromEmailAddress: env.SES_FROM_EMAIL,
+    Destination: {
+      ToAddresses: [input.toEmail]
+    },
+    Content: {
+      Simple: {
+        Subject: {
+          Data: "Đơn hàng chưa thể xử lý tại NovaX Market",
+          Charset: "UTF-8"
+        },
+        Body: {
+          Html: {
+            Data: buildOrderFailureHtml(input),
             Charset: "UTF-8"
           }
         }

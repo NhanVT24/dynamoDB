@@ -1126,7 +1126,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "3e26ac5df3a7e705bf189bcf7ae9ec3aa6fbb0335d9d0c3df9fe2ea863cacfee.zip"
+     "S3Key": "0c9aca551070edaf775152d0160b115931647089462d5035da9743437260d2c8.zip"
     },
     "Environment": {
      "Variables": {
@@ -1216,7 +1216,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.3e26ac5df3a7e705bf189bcf7ae9ec3aa6fbb0335d9d0c3df9fe2ea863cacfee.zip",
+    "aws:asset:path": "asset.0c9aca551070edaf775152d0160b115931647089462d5035da9743437260d2c8.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }

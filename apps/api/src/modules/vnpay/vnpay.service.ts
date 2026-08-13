@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { Injectable, Logger } from "@nestjs/common";
+import { env } from "../../config/env.js";
 import { RuntimeConfigService } from "../../config/runtime-config.service.js";
-import { sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { getStorefrontProductById } from "../storefront/storefront.repository.js";
 import {
@@ -12,11 +12,11 @@ import {
   updatePaymentSessionStatus,
   type PaymentSessionRecord
 } from "./vnpay.repository.js";
-import type { CreateVnpayPaymentInput } from "./vnpay.schema.js";
+import type { CreateVnpayFailureTestInput, CreateVnpayPaymentInput } from "./vnpay.schema.js";
 
 const PAYMENT_TIMEOUT_MINUTES = 5;
 const PAYMENT_TIMEOUT_MS = PAYMENT_TIMEOUT_MINUTES * 60 * 1000;
-const PAYMENT_TIMEOUT_MESSAGE = `Phien thanh toan da het han sau ${PAYMENT_TIMEOUT_MINUTES} phut.`;
+const PAYMENT_TIMEOUT_MESSAGE = `Phiên thanh toán đã hết hạn sau ${PAYMENT_TIMEOUT_MINUTES} phút.`;
 const VIETNAM_UTC_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 type VnpayReturnPayload = {
@@ -55,16 +55,25 @@ function signPayload(payload: string, secret: string) {
 }
 
 function mapResponseCode(code: string) {
-  if (code === "00") return "Thanh toan thanh cong.";
-  if (code === "24") return "Khach hang da huy giao dich.";
-  if (code === "51") return "Tai khoan khong du so du de thanh toan.";
-  if (code === "65") return "Tai khoan da vuot qua han muc giao dich trong ngay.";
-  if (code === "75") return "Ngan hang thanh toan dang bao tri hoac khong phan hoi.";
-  return "Giao dich chua hoan tat hoac da xay ra loi trong qua trinh thanh toan.";
+  if (code === "00") return "Thanh toán thành công.";
+  if (code === "24") return "Khách hàng đã hủy giao dịch.";
+  if (code === "51") return "Tài khoản không đủ số dư để thanh toán.";
+  if (code === "65") return "Tài khoản đã vượt quá hạn mức giao dịch trong ngày.";
+  if (code === "75") return "Ngân hàng thanh toán đang bảo trì hoặc không phản hồi.";
+  return "Giao dịch chưa hoàn tất hoặc đã xảy ra lỗi trong quá trình thanh toán.";
 }
 
 function isPaymentSessionExpired(session: Pick<PaymentSessionRecord, "expiresAt">) {
   return new Date(session.expiresAt).getTime() <= Date.now();
+}
+
+function isConditionalCheckFailedError(error: unknown) {
+  if (error instanceof ConditionalCheckFailedException) {
+    return true;
+  }
+
+  const candidate = error as { name?: string; code?: string } | null;
+  return candidate?.name === "ConditionalCheckFailedException" || candidate?.code === "ConditionalCheckFailedException";
 }
 
 @Injectable()
@@ -83,11 +92,11 @@ export class VnpayService {
     for (const item of input.items) {
       const product = await getStorefrontProductById(item.productId);
       if (!product) {
-        throw new Error(`Khong tim thay san pham ${item.productId}.`);
+        throw new Error(`Không tìm thấy sản phẩm ${item.productId}.`);
       }
 
       if (Number(product.stock ?? 0) < item.quantity) {
-        throw new Error(`San pham ${product.name} hien khong du so luong.`);
+        throw new Error(`Sản phẩm ${product.name} hiện không đủ số lượng.`);
       }
 
       totalAmount += Number(product.price ?? 0) * item.quantity;
@@ -98,7 +107,7 @@ export class VnpayService {
     const expiresAt = new Date(createdAt.getTime() + PAYMENT_TIMEOUT_MS);
     const createDate = formatVnpDate(createdAt);
     const expireDate = formatVnpDate(expiresAt);
-    const orderInfo = input.orderDescription?.trim() || `Thanh toan don hang ${txnRef}`;
+    const orderInfo = input.orderDescription?.trim() || `Thanh toán đơn hàng ${txnRef}`;
     const resolvedIpAddress = ipAddress || "127.0.0.1";
     const params: Record<string, string> = {
       vnp_Version: "2.1.0",
@@ -133,6 +142,12 @@ export class VnpayService {
     });
 
     this.logger.log(`payment.created txnRef=${txnRef} amount=${totalAmount} itemCount=${input.items.length} ip=${resolvedIpAddress} expiresAt=${expiresAt.toISOString()}`);
+    console.log("[vnpay] payment.created", {
+      txnRef,
+      email: input.email?.trim().toLowerCase() ?? "",
+      amount: totalAmount,
+      expiresAt: expiresAt.toISOString()
+    });
 
     if (input.email?.trim()) {
       const normalizedEmail = input.email.trim().toLowerCase();
@@ -181,7 +196,7 @@ export class VnpayService {
     const result: VnpayReturnPayload = {
       isValidSignature,
       transactionStatus: success ? "success" : "failed",
-      message: isValidSignature ? mapResponseCode(responseCode) : "Chu ky phan hoi tu VNPay khong hop le.",
+      message: isValidSignature ? mapResponseCode(responseCode) : "Chữ ký phản hồi từ VNPay không hợp lệ.",
       txnRef: query.vnp_TxnRef || "",
       amount: Number(query.vnp_Amount || 0) / 100,
       orderInfo: query.vnp_OrderInfo || "",
@@ -192,8 +207,32 @@ export class VnpayService {
     };
 
     this.logger.log(`payment.return_checked txnRef=${query.vnp_TxnRef || ""} valid=${isValidSignature} responseCode=${responseCode}`);
-    const handled = await this.handlePaymentEvent(result, "return");
-    return handled ? { ...result, ...handled } : result;
+
+    try {
+      const handled = await this.handlePaymentEvent(result, "return");
+      return handled ? { ...result, ...handled } : result;
+    } catch (error) {
+      this.logger.error(
+        `payment.return_processing_failed txnRef=${result.txnRef} responseCode=${result.responseCode} error=${error instanceof Error ? error.message : "unknown"}`,
+        error instanceof Error ? error.stack : undefined
+      );
+
+      if (result.isValidSignature) {
+        const fallbackMessage = result.responseCode === "24"
+          ? "Khách hàng đã hủy giao dịch trên VNPay."
+          : result.transactionStatus === "success"
+            ? "Hệ thống đã ghi nhận giao dịch thành công nhưng có lỗi khi đồng bộ nội bộ."
+            : mapResponseCode(result.responseCode);
+
+        return {
+          ...result,
+          transactionStatus: result.transactionStatus === "success" ? "success" : "failed",
+          message: fallbackMessage
+        };
+      }
+
+      throw error;
+    }
   }
 
   async verifyIpn(rawQuery: Record<string, unknown>) {
@@ -211,6 +250,35 @@ export class VnpayService {
     return { RspCode: "00", Message: "Confirm Success" };
   }
 
+  async createFailureTestNotification(email: string, input: CreateVnpayFailureTestInput) {
+    const txnRef = `TEST${input.mode.toUpperCase()}${Date.now()}`;
+    const failureReason = input.mode === "cancel"
+      ? "Khách hàng đã hủy giao dịch trên VNPay."
+      : PAYMENT_TIMEOUT_MESSAGE;
+    const responseCode = input.mode === "cancel" ? "24" : "TIMEOUT";
+    const payDate = input.mode === "cancel" ? new Date().toISOString() : "";
+
+    await this.enqueueFailedPaymentNotification({
+      email: email.trim().toLowerCase(),
+      txnRef,
+      amount: input.amount,
+      orderInfo: input.orderInfo?.trim() || `Thanh toán test ${input.mode} từ console browser`,
+      responseCode,
+      transactionNo: input.mode === "cancel" ? "0" : "",
+      bankCode: input.bankCode,
+      payDate,
+      failureReason
+    }, "return");
+
+    return {
+      success: true,
+      txnRef,
+      mode: input.mode,
+      email: email.trim().toLowerCase(),
+      message: `Đã tạo test thanh toán ${input.mode === "cancel" ? "hủy" : "hết hạn"} cho ${email.trim().toLowerCase()}.`
+    };
+  }
+
   private async handlePaymentEvent(result: VnpayReturnPayload, source: "return" | "ipn"): Promise<VnpayHandlingOverride | null> {
     this.logger.log(`payment.queue.evaluate txnRef=${result.txnRef} source=${source} valid=${result.isValidSignature} status=${result.transactionStatus}`);
 
@@ -224,11 +292,12 @@ export class VnpayService {
       this.logger.warn(`payment.session.missing txnRef=${result.txnRef} source=${source}`);
       return {
         transactionStatus: "failed" as const,
-        message: "Khong tim thay phien thanh toan."
+        message: "Không tìm thấy phiên thanh toán."
       };
     }
 
     if (session.status !== "pending") {
+      this.logger.log(`payment.session.finalized txnRef=${result.txnRef} source=${source} status=${session.status} email=${session.email ?? ""}`);
       this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=already_finalized_${session.status} source=${source}`);
       return {
         transactionStatus: session.status === "expired" ? "expired" : session.status,
@@ -246,9 +315,19 @@ export class VnpayService {
 
     if (result.transactionStatus !== "success") {
       const failureReason = result.responseCode === "24"
-        ? "Khach hang da huy giao dich tren VNPay."
+        ? "Khách hàng đã hủy giao dịch trên VNPay."
         : mapResponseCode(result.responseCode);
 
+      this.logger.log(
+        `payment.failed_context txnRef=${result.txnRef} source=${source} sessionEmail=${session.email ?? ""} responseCode=${result.responseCode} sesFromEmail=${env.SES_FROM_EMAIL ?? ""}`
+      );
+      console.log("[vnpay] payment.failed_context", {
+        txnRef: result.txnRef,
+        source,
+        sessionEmail: session.email ?? "",
+        responseCode: result.responseCode,
+        sesFromEmail: env.SES_FROM_EMAIL ?? ""
+      });
       await this.finalizeFailedPayment(session, result, source, failureReason);
       return {
         transactionStatus: "failed" as const,
@@ -274,11 +353,11 @@ export class VnpayService {
         payDate: result.payDate
       });
     } catch (error) {
-      if (error instanceof ConditionalCheckFailedException) {
+      if (isConditionalCheckFailedError(error)) {
         this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=finalized_during_success source=${source}`);
         return {
           transactionStatus: "failed" as const,
-          message: "Phien thanh toan da duoc chot boi mot callback khac."
+          message: "Phiên thanh toán đã được chốt bởi một callback khác."
         };
       }
 
@@ -313,7 +392,7 @@ export class VnpayService {
         payDate: result.payDate
       });
     } catch (error) {
-      if (error instanceof ConditionalCheckFailedException) {
+      if (isConditionalCheckFailedError(error)) {
         this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=finalized_during_expiry source=${source}`);
         return;
       }
@@ -322,8 +401,24 @@ export class VnpayService {
     }
 
     this.logger.warn(`payment.expired txnRef=${result.txnRef} source=${source} expiresAt=${session.expiresAt}`);
+    this.logger.log(
+      `payment.expired_context txnRef=${result.txnRef} source=${source} sessionEmail=${session.email ?? ""} responseCode=${result.responseCode || "TIMEOUT"} sesFromEmail=${env.SES_FROM_EMAIL ?? ""}`
+    );
+    console.log("[vnpay] payment.expired_context", {
+      txnRef: result.txnRef,
+      source,
+      sessionEmail: session.email ?? "",
+      responseCode: result.responseCode || "TIMEOUT",
+      sesFromEmail: env.SES_FROM_EMAIL ?? ""
+    });
 
     if (!session.email) {
+      this.logger.warn(`payment.expired_email_skipped txnRef=${result.txnRef} source=${source} reason=missing_session_email`);
+      console.warn("[vnpay] payment.expired_email_skipped", {
+        txnRef: result.txnRef,
+        source,
+        reason: "missing_session_email"
+      });
       return;
     }
 
@@ -349,6 +444,13 @@ export class VnpayService {
     source: "return" | "ipn",
     failureReason: string
   ) {
+    console.log("[vnpay] payment.failed_finalize.begin", {
+      txnRef: result.txnRef,
+      source,
+      sessionStatus: session.status,
+      sessionEmail: session.email ?? "",
+      responseCode: result.responseCode
+    });
     try {
       await updatePaymentSessionStatus({
         txnRef: result.txnRef,
@@ -358,12 +460,29 @@ export class VnpayService {
         bankCode: result.bankCode,
         payDate: result.payDate
       });
+      console.log("[vnpay] payment.failed_finalize.updated", {
+        txnRef: result.txnRef,
+        source,
+        nextStatus: "failed"
+      });
     } catch (error) {
-      if (error instanceof ConditionalCheckFailedException) {
+      if (isConditionalCheckFailedError(error)) {
         this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=finalized_during_failure source=${source}`);
+        console.warn("[vnpay] payment.failed_finalize.finalized_during_failure", {
+          txnRef: result.txnRef,
+          source,
+          errorName: (error as { name?: string })?.name ?? "",
+          errorCode: (error as { code?: string })?.code ?? ""
+        });
         return;
       }
 
+      console.error("[vnpay] payment.failed_finalize.error", {
+        txnRef: result.txnRef,
+        source,
+        errorName: error instanceof Error ? error.name : "unknown",
+        errorMessage: error instanceof Error ? error.message : "unknown"
+      });
       throw error;
     }
 
@@ -383,6 +502,13 @@ export class VnpayService {
         payDate: result.payDate,
         failureReason
       }, source);
+    } else {
+      this.logger.warn(`payment.failed_email_skipped txnRef=${result.txnRef} source=${source} reason=missing_session_email`);
+      console.warn("[vnpay] payment.failed_email_skipped", {
+        txnRef: result.txnRef,
+        source,
+        reason: "missing_session_email"
+      });
     }
 
     this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=status_${result.transactionStatus} source=${source}`);
@@ -404,24 +530,15 @@ export class VnpayService {
     source: "return" | "ipn"
   ) {
     try {
-      await sendPaymentFailureEmail({
-        toEmail: input.email,
-        txnRef: input.txnRef,
-        totalAmount: input.amount,
-        orderInfo: input.orderInfo,
-        failureReason: input.failureReason,
-        responseCode: input.responseCode,
-        bankCode: input.bankCode,
-        payDate: input.payDate
-      });
-      this.logger.log(`payment.failed_email.sent txnRef=${input.txnRef} source=${source} to=${input.email}`);
-    } catch (error) {
-      this.logger.warn(
-        `payment.failed_email.failed txnRef=${input.txnRef} source=${source} to=${input.email} error=${error instanceof Error ? error.message : "unknown"}`
+      this.logger.log(
+        `payment.failed_queue.enqueue_begin txnRef=${input.txnRef} source=${source} to=${input.email} responseCode=${input.responseCode}`
       );
-    }
-
-    try {
+      console.log("[vnpay] payment.failed_queue.enqueue_begin", {
+        txnRef: input.txnRef,
+        source,
+        to: input.email,
+        responseCode: input.responseCode
+      });
       await this.notificationsService.publishPaymentFailedEvent(input);
       await this.markPaymentEventEnqueuedSafely(input.txnRef, source);
       this.logger.log(`payment.failed_queue.triggered txnRef=${input.txnRef} source=${source}`);
@@ -471,7 +588,7 @@ export class VnpayService {
     try {
       await markPaymentEventEnqueued(txnRef);
     } catch (error) {
-      if (error instanceof ConditionalCheckFailedException) {
+      if (isConditionalCheckFailedError(error)) {
         this.logger.log(`payment.queue.already_enqueued txnRef=${txnRef} source=${source}`);
         return;
       }

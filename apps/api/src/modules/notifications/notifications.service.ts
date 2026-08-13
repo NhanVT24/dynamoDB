@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { env } from "../../config/env.js";
+import { sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
 import { sqsClient } from "../../integrations/sqs/client.js";
 import { getOrderById, markOrderAsDone } from "../storefront/storefront.repository.js";
 import {
@@ -157,7 +158,7 @@ export class NotificationsService {
     const notifications = await listNotificationsByCustomer(email);
     const target = notifications.find((item) => item.id === id);
     if (!target) {
-      throw new NotFoundException("Notification not found");
+      throw new NotFoundException("Không tìm thấy thông báo");
     }
 
     await markNotificationAsRead(id);
@@ -168,7 +169,7 @@ export class NotificationsService {
     const notifications = await listNotificationsByCustomer(email);
     const target = notifications.find((item) => item.id === id);
     if (!target) {
-      throw new NotFoundException("Notification not found");
+      throw new NotFoundException("Không tìm thấy thông báo");
     }
 
     await deleteNotification(id);
@@ -376,6 +377,24 @@ export class NotificationsService {
     if (payload.forceFail) {
       this.logger.error(`payment.failed_queue.force_fail txnRef=${payload.txnRef}`);
       throw new Error(`Forced failure for failed-payment txnRef=${payload.txnRef}`);
+    }
+
+    try {
+      await sendPaymentFailureEmail({
+        toEmail: email,
+        txnRef: payload.txnRef,
+        totalAmount: amount,
+        orderInfo: payload.orderInfo ?? "",
+        failureReason,
+        responseCode: payload.responseCode,
+        bankCode: payload.bankCode,
+        payDate: payload.payDate
+      });
+      this.logger.log(`payment.failed_email.sent txnRef=${payload.txnRef} to=${email}`);
+    } catch (error) {
+      this.logger.warn(
+        `payment.failed_email.failed txnRef=${payload.txnRef} to=${email} error=${error instanceof Error ? error.message : "unknown"}`
+      );
     }
 
     await this.createPendingNotification({

@@ -81,16 +81,39 @@ function writeLocalNotifications(items: StoreNotification[]) {
 }
 
 function mergeNotifications(localItems: StoreNotification[], serverItems: StoreNotification[]) {
+  function buildNotificationKey(item: StoreNotification) {
+    const metadata = (item as { metadata?: Record<string, unknown> }).metadata ?? {};
+    const txnRef = String(metadata.txnRef ?? "").trim();
+    const paymentStatus = String(metadata.paymentStatus ?? "").trim();
+    const requestId = String(metadata.requestId ?? "").trim();
+    const orderId = String(metadata.orderId ?? "").trim();
+
+    if (txnRef && paymentStatus) {
+      return `payment:${paymentStatus}:${txnRef}`;
+    }
+
+    if (requestId) {
+      return `request:${requestId}`;
+    }
+
+    if (orderId && item.title) {
+      return `order:${orderId}:${item.title}`;
+    }
+
+    return `id:${item.id}`;
+  }
+
   const merged = new Map<string, StoreNotification>();
 
   for (const item of [...serverItems, ...localItems]) {
-    const existing = merged.get(item.id);
+    const key = buildNotificationKey(item);
+    const existing = merged.get(key);
     if (!existing) {
-      merged.set(item.id, item);
+      merged.set(key, item);
       continue;
     }
 
-    merged.set(item.id, {
+    merged.set(key, {
       ...existing,
       ...item,
       isRead: Boolean(existing.isRead || item.isRead),
@@ -367,7 +390,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
         const mergedItems = mergeNotifications(localItems, serverItems);
 
         setNotifications(mergedItems);
-        setPendingCount(Number(payload.pendingCount ?? 0) + localItems.filter((item) => !item.isRead).length);
+        setPendingCount(mergedItems.filter((item) => !item.isRead).length);
       } catch {}
     }
 
@@ -444,7 +467,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       });
 
       if (!response.ok) {
-        throw new Error("Failed to dismiss notification.");
+        throw new Error("Không thể đánh dấu thông báo đã đọc.");
       }
 
       setNotifications((current) =>
@@ -476,7 +499,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       });
 
       if (!response.ok) {
-        throw new Error("Failed to delete notification.");
+        throw new Error("Không thể xóa thông báo.");
       }
 
       setNotifications((current) => current.filter((entry) => entry.id !== item.id));
@@ -505,7 +528,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
         });
 
         if (!response.ok) {
-          throw new Error("Failed to delete all notifications.");
+          throw new Error("Không thể xóa toàn bộ thông báo.");
         }
       } catch {
         return;
@@ -545,7 +568,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
           });
 
           if (!response.ok) {
-            throw new Error("Failed to mark all notifications as read.");
+            throw new Error("Không thể đánh dấu tất cả thông báo là đã đọc.");
           }
         }));
       } catch {

@@ -56,6 +56,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const isNotificationDeleteMutation = method === "DELETE" && /^\/api\/notifications\/[^/]+(?:\?|$)/.test(url);
     const isNotificationDeleteAllMutation = method === "DELETE" && /^\/api\/notifications(?:\?|$)/.test(url);
     const isStorefrontOrderMutation = method === "POST" && url === "/api/storefront/orders";
+    const isVnpayFailureTestMutation = method === "POST" && url === "/api/payments/vnpay/test/fail";
     const isPublicVnpayRequest =
       url === "/api/payments/vnpay" ||
       url.startsWith("/api/payments/vnpay/") ||
@@ -74,6 +75,19 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       reply.status(403).send({
         statusCode: 403,
         message: "Chỉ tài khoản customer hoặc admin mới được đặt hàng."
+      });
+      return;
+    }
+
+    if (isVnpayFailureTestMutation) {
+      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      if (principal && (principal.role === "customer" || principal.role === "admin")) {
+        return;
+      }
+
+      reply.status(403).send({
+        statusCode: 403,
+        message: "Chỉ tài khoản customer hoặc admin mới được chạy test thanh toán thất bại."
       });
       return;
     }

@@ -14,3 +14,12 @@ export const createVnpayPaymentSchema = z.object({
 });
 
 export type CreateVnpayPaymentInput = z.infer<typeof createVnpayPaymentSchema>;
+
+export const createVnpayFailureTestSchema = z.object({
+  mode: z.enum(["cancel", "timeout"]),
+  amount: z.coerce.number().positive().max(1_000_000_000).default(1_036_500),
+  orderInfo: z.string().trim().min(3).max(255).optional(),
+  bankCode: z.string().trim().min(2).max(20).default("VNPAY")
+});
+
+export type CreateVnpayFailureTestInput = z.infer<typeof createVnpayFailureTestSchema>;

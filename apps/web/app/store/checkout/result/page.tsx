@@ -55,6 +55,7 @@ export default function CheckoutResultPage() {
   const searchParams = useSearchParams();
   const { clearCart } = useStorefront();
   const verifiedQueryRef = useRef("");
+  const finalizingTxnRef = useRef("");
   const [result, setResult] = useState<ReturnPayload | null>(null);
   const [error, setError] = useState("");
   const [hasBroadcastSuccess, setHasBroadcastSuccess] = useState(false);
@@ -84,6 +85,12 @@ export default function CheckoutResultPage() {
           cache: "no-store"
         });
         const payload = (await response.json().catch(() => null)) as ReturnPayload | { message?: string } | null;
+        console.log("[checkout-result] verifyPayment", {
+          status: response.status,
+          ok: response.ok,
+          query,
+          payload
+        });
 
         if (!response.ok || !payload || !("txnRef" in payload)) {
           throw new Error(payload?.message || "Không thể xác minh kết quả thanh toán.");
@@ -135,7 +142,11 @@ export default function CheckoutResultPage() {
           status: "sent",
           isRead: false,
           channel: "system",
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          metadata: {
+            txnRef: result.txnRef,
+            paymentStatus: "success"
+          }
         });
         window.localStorage.setItem(localNotificationsStorageKey, JSON.stringify(current));
         window.dispatchEvent(new Event(notificationsUpdatedEvent));
@@ -158,6 +169,10 @@ export default function CheckoutResultPage() {
 
       const processedKey = `${processedPaymentPrefix}${result.txnRef}`;
       if (window.sessionStorage.getItem(processedKey)) {
+        return;
+      }
+
+      if (finalizingTxnRef.current === result.txnRef) {
         return;
       }
 
@@ -190,6 +205,7 @@ export default function CheckoutResultPage() {
       }
 
       setIsFinalizingOrder(true);
+      finalizingTxnRef.current = result.txnRef;
       setQueueState("idle");
       setQueueMessage("");
 
@@ -222,6 +238,7 @@ export default function CheckoutResultPage() {
       } catch (finalizeError) {
         setError(finalizeError instanceof Error ? finalizeError.message : "Không thể tạo đơn hàng sau thanh toán.");
       } finally {
+        finalizingTxnRef.current = "";
         setIsFinalizingOrder(false);
       }
     }

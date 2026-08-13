@@ -99,6 +99,21 @@ export async function updatePaymentSessionStatus(input: {
     updateSegments.push("paidAt = :paidAt");
   }
 
+  const expressionAttributeValues: Record<string, unknown> = {
+    ":status": input.status,
+    ":pendingStatus": "pending",
+    ":updatedAt": now,
+    ":finalizedAt": now,
+    ":responseCode": input.responseCode,
+    ":transactionNo": input.transactionNo,
+    ":bankCode": input.bankCode,
+    ":payDate": input.payDate
+  };
+
+  if (shouldSetPaidAt) {
+    expressionAttributeValues[":paidAt"] = now;
+  }
+
   await rawDb.send(new UpdateItemCommand({
     TableName,
     Key: toDynamoItem({
@@ -110,17 +125,7 @@ export async function updatePaymentSessionStatus(input: {
     ExpressionAttributeNames: {
       "#status": "status"
     },
-    ExpressionAttributeValues: toDynamoItem({
-      ":status": input.status,
-      ":pendingStatus": "pending",
-      ":updatedAt": now,
-      ":finalizedAt": now,
-      ":paidAt": now,
-      ":responseCode": input.responseCode,
-      ":transactionNo": input.transactionNo,
-      ":bankCode": input.bankCode,
-      ":payDate": input.payDate
-    })
+    ExpressionAttributeValues: toDynamoItem(expressionAttributeValues)
   }));
 }
 

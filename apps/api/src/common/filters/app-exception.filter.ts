@@ -39,7 +39,13 @@ export class AppExceptionFilter implements ExceptionFilter {
         .send(exception.getResponse());
     }
 
-    if (exception instanceof Error && exception.name === "ConditionalCheckFailedException") {
+    if (
+      (exception instanceof Error && exception.name === "ConditionalCheckFailedException") ||
+      (typeof exception === "object" &&
+        exception !== null &&
+        ((exception as { name?: string }).name === "ConditionalCheckFailedException" ||
+          (exception as { code?: string }).code === "ConditionalCheckFailedException"))
+    ) {
       return response.status(HttpStatus.CONFLICT).send({
         message: "Record changed, missing, or condition failed"
       });

@@ -1,21 +1,18 @@
 import crypto from "node:crypto";
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { TtlCache } from "../../common/cache/ttl-cache.js";
 import { env } from "../../config/env.js";
-import { sendOrderConfirmationEmail } from "../../integrations/ses/order-mailer.js";
+import { sendOrderConfirmationEmail, sendOrderFailureEmail } from "../../integrations/ses/order-mailer.js";
 import { sqsClient } from "../../integrations/sqs/client.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
 import {
-  acquireProductSelectionLock,
   createStorefrontOrder,
   getActiveProductSelectionLock,
   getStorefrontProductById,
   listOrdersByCustomer,
   listStorefrontProducts,
-  releaseProductSelectionLock,
   type StorefrontOrderQueuePayload
 } from "./storefront.repository.js";
 import type { CreateStorefrontOrderInput } from "./storefront.schema.js";
@@ -79,7 +76,6 @@ type StorefrontQueueResult =
 
 const listCache = new TtlCache<PublicProductListResponse>(20_000);
 const detailCache = new TtlCache<PublicProductDetail>(30_000);
-const PRODUCT_SELECTION_HOLD_SECONDS = 60;
 
 function buildListCacheKey(query: Record<string, unknown>) {
   return JSON.stringify(Object.keys(query).sort().map((key) => [key, query[key as keyof typeof query]]));
@@ -229,33 +225,9 @@ export class StorefrontService {
       throw new Error("Hàng đợi xử lý đơn hàng chưa được cấu hình.");
     }
 
-    await this.precheckStock(email, input.items);
+    await this.precheckProducts(email, input.items);
 
     const requestId = crypto.randomUUID();
-    const lockedProductIds: string[] = [];
-
-    try {
-      for (const item of input.items) {
-        await acquireProductSelectionLock({
-          productId: item.productId,
-          email,
-          requestId,
-          holdSeconds: PRODUCT_SELECTION_HOLD_SECONDS
-        });
-        lockedProductIds.push(item.productId);
-      }
-    } catch (error) {
-      await this.releaseSelectionLocks(lockedProductIds, requestId);
-
-      if (error instanceof ConditionalCheckFailedException) {
-        const blockedProductId = input.items.find((item) => !lockedProductIds.includes(item.productId))?.productId ?? input.items[0]?.productId ?? "";
-        this.logger.warn(`order.prevented_locked requestId=${requestId} customer=${email} productId=${blockedProductId} holdSeconds=${PRODUCT_SELECTION_HOLD_SECONDS}`);
-        throw new ConflictException("Sản phẩm đang được giữ tạm thời trong 1 phút. Vui lòng thử lại sau.");
-      }
-
-      throw error;
-    }
-
     const payload: StorefrontOrderQueuePayload = {
       type: "storefront.order.requested",
       requestId,
@@ -269,7 +241,7 @@ export class StorefrontService {
       MessageBody: JSON.stringify(payload)
     }));
 
-    this.logger.log(`order.requested_enqueued requestId=${requestId} customer=${email} itemCount=${input.items.length} lockedProductIds=${lockedProductIds.join(",")}`);
+    this.logger.log(`order.requested_enqueued requestId=${requestId} customer=${email} itemCount=${input.items.length}`);
     return {
       success: true,
       queued: true,
@@ -393,6 +365,29 @@ export class StorefrontService {
           `order.failed_after_queue requestId=${requestId ?? ""} customer=${email} reason=insufficient_stock error=${error.message}`
         );
 
+        if (env.SES_FROM_EMAIL) {
+          try {
+            await sendOrderFailureEmail({
+              toEmail: email,
+              requestId,
+              failureReason,
+              items: await Promise.all(items.map(async (item) => {
+                const product = await getStorefrontProductById(item.productId);
+                return {
+                  productId: item.productId,
+                  productName: product?.name ? String(product.name) : undefined,
+                  quantity: item.quantity
+                };
+              }))
+            });
+            this.logger.log(`order.failure_email_sent requestId=${requestId ?? ""} customer=${email}`);
+          } catch (mailError) {
+            this.logger.warn(
+              `order.failure_email_failed requestId=${requestId ?? ""} customer=${email} error=${mailError instanceof Error ? mailError.message : "unknown"}`
+            );
+          }
+        }
+
         await this.notificationsService.createPendingNotification({
           email,
           channel: "system",
@@ -432,8 +427,6 @@ export class StorefrontService {
       }
 
       throw error;
-    } finally {
-      await this.releaseSelectionLocks(items.map((item) => item.productId), requestId);
     }
   }
 
@@ -444,31 +437,13 @@ export class StorefrontService {
     }
   }
 
-  private async releaseSelectionLocks(productIds: string[], requestId?: string) {
-    await Promise.all(productIds.map(async (productId) => {
-      try {
-        await releaseProductSelectionLock(productId, requestId);
-      } catch (error) {
-        this.logger.warn(`order.lock_release_failed requestId=${requestId ?? ""} productId=${productId} error=${error instanceof Error ? error.message : "unknown"}`);
-      }
-    }));
-  }
-
-  private async precheckStock(email: string, items: CreateStorefrontOrderInput["items"]) {
+  private async precheckProducts(email: string, items: CreateStorefrontOrderInput["items"]) {
     for (const item of items) {
       const product = await getStorefrontProductById(item.productId);
 
       if (!product) {
         this.logger.warn(`order.rejected_precheck_missing_product customer=${email} productId=${item.productId}`);
         throw new NotFoundException(`Không tìm thấy sản phẩm ${item.productId}.`);
-      }
-
-      const availableStock = Number(product.stock ?? 0);
-      if (availableStock < item.quantity) {
-        this.logger.warn(
-          `order.rejected_precheck_stock customer=${email} productId=${item.productId} requested=${item.quantity} available=${availableStock}`
-        );
-        throw new ConflictException(`Sản phẩm ${product.name} không đủ tồn kho.`);
       }
     }
   }
