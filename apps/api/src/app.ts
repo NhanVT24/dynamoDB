@@ -12,6 +12,8 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
     bufferLogs: true
   });
+  app.useLogger(["log", "error", "warn", "debug", "verbose"]);
+  app.flushLogs();
 
   app.enableCors({
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],

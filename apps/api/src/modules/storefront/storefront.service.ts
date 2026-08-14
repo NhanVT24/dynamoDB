@@ -1,10 +1,9 @@
 import crypto from "node:crypto";
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { TtlCache } from "../../common/cache/ttl-cache.js";
 import { env } from "../../config/env.js";
+import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { sendOrderConfirmationEmail, sendOrderFailureEmail } from "../../integrations/ses/order-mailer.js";
-import { sqsClient } from "../../integrations/sqs/client.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
 import {
@@ -75,6 +74,13 @@ type StorefrontQueueResult =
       itemCount: number;
       failureReason: string;
     };
+
+function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T): T {
+  const detail = payload.detail;
+  return detail && typeof detail === "object" && !Array.isArray(detail)
+    ? detail as T
+    : payload;
+}
 
 const listCache = new TtlCache<PublicProductListResponse>(20_000);
 const detailCache = new TtlCache<PublicProductDetail>(30_000);
@@ -222,12 +228,21 @@ export class StorefrontService {
   }
 
   async createOrder(email: string, input: CreateStorefrontOrderInput) {
-    if (!env.SQS_STOREFRONT_ORDERS_QUEUE_URL) {
-      this.logger.warn(`[queue-order] disabled customer=${email}`);
+    if (!env.EVENTBRIDGE_COMMERCE_BUS_NAME) {
+      this.logger.warn(`[eventbridge-commerce] disabled customer=${email}`);
       throw new Error("Hàng đợi xử lý đơn hàng chưa được cấu hình.");
     }
 
-    await this.precheckProducts(email, input.items);
+    this.logger.log(`[eventbridge-commerce] create_order_begin customer=${email} itemCount=${input.items.length} productIds=${input.items.map((item) => item.productId).join(",")}`);
+    try {
+      await this.precheckProducts(email, input.items);
+    } catch (error) {
+      this.logger.error(
+        `[eventbridge-commerce] create_order_error stage=precheck customer=${email} itemCount=${input.items.length} message=${error instanceof Error ? error.message : "unknown_error"}`
+      );
+      throw error;
+    }
+    this.logger.log(`[eventbridge-commerce] create_order_precheck_done customer=${email} itemCount=${input.items.length}`);
 
     const requestId = crypto.randomUUID();
     const payload: StorefrontOrderQueuePayload = {
@@ -238,12 +253,23 @@ export class StorefrontService {
       createdAt: new Date().toISOString()
     };
 
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: env.SQS_STOREFRONT_ORDERS_QUEUE_URL,
-      MessageBody: JSON.stringify(payload)
-    }));
+    this.logger.log(`[eventbridge-commerce] create_order_publish_begin requestId=${requestId} customer=${email} detailType=storefront.order.requested`);
+    let published: Awaited<ReturnType<typeof publishEventBridgeEvent>>;
+    try {
+      published = await publishEventBridgeEvent({
+        busName: env.EVENTBRIDGE_COMMERCE_BUS_NAME,
+        source: "supermarket.commerce",
+        detailType: "storefront.order.requested",
+        detail: payload as unknown as Record<string, unknown>
+      });
+    } catch (error) {
+      this.logger.error(
+        `[eventbridge-commerce] create_order_error stage=publish customer=${email} requestId=${requestId} message=${error instanceof Error ? error.message : "unknown_error"}`
+      );
+      throw error;
+    }
 
-    this.logger.log(`[queue-order] enqueued requestId=${requestId} customer=${email} itemCount=${input.items.length}`);
+    this.logger.log(`[eventbridge-commerce] create_order_publish_done requestId=${requestId} customer=${email} itemCount=${input.items.length} bus=${published.eventBusName} eventId=${published.eventId}`);
     return {
       success: true,
       queued: true,
@@ -288,7 +314,7 @@ export class StorefrontService {
       return null;
     }
 
-    const payload = JSON.parse(body) as Partial<StorefrontOrderQueuePayload>;
+    const payload = unwrapEventBridgeDetail(JSON.parse(body) as Record<string, unknown>) as Partial<StorefrontOrderQueuePayload>;
     if (payload.type !== "storefront.order.requested" || !payload.email || !Array.isArray(payload.items) || payload.items.length === 0) {
       this.logger.warn(`[queue-order] ignored payload=${body}`);
       return null;
@@ -365,6 +391,19 @@ export class StorefrontService {
         this.logger.warn(`[mail-ses] order_success_skipped orderId=${order.id} requestId=${requestId ?? ""} reason=ses_not_configured`);
       }
 
+      await this.publishCommerceLifecycleEvent({
+        detailType: "storefront.order.succeeded",
+        detail: {
+          type: "storefront.order.succeeded",
+          requestId: requestId ?? "",
+          orderId: order.id,
+          customer: email,
+          totalAmount: order.totalAmount,
+          itemCount: order.items.length,
+          status: order.status,
+          createdAt: order.createdAt
+        }
+      });
       this.logger.log(`[queue-notification] order_success_enqueued orderId=${order.id} requestId=${requestId ?? ""} notificationChannels=system audit=true`);
       return {
         type: "storefront.order.succeeded",
@@ -432,6 +471,19 @@ export class StorefrontService {
           }
         });
 
+        await this.publishCommerceLifecycleEvent({
+          detailType: "storefront.order.failed",
+          detail: {
+            type: "storefront.order.failed",
+            requestId: requestId ?? "",
+            customer: email,
+            itemCount: items.length,
+            failureReason,
+            failureCode: "insufficient_stock",
+            createdAt: new Date().toISOString()
+          }
+        });
+
         return {
           type: "storefront.order.failed",
           outcome: "failed",
@@ -458,12 +510,33 @@ export class StorefrontService {
 
   private async precheckProducts(email: string, items: CreateStorefrontOrderInput["items"]) {
     for (const item of items) {
+      this.logger.log(`[dynamo-product] precheck_begin customer=${email} productId=${item.productId} quantity=${item.quantity}`);
       const product = await getStorefrontProductById(item.productId);
 
       if (!product) {
         this.logger.warn(`[dynamo-product] missing customer=${email} productId=${item.productId}`);
         throw new NotFoundException(`Không tìm thấy sản phẩm ${item.productId}.`);
       }
+      this.logger.log(`[dynamo-product] precheck_found customer=${email} productId=${item.productId} quantity=${item.quantity} stock=${Number(product.stock ?? 0)} status=${String(product.status ?? "")} version=${Number(product.version ?? 0)}`);
     }
+  }
+
+  private async publishCommerceLifecycleEvent(input: {
+    detailType: "storefront.order.succeeded" | "storefront.order.failed";
+    detail: Record<string, unknown>;
+  }) {
+    if (!env.EVENTBRIDGE_COMMERCE_BUS_NAME) {
+      this.logger.warn(`[eventbridge-commerce] lifecycle_disabled detailType=${input.detailType}`);
+      return;
+    }
+
+    const published = await publishEventBridgeEvent({
+      busName: env.EVENTBRIDGE_COMMERCE_BUS_NAME,
+      source: "supermarket.commerce",
+      detailType: input.detailType,
+      detail: input.detail
+    });
+
+    this.logger.log(`[eventbridge-commerce] lifecycle_published detailType=${input.detailType} bus=${published.eventBusName} eventId=${published.eventId}`);
   }
 }

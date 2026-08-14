@@ -54,7 +54,14 @@ export function createHttpHandler(config: HttpHandlerConfig) {
       routeKey: event?.routeKey,
       stage: event?.requestContext?.stage,
       pathParameters: event?.pathParameters,
-      queryStringParameters: event?.queryStringParameters
+      queryStringParameters: event?.queryStringParameters,
+      hasBody: typeof event?.body === "string" ? event.body.length > 0 : Boolean(event?.body),
+      bodyLength: typeof event?.body === "string" ? event.body.length : 0,
+      isBase64Encoded: Boolean(event?.isBase64Encoded),
+      contentType:
+        event?.headers?.["content-type"] ??
+        event?.headers?.["Content-Type"] ??
+        null
     });
 
     const proxy = await proxyPromise;

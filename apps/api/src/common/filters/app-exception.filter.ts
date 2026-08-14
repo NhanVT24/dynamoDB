@@ -16,9 +16,35 @@ export class AppExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const request = ctx.getRequest();
     const response = ctx.getResponse();
+    const errorName =
+      exception instanceof Error
+        ? exception.name
+        : typeof exception === "object" && exception !== null
+          ? String((exception as { name?: string }).name ?? "UnknownError")
+          : "UnknownError";
+    const errorMessage =
+      exception instanceof Error
+        ? exception.message
+        : typeof exception === "object" && exception !== null
+          ? String((exception as { message?: string }).message ?? "Unknown error")
+          : String(exception);
+    const errorStack = exception instanceof Error ? exception.stack : undefined;
 
     this.logger.error("api request failed", {
       err: exception,
+      errorName,
+      errorMessage,
+      errorStack,
+      method: request?.method,
+      url: request?.url,
+      query: request?.query,
+      params: request?.params,
+      body: request?.body
+    });
+    console.error("[api-error] request_failed", {
+      errorName,
+      errorMessage,
+      errorStack,
       method: request?.method,
       url: request?.url,
       query: request?.query,

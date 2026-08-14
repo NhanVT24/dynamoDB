@@ -26,12 +26,15 @@ export class StorefrontController {
   @Post("orders")
   @HttpCode(HttpStatus.ACCEPTED)
   createOrder(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+    this.logger.log(`[storefront-controller] create_order_request url=${request.url} hasAuth=${Boolean(request.headers.authorization)} bodyKeys=${Object.keys(rawBody ?? {}).join(",")}`);
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    this.logger.log(`[storefront-controller] create_order_principal_resolved url=${request.url} hasPrincipal=${Boolean(principal)} role=${principal?.role ?? "none"}`);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
       throw new ForbiddenException("Chỉ tài khoản customer hoặc admin mới được tạo đơn hàng.");
     }
 
     const input = createStorefrontOrderSchema.parse(rawBody);
+    this.logger.log(`[storefront-controller] create_order_validated email=${principal?.email ?? "unknown"} itemCount=${input.items.length}`);
     return this.storefrontService.createOrder(principal.email, input);
   }
 

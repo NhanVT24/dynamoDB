@@ -47,6 +47,22 @@ function hashDirectory(directoryPath, hash) {
   }
 }
 
+function hashDirectoryRelativeTo(directoryPath, rootPath, hash) {
+  const entries = readdirSync(directoryPath, { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  for (const entry of entries) {
+    const fullPath = join(directoryPath, entry.name);
+    if (entry.isDirectory()) {
+      hashDirectoryRelativeTo(fullPath, rootPath, hash);
+      continue;
+    }
+
+    hash.update(relative(rootPath, fullPath));
+    hash.update(readFileSync(fullPath));
+  }
+}
+
 function createDigest(parts) {
   const hash = createHash("sha256");
   for (const part of parts) {
@@ -56,6 +72,12 @@ function createDigest(parts) {
       hashDirectory(part, hash);
     }
   }
+  return hash.digest("hex");
+}
+
+function createRootRelativeDigest(directoryPath) {
+  const hash = createHash("sha256");
+  hashDirectoryRelativeTo(directoryPath, directoryPath, hash);
   return hash.digest("hex");
 }
 
@@ -158,7 +180,11 @@ const dependencyHash = createDigest([
 const previousManifest = readManifest();
 const isSourceUnchanged = previousManifest?.sourceHash === sourceHash;
 const areDependenciesUnchanged = previousManifest?.dependencyHash === dependencyHash;
-const canReuseZip = isSourceUnchanged && areDependenciesUnchanged && existsSync(zipPath);
+const isLambdaSourceSynced =
+  existsSync(lambdaSrcRoot) &&
+  statSync(lambdaSrcRoot).isDirectory() &&
+  createRootRelativeDigest(lambdaSrcRoot) === createRootRelativeDigest(buildRoot);
+const canReuseZip = isSourceUnchanged && areDependenciesUnchanged && isLambdaSourceSynced && existsSync(zipPath);
 const hasInstalledDependencies = existsSync(join(lambdaRoot, "node_modules"));
 
 if (canReuseZip) {

@@ -1,8 +1,7 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { env } from "../../config/env.js";
+import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
-import { sqsClient } from "../../integrations/sqs/client.js";
 import { getOrderById, markOrderAsDone } from "../storefront/storefront.repository.js";
 import {
   createNotification,
@@ -13,6 +12,13 @@ import {
   markNotificationAsSent,
   type NotificationRecord
 } from "./notifications.repository.js";
+
+function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T): T {
+  const detail = payload.detail;
+  return detail && typeof detail === "object" && !Array.isArray(detail)
+    ? detail as T
+    : payload;
+}
 
 @Injectable()
 export class NotificationsService {
@@ -46,24 +52,29 @@ export class NotificationsService {
     resourceId?: string;
     metadata?: Record<string, unknown>;
   }) {
-    if (!env.SQS_AUDIT_QUEUE_URL) {
-      this.logger.warn(`[queue-audit] disabled eventType=${input.eventType} resourceId=${input.resourceId ?? ""}`);
+    if (!env.EVENTBRIDGE_PLATFORM_BUS_NAME) {
+      this.logger.warn(`[eventbridge-platform] audit_disabled eventType=${input.eventType} resourceId=${input.resourceId ?? ""}`);
       return { queued: false };
     }
 
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: env.SQS_AUDIT_QUEUE_URL,
-      MessageBody: JSON.stringify({
-        eventType: input.eventType,
-        email: input.email ?? "",
-        resourceId: input.resourceId ?? "",
-        metadata: input.metadata ?? {},
-        createdAt: new Date().toISOString()
-      })
-    }));
+    const detail = {
+      type: "audit.log.created",
+      eventType: input.eventType,
+      email: input.email ?? "",
+      resourceId: input.resourceId ?? "",
+      metadata: input.metadata ?? {},
+      createdAt: new Date().toISOString()
+    };
 
-    this.logger.log(`[queue-audit] enqueued eventType=${input.eventType} resourceId=${input.resourceId ?? ""} queue=${env.SQS_AUDIT_QUEUE_URL}`);
-    return { queued: true };
+    const published = await publishEventBridgeEvent({
+      busName: env.EVENTBRIDGE_PLATFORM_BUS_NAME,
+      source: "supermarket.platform",
+      detailType: "audit.log.created",
+      detail
+    });
+
+    this.logger.log(`[eventbridge-platform] audit_published eventType=${input.eventType} resourceId=${input.resourceId ?? ""} bus=${published.eventBusName} eventId=${published.eventId}`);
+    return { queued: true, eventId: published.eventId };
   }
 
   async publishPaymentCompletedEvent(input: {
@@ -78,14 +89,16 @@ export class NotificationsService {
     payDate: string;
     forceFail?: boolean;
   }) {
-    if (!env.SQS_PAYMENT_EVENTS_QUEUE_URL) {
-      this.logger.warn(`[queue-payment] disabled txnRef=${input.txnRef}`);
+    if (!env.EVENTBRIDGE_PAYMENT_BUS_NAME) {
+      this.logger.warn(`[eventbridge-payment] success_disabled txnRef=${input.txnRef}`);
       return { queued: false };
     }
 
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: env.SQS_PAYMENT_EVENTS_QUEUE_URL,
-      MessageBody: JSON.stringify({
+    const published = await publishEventBridgeEvent({
+      busName: env.EVENTBRIDGE_PAYMENT_BUS_NAME,
+      source: "supermarket.payment",
+      detailType: "payments.vnpay.completed",
+      detail: {
         type: "payment.completed",
         email: input.email,
         txnRef: input.txnRef,
@@ -98,11 +111,11 @@ export class NotificationsService {
         payDate: input.payDate,
         forceFail: Boolean(input.forceFail),
         createdAt: new Date().toISOString()
-      })
-    }));
+      }
+    });
 
-    this.logger.log(`[queue-payment] success_enqueued txnRef=${input.txnRef} queue=${env.SQS_PAYMENT_EVENTS_QUEUE_URL}`);
-    return { queued: true };
+    this.logger.log(`[eventbridge-payment] success_published txnRef=${input.txnRef} bus=${published.eventBusName} eventId=${published.eventId}`);
+    return { queued: true, eventId: published.eventId };
   }
 
   async publishPaymentFailedEvent(input: {
@@ -118,14 +131,16 @@ export class NotificationsService {
     failureReason: string;
     forceFail?: boolean;
   }) {
-    if (!env.SQS_PAYMENT_EVENTS_QUEUE_URL) {
-      this.logger.warn(`[queue-payment] failed_disabled txnRef=${input.txnRef}`);
+    if (!env.EVENTBRIDGE_PAYMENT_BUS_NAME) {
+      this.logger.warn(`[eventbridge-payment] failed_disabled txnRef=${input.txnRef}`);
       return { queued: false };
     }
 
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: env.SQS_PAYMENT_EVENTS_QUEUE_URL,
-      MessageBody: JSON.stringify({
+    const published = await publishEventBridgeEvent({
+      busName: env.EVENTBRIDGE_PAYMENT_BUS_NAME,
+      source: "supermarket.payment",
+      detailType: "payments.vnpay.failed",
+      detail: {
         type: "payment.failed",
         email: input.email,
         txnRef: input.txnRef,
@@ -139,11 +154,11 @@ export class NotificationsService {
         failureReason: input.failureReason,
         forceFail: Boolean(input.forceFail),
         createdAt: new Date().toISOString()
-      })
-    }));
+      }
+    });
 
-    this.logger.log(`[queue-payment] failed_enqueued txnRef=${input.txnRef} responseCode=${input.responseCode} queue=${env.SQS_PAYMENT_EVENTS_QUEUE_URL}`);
-    return { queued: true };
+    this.logger.log(`[eventbridge-payment] failed_published txnRef=${input.txnRef} responseCode=${input.responseCode} bus=${published.eventBusName} eventId=${published.eventId}`);
+    return { queued: true, eventId: published.eventId };
   }
 
   async listForCustomer(email: string) {
@@ -209,14 +224,16 @@ export class NotificationsService {
   }
 
   private async publishNotificationEvent(notification: NotificationRecord) {
-    if (!env.SQS_NOTIFICATIONS_QUEUE_URL) {
-      this.logger.warn(`[queue-notification] disabled notificationId=${notification.id}`);
+    if (!env.EVENTBRIDGE_PLATFORM_BUS_NAME) {
+      this.logger.warn(`[eventbridge-platform] notification_disabled notificationId=${notification.id}`);
       return { queued: false };
     }
 
-    await sqsClient.send(new SendMessageCommand({
-      QueueUrl: env.SQS_NOTIFICATIONS_QUEUE_URL,
-      MessageBody: JSON.stringify({
+    const published = await publishEventBridgeEvent({
+      busName: env.EVENTBRIDGE_PLATFORM_BUS_NAME,
+      source: "supermarket.platform",
+      detailType: "notifications.pending",
+      detail: {
         type: "notification.pending",
         channel: notification.channel,
         email: notification.customerEmail,
@@ -225,11 +242,11 @@ export class NotificationsService {
         message: notification.message,
         metadata: notification.metadata ?? {},
         createdAt: notification.createdAt
-      })
-    }));
+      }
+    });
 
-    this.logger.log(`[queue-notification] enqueued notificationId=${notification.id} channel=${notification.channel} queue=${env.SQS_NOTIFICATIONS_QUEUE_URL}`);
-    return { queued: true };
+    this.logger.log(`[eventbridge-platform] notification_published notificationId=${notification.id} channel=${notification.channel} bus=${published.eventBusName} eventId=${published.eventId}`);
+    return { queued: true, eventId: published.eventId };
   }
 
   private async processQueueRecord(body: string | undefined) {
@@ -238,7 +255,7 @@ export class NotificationsService {
       return null;
     }
 
-    const payload = JSON.parse(body) as {
+    const payload = unwrapEventBridgeDetail(JSON.parse(body) as Record<string, unknown>) as {
       type?: string;
       email?: string;
       txnRef?: string;

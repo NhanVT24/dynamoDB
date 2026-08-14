@@ -217,8 +217,14 @@ export class AwsApiStack extends Stack {
       }
     });
 
-    const domainEventBus = new events.EventBus(this, "SupermarketDomainEventBus", {
-      eventBusName: "supermarket-domain-bus"
+    const commerceEventBus = new events.EventBus(this, "SupermarketCommerceEventBus", {
+      eventBusName: "supermarket-commerce-bus"
+    });
+    const paymentEventBus = new events.EventBus(this, "SupermarketPaymentEventBus", {
+      eventBusName: "supermarket-payment-bus"
+    });
+    const platformEventBus = new events.EventBus(this, "SupermarketPlatformEventBus", {
+      eventBusName: "supermarket-platform-bus"
     });
 
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
@@ -481,7 +487,11 @@ exports.handler = async (event) => {
       SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
       SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
       SQS_STOREFRONT_ORDERS_QUEUE_URL: storefrontOrdersQueue.queueUrl,
-      EVENTBRIDGE_BUS_NAME: domainEventBus.eventBusName,
+      EVENTBRIDGE_BUS_NAME: platformEventBus.eventBusName,
+      EVENTBRIDGE_DEFAULT_BUS_NAME: platformEventBus.eventBusName,
+      EVENTBRIDGE_COMMERCE_BUS_NAME: commerceEventBus.eventBusName,
+      EVENTBRIDGE_PAYMENT_BUS_NAME: paymentEventBus.eventBusName,
+      EVENTBRIDGE_PLATFORM_BUS_NAME: platformEventBus.eventBusName,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
       VNPAY_TMN_CODE: vnpayTmnCodeValue,
       VNPAY_HASH_SECRET: vnpayHashSecret.valueAsString,
@@ -512,6 +522,14 @@ exports.handler = async (event) => {
       fn.addToRolePolicy(new iam.PolicyStatement({
         actions: ["ses:SendEmail", "ses:SendRawEmail"],
         resources: ["*"]
+      }));
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["events:PutEvents"],
+        resources: [
+          commerceEventBus.eventBusArn,
+          paymentEventBus.eventBusArn,
+          platformEventBus.eventBusArn
+        ]
       }));
 
       productImagesBucket.grantReadWrite(fn);
@@ -632,23 +650,6 @@ exports.handler = async (event) => {
       paymentEventsQueue,
       notificationWorkerFunction.functionArn
     );
-    const auditPipeRole = new iam.Role(this, "AuditQueueToBusPipeRole", {
-      assumedBy: new iam.ServicePrincipal("pipes.amazonaws.com")
-    });
-    auditPipeRole.addToPolicy(new iam.PolicyStatement({
-      actions: [
-        "sqs:ReceiveMessage",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes",
-        "sqs:ChangeMessageVisibility"
-      ],
-      resources: [auditQueue.queueArn]
-    }));
-    auditPipeRole.addToPolicy(new iam.PolicyStatement({
-      actions: ["events:PutEvents"],
-      resources: [domainEventBus.eventBusArn]
-    }));
-
     new pipes.CfnPipe(this, "StorefrontOrdersPipe", {
       name: "supermarket-storefront-orders-pipe",
       roleArn: orderWorkerPipeRole.roleArn,
@@ -700,30 +701,60 @@ exports.handler = async (event) => {
       }
     });
 
-    new pipes.CfnPipe(this, "AuditQueueToBusPipe", {
-      name: "supermarket-audit-bus-pipe",
-      roleArn: auditPipeRole.roleArn,
-      source: auditQueue.queueArn,
-      target: domainEventBus.eventBusArn,
-      sourceParameters: {
-        sqsQueueParameters: {
-          batchSize: 10
-        }
+    new events.Rule(this, "CommerceOrderRequestedRule", {
+      eventBus: commerceEventBus,
+      ruleName: "supermarket-commerce-order-requested-rule",
+      eventPattern: {
+        source: ["supermarket.commerce"],
+        detailType: ["storefront.order.requested"]
       },
-      targetParameters: {
-        eventBridgeEventBusParameters: {
-          source: "supermarket.audit.queue",
-          detailType: "audit.message"
-        },
-        inputTemplate: "{\"messageId\": <$.messageId>, \"body\": <$.body>, \"attributes\": <$.attributes>, \"eventSourceArn\": <$.eventSourceARN>}"
-      }
+      targets: [new eventsTargets.SqsQueue(storefrontOrdersQueue)]
     });
 
-    new events.Rule(this, "AuditEventsRule", {
-      eventBus: domainEventBus,
-      ruleName: "supermarket-audit-events-rule",
+    new events.Rule(this, "CommerceLifecycleAuditRule", {
+      eventBus: commerceEventBus,
+      ruleName: "supermarket-commerce-lifecycle-audit-rule",
       eventPattern: {
-        source: ["supermarket.audit.queue"]
+        source: ["supermarket.commerce"]
+      },
+      targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction)]
+    });
+
+    new events.Rule(this, "PaymentLifecycleQueueRule", {
+      eventBus: paymentEventBus,
+      ruleName: "supermarket-payment-lifecycle-queue-rule",
+      eventPattern: {
+        source: ["supermarket.payment"],
+        detailType: ["payments.vnpay.completed", "payments.vnpay.failed"]
+      },
+      targets: [new eventsTargets.SqsQueue(paymentEventsQueue)]
+    });
+
+    new events.Rule(this, "PaymentLifecycleAuditRule", {
+      eventBus: paymentEventBus,
+      ruleName: "supermarket-payment-lifecycle-audit-rule",
+      eventPattern: {
+        source: ["supermarket.payment"]
+      },
+      targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction)]
+    });
+
+    new events.Rule(this, "PlatformNotificationsRule", {
+      eventBus: platformEventBus,
+      ruleName: "supermarket-platform-notifications-rule",
+      eventPattern: {
+        source: ["supermarket.platform"],
+        detailType: ["notifications.pending"]
+      },
+      targets: [new eventsTargets.SqsQueue(notificationsQueue)]
+    });
+
+    new events.Rule(this, "PlatformAuditRule", {
+      eventBus: platformEventBus,
+      ruleName: "supermarket-platform-audit-rule",
+      eventPattern: {
+        source: ["supermarket.platform"],
+        detailType: ["audit.log.created"]
       },
       targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction)]
     });
@@ -838,8 +869,16 @@ exports.handler = async (event) => {
       value: auditEventWorkerFunction.functionName
     });
 
-    new CfnOutput(this, "DomainEventBusName", {
-      value: domainEventBus.eventBusName
+    new CfnOutput(this, "CommerceEventBusName", {
+      value: commerceEventBus.eventBusName
+    });
+
+    new CfnOutput(this, "PaymentEventBusName", {
+      value: paymentEventBus.eventBusName
+    });
+
+    new CfnOutput(this, "PlatformEventBusName", {
+      value: platformEventBus.eventBusName
     });
 
     new CfnOutput(this, "ApiGatewayUrl", {
