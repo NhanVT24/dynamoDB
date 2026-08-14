@@ -504,6 +504,15 @@
     "aws:cdk:path": "SupermarketAwsStack/PaymentEventsQueue/Resource"
    }
   },
+  "SupermarketDomainEventBus19522C1C": {
+   "Type": "AWS::Events::EventBus",
+   "Properties": {
+    "Name": "supermarket-domain-bus"
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketDomainEventBus/Resource"
+   }
+  },
   "CognitoTriggerFunctionServiceRoleF8897875": {
    "Type": "AWS::IAM::Role",
    "Properties": {
@@ -849,7 +858,7 @@
     "aws:cdk:path": "SupermarketAwsStack/GoogleIdentityProvider/Resource"
    }
   },
-  "SupermarketApiFunctionServiceRoleD9490C11": {
+  "SupermarketPublicApiFunctionServiceRole27D55B5B": {
    "Type": "AWS::IAM::Role",
    "Properties": {
     "AssumeRolePolicyDocument": {
@@ -880,10 +889,10 @@
     ]
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/ServiceRole/Resource"
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketPublicApiFunction/ServiceRole/Resource"
    }
   },
-  "SupermarketApiFunctionServiceRoleDefaultPolicyF89B6ADA": {
+  "SupermarketPublicApiFunctionServiceRoleDefaultPolicyA58E5E01": {
    "Type": "AWS::IAM::Policy",
    "Properties": {
     "PolicyDocument": {
@@ -897,7 +906,8 @@
         "dynamodb:PutItem",
         "dynamodb:Query",
         "dynamodb:Scan",
-        "dynamodb:UpdateItem"
+        "dynamodb:UpdateItem",
+        "dynamodb:TransactWriteItems"
        ],
        "Effect": "Allow",
        "Resource": [
@@ -922,6 +932,14 @@
          ]
         }
        ]
+      },
+      {
+       "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
       },
       {
        "Action": [
@@ -976,11 +994,292 @@
       },
       {
        "Action": [
-        "sqs:ReceiveMessage",
-        "sqs:ChangeMessageVisibility",
-        "sqs:GetQueueUrl",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes"
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuditQueue1D3C234B",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "StorefrontOrdersQueueCA45F131",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsQueueD28497E2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "SupermarketPublicApiFunctionServiceRoleDefaultPolicyA58E5E01",
+    "Roles": [
+     {
+      "Ref": "SupermarketPublicApiFunctionServiceRole27D55B5B"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketPublicApiFunction/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "SupermarketPublicApiFunctionDFF79A2D": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "x86_64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
+     "S3Key": "7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "DYNAMODB_TABLE_NAME": {
+       "Ref": "DynamoTableName"
+      },
+      "S3_BUCKET_NAME": {
+       "Ref": "ProductImagesBucket03BDA4C8"
+      },
+      "S3_PUBLIC_BASE_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "https://",
+         {
+          "Ref": "ProductImagesBucket03BDA4C8"
+         },
+         ".s3.ap-southeast-1.amazonaws.com"
+        ]
+       ]
+      },
+      "SQS_NOTIFICATIONS_QUEUE_URL": {
+       "Ref": "NotificationsQueue3B766469"
+      },
+      "SQS_AUDIT_QUEUE_URL": {
+       "Ref": "AuditQueue1D3C234B"
+      },
+      "SQS_PAYMENT_EVENTS_QUEUE_URL": {
+       "Ref": "PaymentEventsQueueD28497E2"
+      },
+      "SQS_STOREFRONT_ORDERS_QUEUE_URL": {
+       "Ref": "StorefrontOrdersQueueCA45F131"
+      },
+      "EVENTBRIDGE_BUS_NAME": {
+       "Ref": "SupermarketDomainEventBus19522C1C"
+      },
+      "SES_FROM_EMAIL": {
+       "Ref": "SesFromEmail"
+      },
+      "VNPAY_TMN_CODE": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayTmnCodeSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_HASH_SECRET": {
+       "Ref": "VnpayHashSecret"
+      },
+      "VNPAY_PAYMENT_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayPaymentUrlSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_RETURN_URL": {
+       "Ref": "VnpayReturnUrl"
+      },
+      "VNPAY_IPN_URL": {
+       "Ref": "VnpayIpnUrl"
+      },
+      "LAMBDA_FUNCTION_CONTEXT": "supermarket-public-api-aws"
+     }
+    },
+    "FunctionName": "supermarket-public-api-aws",
+    "Handler": "src/lambda-public.handler",
+    "MemorySize": 256,
+    "Role": {
+     "Fn::GetAtt": [
+      "SupermarketPublicApiFunctionServiceRole27D55B5B",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "SupermarketPublicApiFunctionServiceRoleDefaultPolicyA58E5E01",
+    "SupermarketPublicApiFunctionServiceRole27D55B5B"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketPublicApiFunction/Resource",
+    "aws:asset:path": "asset.7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "SupermarketOrderApiFunctionServiceRoleFA9B4E1C": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketOrderApiFunction/ServiceRole/Resource"
+   }
+  },
+  "SupermarketOrderApiFunctionServiceRoleDefaultPolicyCF0FACFC": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem",
+        "dynamodb:TransactWriteItems"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "MarketplaceProductsTable",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "MarketplaceProductsTable",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging",
+        "s3:Abort*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "ProductImagesBucket03BDA4C8",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "ProductImagesBucket03BDA4C8",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
        ],
        "Effect": "Allow",
        "Resource": {
@@ -1020,38 +1319,6 @@
       },
       {
        "Action": [
-        "sqs:ReceiveMessage",
-        "sqs:ChangeMessageVisibility",
-        "sqs:GetQueueUrl",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes"
-       ],
-       "Effect": "Allow",
-       "Resource": {
-        "Fn::GetAtt": [
-         "StorefrontOrdersQueueCA45F131",
-         "Arn"
-        ]
-       }
-      },
-      {
-       "Action": [
-        "sqs:ReceiveMessage",
-        "sqs:ChangeMessageVisibility",
-        "sqs:GetQueueUrl",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes"
-       ],
-       "Effect": "Allow",
-       "Resource": {
-        "Fn::GetAtt": [
-         "StorefrontOrdersDlqF9C05761",
-         "Arn"
-        ]
-       }
-      },
-      {
-       "Action": [
         "sqs:SendMessage",
         "sqs:GetQueueAttributes",
         "sqs:GetQueueUrl"
@@ -1063,62 +1330,22 @@
          "Arn"
         ]
        }
-      },
-      {
-       "Action": [
-        "sqs:ReceiveMessage",
-        "sqs:ChangeMessageVisibility",
-        "sqs:GetQueueUrl",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes"
-       ],
-       "Effect": "Allow",
-       "Resource": {
-        "Fn::GetAtt": [
-         "PaymentEventsQueueD28497E2",
-         "Arn"
-        ]
-       }
-      },
-      {
-       "Action": [
-        "sqs:ReceiveMessage",
-        "sqs:ChangeMessageVisibility",
-        "sqs:GetQueueUrl",
-        "sqs:DeleteMessage",
-        "sqs:GetQueueAttributes"
-       ],
-       "Effect": "Allow",
-       "Resource": {
-        "Fn::GetAtt": [
-         "PaymentEventsDlq81714538",
-         "Arn"
-        ]
-       }
-      },
-      {
-       "Action": [
-        "ses:SendEmail",
-        "ses:SendRawEmail"
-       ],
-       "Effect": "Allow",
-       "Resource": "*"
       }
      ],
      "Version": "2012-10-17"
     },
-    "PolicyName": "SupermarketApiFunctionServiceRoleDefaultPolicyF89B6ADA",
+    "PolicyName": "SupermarketOrderApiFunctionServiceRoleDefaultPolicyCF0FACFC",
     "Roles": [
      {
-      "Ref": "SupermarketApiFunctionServiceRoleD9490C11"
+      "Ref": "SupermarketOrderApiFunctionServiceRoleFA9B4E1C"
      }
     ]
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/ServiceRole/DefaultPolicy/Resource"
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketOrderApiFunction/ServiceRole/DefaultPolicy/Resource"
    }
   },
-  "SupermarketApiFunctionD4E09F97": {
+  "SupermarketOrderApiFunction57C45CBC": {
    "Type": "AWS::Lambda::Function",
    "Properties": {
     "Architectures": [
@@ -1126,7 +1353,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "0c9aca551070edaf775152d0160b115931647089462d5035da9743437260d2c8.zip"
+     "S3Key": "7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip"
     },
     "Environment": {
      "Variables": {
@@ -1159,6 +1386,9 @@
       },
       "SQS_STOREFRONT_ORDERS_QUEUE_URL": {
        "Ref": "StorefrontOrdersQueueCA45F131"
+      },
+      "EVENTBRIDGE_BUS_NAME": {
+       "Ref": "SupermarketDomainEventBus19522C1C"
       },
       "SES_FROM_EMAIL": {
        "Ref": "SesFromEmail"
@@ -1195,15 +1425,16 @@
       },
       "VNPAY_IPN_URL": {
        "Ref": "VnpayIpnUrl"
-      }
+      },
+      "LAMBDA_FUNCTION_CONTEXT": "supermarket-order-api-aws"
      }
     },
-    "FunctionName": "supermarket-api-aws",
-    "Handler": "src/lambda.handler",
+    "FunctionName": "supermarket-order-api-aws",
+    "Handler": "src/lambda-order-api.handler",
     "MemorySize": 256,
     "Role": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionServiceRoleD9490C11",
+      "SupermarketOrderApiFunctionServiceRoleFA9B4E1C",
       "Arn"
      ]
     },
@@ -1211,68 +1442,1956 @@
     "Timeout": 10
    },
    "DependsOn": [
-    "SupermarketApiFunctionServiceRoleDefaultPolicyF89B6ADA",
-    "SupermarketApiFunctionServiceRoleD9490C11"
+    "SupermarketOrderApiFunctionServiceRoleDefaultPolicyCF0FACFC",
+    "SupermarketOrderApiFunctionServiceRoleFA9B4E1C"
    ],
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiFunction/Resource",
-    "aws:asset:path": "asset.0c9aca551070edaf775152d0160b115931647089462d5035da9743437260d2c8.zip",
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketOrderApiFunction/Resource",
+    "aws:asset:path": "asset.7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
   },
-  "NotificationsQueueEventSource95362BF3": {
-   "Type": "AWS::Lambda::EventSourceMapping",
+  "SupermarketPaymentApiFunctionServiceRole4BE23C4D": {
+   "Type": "AWS::IAM::Role",
    "Properties": {
-    "BatchSize": 10,
-    "EventSourceArn": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketPaymentApiFunction/ServiceRole/Resource"
+   }
+  },
+  "SupermarketPaymentApiFunctionServiceRoleDefaultPolicyE49E99C7": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem",
+        "dynamodb:TransactWriteItems"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "MarketplaceProductsTable",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "MarketplaceProductsTable",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging",
+        "s3:Abort*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "ProductImagesBucket03BDA4C8",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "ProductImagesBucket03BDA4C8",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "NotificationsQueue3B766469",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuditQueue1D3C234B",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "StorefrontOrdersQueueCA45F131",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsQueueD28497E2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "SupermarketPaymentApiFunctionServiceRoleDefaultPolicyE49E99C7",
+    "Roles": [
+     {
+      "Ref": "SupermarketPaymentApiFunctionServiceRole4BE23C4D"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketPaymentApiFunction/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "SupermarketPaymentApiFunctionA1BF6042": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "x86_64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
+     "S3Key": "7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "DYNAMODB_TABLE_NAME": {
+       "Ref": "DynamoTableName"
+      },
+      "S3_BUCKET_NAME": {
+       "Ref": "ProductImagesBucket03BDA4C8"
+      },
+      "S3_PUBLIC_BASE_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "https://",
+         {
+          "Ref": "ProductImagesBucket03BDA4C8"
+         },
+         ".s3.ap-southeast-1.amazonaws.com"
+        ]
+       ]
+      },
+      "SQS_NOTIFICATIONS_QUEUE_URL": {
+       "Ref": "NotificationsQueue3B766469"
+      },
+      "SQS_AUDIT_QUEUE_URL": {
+       "Ref": "AuditQueue1D3C234B"
+      },
+      "SQS_PAYMENT_EVENTS_QUEUE_URL": {
+       "Ref": "PaymentEventsQueueD28497E2"
+      },
+      "SQS_STOREFRONT_ORDERS_QUEUE_URL": {
+       "Ref": "StorefrontOrdersQueueCA45F131"
+      },
+      "EVENTBRIDGE_BUS_NAME": {
+       "Ref": "SupermarketDomainEventBus19522C1C"
+      },
+      "SES_FROM_EMAIL": {
+       "Ref": "SesFromEmail"
+      },
+      "VNPAY_TMN_CODE": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayTmnCodeSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_HASH_SECRET": {
+       "Ref": "VnpayHashSecret"
+      },
+      "VNPAY_PAYMENT_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayPaymentUrlSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_RETURN_URL": {
+       "Ref": "VnpayReturnUrl"
+      },
+      "VNPAY_IPN_URL": {
+       "Ref": "VnpayIpnUrl"
+      },
+      "LAMBDA_FUNCTION_CONTEXT": "supermarket-payment-vnpay-api-aws"
+     }
+    },
+    "FunctionName": "supermarket-payment-vnpay-api-aws",
+    "Handler": "src/lambda-payment-vnpay.handler",
+    "MemorySize": 512,
+    "Role": {
      "Fn::GetAtt": [
-      "NotificationsQueue3B766469",
+      "SupermarketPaymentApiFunctionServiceRole4BE23C4D",
       "Arn"
      ]
     },
-    "FunctionName": {
-     "Ref": "SupermarketApiFunctionD4E09F97"
-    }
+    "Runtime": "nodejs20.x",
+    "Timeout": 15
    },
+   "DependsOn": [
+    "SupermarketPaymentApiFunctionServiceRoleDefaultPolicyE49E99C7",
+    "SupermarketPaymentApiFunctionServiceRole4BE23C4D"
+   ],
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/NotificationsQueueEventSource/Resource"
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketPaymentApiFunction/Resource",
+    "aws:asset:path": "asset.7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
    }
   },
-  "PaymentEventsQueueEventSourceB90EEFC4": {
-   "Type": "AWS::Lambda::EventSourceMapping",
+  "SupermarketAdminApiFunctionServiceRole66F39E24": {
+   "Type": "AWS::IAM::Role",
    "Properties": {
-    "BatchSize": 10,
-    "EventSourceArn": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketAdminApiFunction/ServiceRole/Resource"
+   }
+  },
+  "SupermarketAdminApiFunctionServiceRoleDefaultPolicy2A4B66CB": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem",
+        "dynamodb:TransactWriteItems"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "MarketplaceProductsTable",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "MarketplaceProductsTable",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging",
+        "s3:Abort*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "ProductImagesBucket03BDA4C8",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "ProductImagesBucket03BDA4C8",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "NotificationsQueue3B766469",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuditQueue1D3C234B",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "StorefrontOrdersQueueCA45F131",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsQueueD28497E2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "SupermarketAdminApiFunctionServiceRoleDefaultPolicy2A4B66CB",
+    "Roles": [
+     {
+      "Ref": "SupermarketAdminApiFunctionServiceRole66F39E24"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketAdminApiFunction/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "SupermarketAdminApiFunctionE4758CBD": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "x86_64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
+     "S3Key": "7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "DYNAMODB_TABLE_NAME": {
+       "Ref": "DynamoTableName"
+      },
+      "S3_BUCKET_NAME": {
+       "Ref": "ProductImagesBucket03BDA4C8"
+      },
+      "S3_PUBLIC_BASE_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "https://",
+         {
+          "Ref": "ProductImagesBucket03BDA4C8"
+         },
+         ".s3.ap-southeast-1.amazonaws.com"
+        ]
+       ]
+      },
+      "SQS_NOTIFICATIONS_QUEUE_URL": {
+       "Ref": "NotificationsQueue3B766469"
+      },
+      "SQS_AUDIT_QUEUE_URL": {
+       "Ref": "AuditQueue1D3C234B"
+      },
+      "SQS_PAYMENT_EVENTS_QUEUE_URL": {
+       "Ref": "PaymentEventsQueueD28497E2"
+      },
+      "SQS_STOREFRONT_ORDERS_QUEUE_URL": {
+       "Ref": "StorefrontOrdersQueueCA45F131"
+      },
+      "EVENTBRIDGE_BUS_NAME": {
+       "Ref": "SupermarketDomainEventBus19522C1C"
+      },
+      "SES_FROM_EMAIL": {
+       "Ref": "SesFromEmail"
+      },
+      "VNPAY_TMN_CODE": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayTmnCodeSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_HASH_SECRET": {
+       "Ref": "VnpayHashSecret"
+      },
+      "VNPAY_PAYMENT_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayPaymentUrlSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_RETURN_URL": {
+       "Ref": "VnpayReturnUrl"
+      },
+      "VNPAY_IPN_URL": {
+       "Ref": "VnpayIpnUrl"
+      },
+      "LAMBDA_FUNCTION_CONTEXT": "supermarket-admin-api-aws"
+     }
+    },
+    "FunctionName": "supermarket-admin-api-aws",
+    "Handler": "src/lambda-admin.handler",
+    "MemorySize": 256,
+    "Role": {
      "Fn::GetAtt": [
-      "PaymentEventsQueueD28497E2",
+      "SupermarketAdminApiFunctionServiceRole66F39E24",
       "Arn"
      ]
     },
-    "FunctionName": {
-     "Ref": "SupermarketApiFunctionD4E09F97"
+    "Runtime": "nodejs20.x",
+    "Timeout": 10
+   },
+   "DependsOn": [
+    "SupermarketAdminApiFunctionServiceRoleDefaultPolicy2A4B66CB",
+    "SupermarketAdminApiFunctionServiceRole66F39E24"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketAdminApiFunction/Resource",
+    "aws:asset:path": "asset.7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "SupermarketOrderWorkerFunctionServiceRoleE2FF4B01": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketOrderWorkerFunction/ServiceRole/Resource"
+   }
+  },
+  "SupermarketOrderWorkerFunctionServiceRoleDefaultPolicyE7A8AB94": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem",
+        "dynamodb:TransactWriteItems"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "MarketplaceProductsTable",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "MarketplaceProductsTable",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging",
+        "s3:Abort*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "ProductImagesBucket03BDA4C8",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "ProductImagesBucket03BDA4C8",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "NotificationsQueue3B766469",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuditQueue1D3C234B",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "StorefrontOrdersQueueCA45F131",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsQueueD28497E2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "SupermarketOrderWorkerFunctionServiceRoleDefaultPolicyE7A8AB94",
+    "Roles": [
+     {
+      "Ref": "SupermarketOrderWorkerFunctionServiceRoleE2FF4B01"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketOrderWorkerFunction/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "SupermarketOrderWorkerFunction1F70A803": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "x86_64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
+     "S3Key": "7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "DYNAMODB_TABLE_NAME": {
+       "Ref": "DynamoTableName"
+      },
+      "S3_BUCKET_NAME": {
+       "Ref": "ProductImagesBucket03BDA4C8"
+      },
+      "S3_PUBLIC_BASE_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "https://",
+         {
+          "Ref": "ProductImagesBucket03BDA4C8"
+         },
+         ".s3.ap-southeast-1.amazonaws.com"
+        ]
+       ]
+      },
+      "SQS_NOTIFICATIONS_QUEUE_URL": {
+       "Ref": "NotificationsQueue3B766469"
+      },
+      "SQS_AUDIT_QUEUE_URL": {
+       "Ref": "AuditQueue1D3C234B"
+      },
+      "SQS_PAYMENT_EVENTS_QUEUE_URL": {
+       "Ref": "PaymentEventsQueueD28497E2"
+      },
+      "SQS_STOREFRONT_ORDERS_QUEUE_URL": {
+       "Ref": "StorefrontOrdersQueueCA45F131"
+      },
+      "EVENTBRIDGE_BUS_NAME": {
+       "Ref": "SupermarketDomainEventBus19522C1C"
+      },
+      "SES_FROM_EMAIL": {
+       "Ref": "SesFromEmail"
+      },
+      "VNPAY_TMN_CODE": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayTmnCodeSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_HASH_SECRET": {
+       "Ref": "VnpayHashSecret"
+      },
+      "VNPAY_PAYMENT_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayPaymentUrlSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_RETURN_URL": {
+       "Ref": "VnpayReturnUrl"
+      },
+      "VNPAY_IPN_URL": {
+       "Ref": "VnpayIpnUrl"
+      },
+      "LAMBDA_FUNCTION_CONTEXT": "supermarket-order-worker-aws"
+     }
+    },
+    "FunctionName": "supermarket-order-worker-aws",
+    "Handler": "src/lambda-order-worker.handler",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "SupermarketOrderWorkerFunctionServiceRoleE2FF4B01",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Timeout": 20
+   },
+   "DependsOn": [
+    "SupermarketOrderWorkerFunctionServiceRoleDefaultPolicyE7A8AB94",
+    "SupermarketOrderWorkerFunctionServiceRoleE2FF4B01"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketOrderWorkerFunction/Resource",
+    "aws:asset:path": "asset.7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "SupermarketNotificationWorkerFunctionServiceRole19FB75A8": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketNotificationWorkerFunction/ServiceRole/Resource"
+   }
+  },
+  "SupermarketNotificationWorkerFunctionServiceRoleDefaultPolicy73FC0A97": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem",
+        "dynamodb:TransactWriteItems"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "MarketplaceProductsTable",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "MarketplaceProductsTable",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging",
+        "s3:Abort*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "ProductImagesBucket03BDA4C8",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "ProductImagesBucket03BDA4C8",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "NotificationsQueue3B766469",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuditQueue1D3C234B",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "StorefrontOrdersQueueCA45F131",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsQueueD28497E2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "SupermarketNotificationWorkerFunctionServiceRoleDefaultPolicy73FC0A97",
+    "Roles": [
+     {
+      "Ref": "SupermarketNotificationWorkerFunctionServiceRole19FB75A8"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketNotificationWorkerFunction/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "SupermarketNotificationWorkerFunction25857A91": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "x86_64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
+     "S3Key": "7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "DYNAMODB_TABLE_NAME": {
+       "Ref": "DynamoTableName"
+      },
+      "S3_BUCKET_NAME": {
+       "Ref": "ProductImagesBucket03BDA4C8"
+      },
+      "S3_PUBLIC_BASE_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "https://",
+         {
+          "Ref": "ProductImagesBucket03BDA4C8"
+         },
+         ".s3.ap-southeast-1.amazonaws.com"
+        ]
+       ]
+      },
+      "SQS_NOTIFICATIONS_QUEUE_URL": {
+       "Ref": "NotificationsQueue3B766469"
+      },
+      "SQS_AUDIT_QUEUE_URL": {
+       "Ref": "AuditQueue1D3C234B"
+      },
+      "SQS_PAYMENT_EVENTS_QUEUE_URL": {
+       "Ref": "PaymentEventsQueueD28497E2"
+      },
+      "SQS_STOREFRONT_ORDERS_QUEUE_URL": {
+       "Ref": "StorefrontOrdersQueueCA45F131"
+      },
+      "EVENTBRIDGE_BUS_NAME": {
+       "Ref": "SupermarketDomainEventBus19522C1C"
+      },
+      "SES_FROM_EMAIL": {
+       "Ref": "SesFromEmail"
+      },
+      "VNPAY_TMN_CODE": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayTmnCodeSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_HASH_SECRET": {
+       "Ref": "VnpayHashSecret"
+      },
+      "VNPAY_PAYMENT_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayPaymentUrlSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_RETURN_URL": {
+       "Ref": "VnpayReturnUrl"
+      },
+      "VNPAY_IPN_URL": {
+       "Ref": "VnpayIpnUrl"
+      },
+      "LAMBDA_FUNCTION_CONTEXT": "supermarket-notification-worker-aws"
+     }
+    },
+    "FunctionName": "supermarket-notification-worker-aws",
+    "Handler": "src/lambda-notification-worker.handler",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "SupermarketNotificationWorkerFunctionServiceRole19FB75A8",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Timeout": 20
+   },
+   "DependsOn": [
+    "SupermarketNotificationWorkerFunctionServiceRoleDefaultPolicy73FC0A97",
+    "SupermarketNotificationWorkerFunctionServiceRole19FB75A8"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketNotificationWorkerFunction/Resource",
+    "aws:asset:path": "asset.7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "SupermarketAuditEventWorkerFunctionServiceRole75E4FCE0": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketAuditEventWorkerFunction/ServiceRole/Resource"
+   }
+  },
+  "SupermarketAuditEventWorkerFunctionServiceRoleDefaultPolicy96124BA7": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem",
+        "dynamodb:TransactWriteItems"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "MarketplaceProductsTable",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "MarketplaceProductsTable",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging",
+        "s3:Abort*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "ProductImagesBucket03BDA4C8",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "ProductImagesBucket03BDA4C8",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "NotificationsQueue3B766469",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuditQueue1D3C234B",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "StorefrontOrdersQueueCA45F131",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsQueueD28497E2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "SupermarketAuditEventWorkerFunctionServiceRoleDefaultPolicy96124BA7",
+    "Roles": [
+     {
+      "Ref": "SupermarketAuditEventWorkerFunctionServiceRole75E4FCE0"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketAuditEventWorkerFunction/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "SupermarketAuditEventWorkerFunction0575D480": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "x86_64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
+     "S3Key": "7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "DYNAMODB_TABLE_NAME": {
+       "Ref": "DynamoTableName"
+      },
+      "S3_BUCKET_NAME": {
+       "Ref": "ProductImagesBucket03BDA4C8"
+      },
+      "S3_PUBLIC_BASE_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "https://",
+         {
+          "Ref": "ProductImagesBucket03BDA4C8"
+         },
+         ".s3.ap-southeast-1.amazonaws.com"
+        ]
+       ]
+      },
+      "SQS_NOTIFICATIONS_QUEUE_URL": {
+       "Ref": "NotificationsQueue3B766469"
+      },
+      "SQS_AUDIT_QUEUE_URL": {
+       "Ref": "AuditQueue1D3C234B"
+      },
+      "SQS_PAYMENT_EVENTS_QUEUE_URL": {
+       "Ref": "PaymentEventsQueueD28497E2"
+      },
+      "SQS_STOREFRONT_ORDERS_QUEUE_URL": {
+       "Ref": "StorefrontOrdersQueueCA45F131"
+      },
+      "EVENTBRIDGE_BUS_NAME": {
+       "Ref": "SupermarketDomainEventBus19522C1C"
+      },
+      "SES_FROM_EMAIL": {
+       "Ref": "SesFromEmail"
+      },
+      "VNPAY_TMN_CODE": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayTmnCodeSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_HASH_SECRET": {
+       "Ref": "VnpayHashSecret"
+      },
+      "VNPAY_PAYMENT_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayPaymentUrlSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_RETURN_URL": {
+       "Ref": "VnpayReturnUrl"
+      },
+      "VNPAY_IPN_URL": {
+       "Ref": "VnpayIpnUrl"
+      },
+      "LAMBDA_FUNCTION_CONTEXT": "supermarket-audit-event-worker-aws"
+     }
+    },
+    "FunctionName": "supermarket-audit-event-worker-aws",
+    "Handler": "src/lambda-audit-event-worker.handler",
+    "MemorySize": 256,
+    "Role": {
+     "Fn::GetAtt": [
+      "SupermarketAuditEventWorkerFunctionServiceRole75E4FCE0",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Timeout": 15
+   },
+   "DependsOn": [
+    "SupermarketAuditEventWorkerFunctionServiceRoleDefaultPolicy96124BA7",
+    "SupermarketAuditEventWorkerFunctionServiceRole75E4FCE0"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketAuditEventWorkerFunction/Resource",
+    "aws:asset:path": "asset.7308252d703d18bc77a7f2dabffdce1859f32827cb00966c959416beb66e1ab8.zip",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "StorefrontOrdersPipeRole0C5E3D35": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "pipes.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
     }
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/PaymentEventsQueueEventSource/Resource"
+    "aws:cdk:path": "SupermarketAwsStack/StorefrontOrdersPipeRole/Resource"
    }
   },
-  "StorefrontOrdersQueueEventSourceCDD8B6FD": {
-   "Type": "AWS::Lambda::EventSourceMapping",
+  "StorefrontOrdersPipeRoleDefaultPolicy2792012B": {
+   "Type": "AWS::IAM::Policy",
    "Properties": {
-    "BatchSize": 10,
-    "EventSourceArn": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:ChangeMessageVisibility"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "StorefrontOrdersQueueCA45F131",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": "lambda:InvokeFunction",
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "SupermarketOrderWorkerFunction1F70A803",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "StorefrontOrdersPipeRoleDefaultPolicy2792012B",
+    "Roles": [
+     {
+      "Ref": "StorefrontOrdersPipeRole0C5E3D35"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/StorefrontOrdersPipeRole/DefaultPolicy/Resource"
+   }
+  },
+  "NotificationsPipeRoleA5CE3047": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "pipes.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/NotificationsPipeRole/Resource"
+   }
+  },
+  "NotificationsPipeRoleDefaultPolicy736CF274": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:ChangeMessageVisibility"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "NotificationsQueue3B766469",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": "lambda:InvokeFunction",
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "SupermarketNotificationWorkerFunction25857A91",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "NotificationsPipeRoleDefaultPolicy736CF274",
+    "Roles": [
+     {
+      "Ref": "NotificationsPipeRoleA5CE3047"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/NotificationsPipeRole/DefaultPolicy/Resource"
+   }
+  },
+  "PaymentEventsPipeRole78D77601": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "pipes.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/PaymentEventsPipeRole/Resource"
+   }
+  },
+  "PaymentEventsPipeRoleDefaultPolicyE3027CC3": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:ChangeMessageVisibility"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsQueueD28497E2",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": "lambda:InvokeFunction",
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "SupermarketNotificationWorkerFunction25857A91",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "PaymentEventsPipeRoleDefaultPolicyE3027CC3",
+    "Roles": [
+     {
+      "Ref": "PaymentEventsPipeRole78D77601"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/PaymentEventsPipeRole/DefaultPolicy/Resource"
+   }
+  },
+  "AuditQueueToBusPipeRole710C2A95": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "pipes.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/AuditQueueToBusPipeRole/Resource"
+   }
+  },
+  "AuditQueueToBusPipeRoleDefaultPolicy9029E223": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:ChangeMessageVisibility"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuditQueue1D3C234B",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": "events:PutEvents",
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "SupermarketDomainEventBus19522C1C",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "AuditQueueToBusPipeRoleDefaultPolicy9029E223",
+    "Roles": [
+     {
+      "Ref": "AuditQueueToBusPipeRole710C2A95"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/AuditQueueToBusPipeRole/DefaultPolicy/Resource"
+   }
+  },
+  "StorefrontOrdersPipe": {
+   "Type": "AWS::Pipes::Pipe",
+   "Properties": {
+    "Name": "supermarket-storefront-orders-pipe",
+    "RoleArn": {
+     "Fn::GetAtt": [
+      "StorefrontOrdersPipeRole0C5E3D35",
+      "Arn"
+     ]
+    },
+    "Source": {
      "Fn::GetAtt": [
       "StorefrontOrdersQueueCA45F131",
       "Arn"
      ]
     },
-    "FunctionName": {
-     "Ref": "SupermarketApiFunctionD4E09F97"
+    "SourceParameters": {
+     "SqsQueueParameters": {
+      "BatchSize": 10
+     }
+    },
+    "Target": {
+     "Fn::GetAtt": [
+      "SupermarketOrderWorkerFunction1F70A803",
+      "Arn"
+     ]
+    },
+    "TargetParameters": {
+     "LambdaFunctionParameters": {
+      "InvocationType": "REQUEST_RESPONSE"
+     }
     }
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/StorefrontOrdersQueueEventSource/Resource"
+    "aws:cdk:path": "SupermarketAwsStack/StorefrontOrdersPipe"
+   }
+  },
+  "NotificationsPipe": {
+   "Type": "AWS::Pipes::Pipe",
+   "Properties": {
+    "Name": "supermarket-notifications-pipe",
+    "RoleArn": {
+     "Fn::GetAtt": [
+      "NotificationsPipeRoleA5CE3047",
+      "Arn"
+     ]
+    },
+    "Source": {
+     "Fn::GetAtt": [
+      "NotificationsQueue3B766469",
+      "Arn"
+     ]
+    },
+    "SourceParameters": {
+     "SqsQueueParameters": {
+      "BatchSize": 10
+     }
+    },
+    "Target": {
+     "Fn::GetAtt": [
+      "SupermarketNotificationWorkerFunction25857A91",
+      "Arn"
+     ]
+    },
+    "TargetParameters": {
+     "LambdaFunctionParameters": {
+      "InvocationType": "REQUEST_RESPONSE"
+     }
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/NotificationsPipe"
+   }
+  },
+  "PaymentEventsPipe": {
+   "Type": "AWS::Pipes::Pipe",
+   "Properties": {
+    "Name": "supermarket-payment-events-pipe",
+    "RoleArn": {
+     "Fn::GetAtt": [
+      "PaymentEventsPipeRole78D77601",
+      "Arn"
+     ]
+    },
+    "Source": {
+     "Fn::GetAtt": [
+      "PaymentEventsQueueD28497E2",
+      "Arn"
+     ]
+    },
+    "SourceParameters": {
+     "SqsQueueParameters": {
+      "BatchSize": 10
+     }
+    },
+    "Target": {
+     "Fn::GetAtt": [
+      "SupermarketNotificationWorkerFunction25857A91",
+      "Arn"
+     ]
+    },
+    "TargetParameters": {
+     "LambdaFunctionParameters": {
+      "InvocationType": "REQUEST_RESPONSE"
+     }
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/PaymentEventsPipe"
+   }
+  },
+  "AuditQueueToBusPipe": {
+   "Type": "AWS::Pipes::Pipe",
+   "Properties": {
+    "Name": "supermarket-audit-bus-pipe",
+    "RoleArn": {
+     "Fn::GetAtt": [
+      "AuditQueueToBusPipeRole710C2A95",
+      "Arn"
+     ]
+    },
+    "Source": {
+     "Fn::GetAtt": [
+      "AuditQueue1D3C234B",
+      "Arn"
+     ]
+    },
+    "SourceParameters": {
+     "SqsQueueParameters": {
+      "BatchSize": 10
+     }
+    },
+    "Target": {
+     "Fn::GetAtt": [
+      "SupermarketDomainEventBus19522C1C",
+      "Arn"
+     ]
+    },
+    "TargetParameters": {
+     "EventBridgeEventBusParameters": {
+      "DetailType": "audit.message",
+      "Source": "supermarket.audit.queue"
+     },
+     "InputTemplate": "{\"messageId\": <$.messageId>, \"body\": <$.body>, \"attributes\": <$.attributes>, \"eventSourceArn\": <$.eventSourceARN>}"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/AuditQueueToBusPipe"
+   }
+  },
+  "AuditEventsRule1B36B4C0": {
+   "Type": "AWS::Events::Rule",
+   "Properties": {
+    "EventBusName": {
+     "Ref": "SupermarketDomainEventBus19522C1C"
+    },
+    "EventPattern": {
+     "source": [
+      "supermarket.audit.queue"
+     ]
+    },
+    "Name": "supermarket-audit-events-rule",
+    "State": "ENABLED",
+    "Targets": [
+     {
+      "Arn": {
+       "Fn::GetAtt": [
+        "SupermarketAuditEventWorkerFunction0575D480",
+        "Arn"
+       ]
+      },
+      "Id": "Target0"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/AuditEventsRule/Resource"
+   }
+  },
+  "AuditEventsRuleAllowEventRuleSupermarketAwsStackSupermarketAuditEventWorkerFunction5742CDA3FDA73577": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketAuditEventWorkerFunction0575D480",
+      "Arn"
+     ]
+    },
+    "Principal": "events.amazonaws.com",
+    "SourceArn": {
+     "Fn::GetAtt": [
+      "AuditEventsRule1B36B4C0",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/AuditEventsRule/AllowEventRuleSupermarketAwsStackSupermarketAuditEventWorkerFunction5742CDA3"
    }
   },
   "SupermarketApiGatewayD32A94E9": {
@@ -1339,7 +3458,7 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Account"
    }
   },
-  "SupermarketApiGatewayDeployment3BDE38519fa5aa7278939bbea08964320b913303": {
+  "SupermarketApiGatewayDeployment3BDE3851a340c828eb9e2a09aa8951ab6bbc3deb": {
    "Type": "AWS::ApiGateway::Deployment",
    "Properties": {
     "Description": "Automatically created by the RestApi construct",
@@ -1373,11 +3492,19 @@
     "SupermarketApiGatewayapiproductsOPTIONS5C53ED4E",
     "SupermarketApiGatewayapiproducts18B12F32",
     "SupermarketApiGatewayapiB7B395D3",
-    "SupermarketApiGatewayapistorefrontproxyANY5CD821BE",
-    "SupermarketApiGatewayapistorefrontproxyOPTIONS383AD73B",
-    "SupermarketApiGatewayapistorefrontproxy22DDF99B",
-    "SupermarketApiGatewayapistorefrontANY9FA32239",
     "SupermarketApiGatewayapistorefrontOPTIONSB82476C5",
+    "SupermarketApiGatewayapistorefrontordersmeGET0E3092B0",
+    "SupermarketApiGatewayapistorefrontordersmeOPTIONS953D967E",
+    "SupermarketApiGatewayapistorefrontordersme74A8B9AF",
+    "SupermarketApiGatewayapistorefrontordersOPTIONSCBE0E88B",
+    "SupermarketApiGatewayapistorefrontordersPOSTDA460D23",
+    "SupermarketApiGatewayapistorefrontorders196719CF",
+    "SupermarketApiGatewayapistorefrontproductsproxyANY1A0774C7",
+    "SupermarketApiGatewayapistorefrontproductsproxyOPTIONS3DA4EADA",
+    "SupermarketApiGatewayapistorefrontproductsproxyBBD1DF79",
+    "SupermarketApiGatewayapistorefrontproductsANY7FCE2CEC",
+    "SupermarketApiGatewayapistorefrontproductsOPTIONS9BBB7B76",
+    "SupermarketApiGatewayapistorefrontproducts1557E053",
     "SupermarketApiGatewayapistorefront5F652345",
     "SupermarketApiGatewayGETCFBB7913",
     "SupermarketApiGatewayhealthGETB79B340F",
@@ -1394,7 +3521,7 @@
    "Type": "AWS::ApiGateway::Stage",
    "Properties": {
     "DeploymentId": {
-     "Ref": "SupermarketApiGatewayDeployment3BDE38519fa5aa7278939bbea08964320b913303"
+     "Ref": "SupermarketApiGatewayDeployment3BDE3851a340c828eb9e2a09aa8951ab6bbc3deb"
     },
     "RestApiId": {
      "Ref": "SupermarketApiGatewayD32A94E9"
@@ -1460,7 +3587,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPublicApiFunctionDFF79A2D",
       "Arn"
      ]
     },
@@ -1496,7 +3623,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPublicApiFunctionDFF79A2D",
       "Arn"
      ]
     },
@@ -1541,7 +3668,7 @@
         ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
         {
          "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
+          "SupermarketPublicApiFunctionDFF79A2D",
           "Arn"
          ]
         },
@@ -1631,7 +3758,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPublicApiFunctionDFF79A2D",
       "Arn"
      ]
     },
@@ -1667,7 +3794,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPublicApiFunctionDFF79A2D",
       "Arn"
      ]
     },
@@ -1712,7 +3839,7 @@
         ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
         {
          "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
+          "SupermarketPublicApiFunctionDFF79A2D",
           "Arn"
          ]
         },
@@ -1857,7 +3984,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPublicApiFunctionDFF79A2D",
       "Arn"
      ]
     },
@@ -1893,7 +4020,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPublicApiFunctionDFF79A2D",
       "Arn"
      ]
     },
@@ -1938,7 +4065,7 @@
         ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
         {
          "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
+          "SupermarketPublicApiFunctionDFF79A2D",
           "Arn"
          ]
         },
@@ -2022,7 +4149,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPublicApiFunctionDFF79A2D",
       "Arn"
      ]
     },
@@ -2058,7 +4185,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPublicApiFunctionDFF79A2D",
       "Arn"
      ]
     },
@@ -2103,7 +4230,7 @@
         ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
         {
          "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
+          "SupermarketPublicApiFunctionDFF79A2D",
           "Arn"
          ]
         },
@@ -2181,129 +4308,22 @@
     "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/OPTIONS/Resource"
    }
   },
-  "SupermarketApiGatewayapistorefrontANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefront4AB8C997": {
-   "Type": "AWS::Lambda::Permission",
-   "Properties": {
-    "Action": "lambda:InvokeFunction",
-    "FunctionName": {
-     "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
-      "Arn"
-     ]
-    },
-    "Principal": "apigateway.amazonaws.com",
-    "SourceArn": {
-     "Fn::Join": [
-      "",
-      [
-       "arn:",
-       {
-        "Ref": "AWS::Partition"
-       },
-       ":execute-api:ap-southeast-1:510935912072:",
-       {
-        "Ref": "SupermarketApiGatewayD32A94E9"
-       },
-       "/",
-       {
-        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
-       },
-       "/*/api/storefront"
-      ]
-     ]
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront"
-   }
-  },
-  "SupermarketApiGatewayapistorefrontANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefrontAA988290": {
-   "Type": "AWS::Lambda::Permission",
-   "Properties": {
-    "Action": "lambda:InvokeFunction",
-    "FunctionName": {
-     "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
-      "Arn"
-     ]
-    },
-    "Principal": "apigateway.amazonaws.com",
-    "SourceArn": {
-     "Fn::Join": [
-      "",
-      [
-       "arn:",
-       {
-        "Ref": "AWS::Partition"
-       },
-       ":execute-api:ap-southeast-1:510935912072:",
-       {
-        "Ref": "SupermarketApiGatewayD32A94E9"
-       },
-       "/test-invoke-stage/*/api/storefront"
-      ]
-     ]
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront"
-   }
-  },
-  "SupermarketApiGatewayapistorefrontANY9FA32239": {
-   "Type": "AWS::ApiGateway::Method",
-   "Properties": {
-    "AuthorizationType": "NONE",
-    "HttpMethod": "ANY",
-    "Integration": {
-     "IntegrationHttpMethod": "POST",
-     "Type": "AWS_PROXY",
-     "Uri": {
-      "Fn::Join": [
-       "",
-       [
-        "arn:",
-        {
-         "Ref": "AWS::Partition"
-        },
-        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
-        {
-         "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
-          "Arn"
-         ]
-        },
-        "/invocations"
-       ]
-      ]
-     }
-    },
-    "ResourceId": {
-     "Ref": "SupermarketApiGatewayapistorefront5F652345"
-    },
-    "RestApiId": {
-     "Ref": "SupermarketApiGatewayD32A94E9"
-    }
-   },
-   "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/ANY/Resource"
-   }
-  },
-  "SupermarketApiGatewayapistorefrontproxy22DDF99B": {
+  "SupermarketApiGatewayapistorefrontproducts1557E053": {
    "Type": "AWS::ApiGateway::Resource",
    "Properties": {
     "ParentId": {
      "Ref": "SupermarketApiGatewayapistorefront5F652345"
     },
-    "PathPart": "{proxy+}",
+    "PathPart": "products",
     "RestApiId": {
      "Ref": "SupermarketApiGatewayD32A94E9"
     }
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/Resource"
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/products/Resource"
    }
   },
-  "SupermarketApiGatewayapistorefrontproxyOPTIONS383AD73B": {
+  "SupermarketApiGatewayapistorefrontproductsOPTIONS9BBB7B76": {
    "Type": "AWS::ApiGateway::Method",
    "Properties": {
     "ApiKeyRequired": false,
@@ -2336,23 +4356,23 @@
      }
     ],
     "ResourceId": {
-     "Ref": "SupermarketApiGatewayapistorefrontproxy22DDF99B"
+     "Ref": "SupermarketApiGatewayapistorefrontproducts1557E053"
     },
     "RestApiId": {
      "Ref": "SupermarketApiGatewayD32A94E9"
     }
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/OPTIONS/Resource"
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/products/OPTIONS/Resource"
    }
   },
-  "SupermarketApiGatewayapistorefrontproxyANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefrontproxyFE03DB07": {
+  "SupermarketApiGatewayapistorefrontproductsANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefrontproductsD21D31A1": {
    "Type": "AWS::Lambda::Permission",
    "Properties": {
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPublicApiFunctionDFF79A2D",
       "Arn"
      ]
     },
@@ -2373,22 +4393,22 @@
        {
         "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
        },
-       "/*/api/storefront/*"
+       "/*/api/storefront/products"
       ]
      ]
     }
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront.{proxy+}"
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/products/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront.products"
    }
   },
-  "SupermarketApiGatewayapistorefrontproxyANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefrontproxyB4CD2269": {
+  "SupermarketApiGatewayapistorefrontproductsANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefrontproductsB9089485": {
    "Type": "AWS::Lambda::Permission",
    "Properties": {
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPublicApiFunctionDFF79A2D",
       "Arn"
      ]
     },
@@ -2405,16 +4425,16 @@
        {
         "Ref": "SupermarketApiGatewayD32A94E9"
        },
-       "/test-invoke-stage/*/api/storefront/*"
+       "/test-invoke-stage/*/api/storefront/products"
       ]
      ]
     }
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront.{proxy+}"
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/products/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront.products"
    }
   },
-  "SupermarketApiGatewayapistorefrontproxyANY5CD821BE": {
+  "SupermarketApiGatewayapistorefrontproductsANY7FCE2CEC": {
    "Type": "AWS::ApiGateway::Method",
    "Properties": {
     "AuthorizationType": "NONE",
@@ -2433,7 +4453,7 @@
         ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
         {
          "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
+          "SupermarketPublicApiFunctionDFF79A2D",
           "Arn"
          ]
         },
@@ -2443,14 +4463,509 @@
      }
     },
     "ResourceId": {
-     "Ref": "SupermarketApiGatewayapistorefrontproxy22DDF99B"
+     "Ref": "SupermarketApiGatewayapistorefrontproducts1557E053"
     },
     "RestApiId": {
      "Ref": "SupermarketApiGatewayD32A94E9"
     }
    },
    "Metadata": {
-    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/{proxy+}/ANY/Resource"
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/products/ANY/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontproductsproxyBBD1DF79": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapistorefrontproducts1557E053"
+    },
+    "PathPart": "{proxy+}",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/products/{proxy+}/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontproductsproxyOPTIONS3DA4EADA": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapistorefrontproductsproxyBBD1DF79"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/products/{proxy+}/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontproductsproxyANYApiPermissionSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefrontproductsproxy494F8C78": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketPublicApiFunctionDFF79A2D",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/*/api/storefront/products/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/products/{proxy+}/ANY/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront.products.{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontproductsproxyANYApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279ANYapistorefrontproductsproxy0C93184E": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketPublicApiFunctionDFF79A2D",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/*/api/storefront/products/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/products/{proxy+}/ANY/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.ANY..api.storefront.products.{proxy+}"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontproductsproxyANY1A0774C7": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "ANY",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketPublicApiFunctionDFF79A2D",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapistorefrontproductsproxyBBD1DF79"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/products/{proxy+}/ANY/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontorders196719CF": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapistorefront5F652345"
+    },
+    "PathPart": "orders",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/orders/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontordersOPTIONSCBE0E88B": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapistorefrontorders196719CF"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/orders/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontordersPOSTApiPermissionSupermarketAwsStackSupermarketApiGateway59527279POSTapistorefrontorders42E118C7": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketOrderApiFunction57C45CBC",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/POST/api/storefront/orders"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/orders/POST/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.POST..api.storefront.orders"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontordersPOSTApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279POSTapistorefrontordersBB385667": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketOrderApiFunction57C45CBC",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/POST/api/storefront/orders"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/orders/POST/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.POST..api.storefront.orders"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontordersPOSTDA460D23": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "POST",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketOrderApiFunction57C45CBC",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapistorefrontorders196719CF"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/orders/POST/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontordersme74A8B9AF": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "SupermarketApiGatewayapistorefrontorders196719CF"
+    },
+    "PathPart": "me",
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/orders/me/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontordersmeOPTIONS953D967E": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Authorization,Content-Type'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapistorefrontordersme74A8B9AF"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/orders/me/OPTIONS/Resource"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontordersmeGETApiPermissionSupermarketAwsStackSupermarketApiGateway59527279GETapistorefrontordersme14A4283A": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketOrderApiFunction57C45CBC",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/",
+       {
+        "Ref": "SupermarketApiGatewayDeploymentStageprodFB640302"
+       },
+       "/GET/api/storefront/orders/me"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/orders/me/GET/ApiPermission.SupermarketAwsStackSupermarketApiGateway59527279.GET..api.storefront.orders.me"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontordersmeGETApiPermissionTestSupermarketAwsStackSupermarketApiGateway59527279GETapistorefrontordersme0D0BE5B2": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketOrderApiFunction57C45CBC",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:ap-southeast-1:510935912072:",
+       {
+        "Ref": "SupermarketApiGatewayD32A94E9"
+       },
+       "/test-invoke-stage/GET/api/storefront/orders/me"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/orders/me/GET/ApiPermission.Test.SupermarketAwsStackSupermarketApiGateway59527279.GET..api.storefront.orders.me"
+   }
+  },
+  "SupermarketApiGatewayapistorefrontordersmeGET0E3092B0": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "NONE",
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "SupermarketOrderApiFunction57C45CBC",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "SupermarketApiGatewayapistorefrontordersme74A8B9AF"
+    },
+    "RestApiId": {
+     "Ref": "SupermarketApiGatewayD32A94E9"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketApiGateway/Default/api/storefront/orders/me/GET/Resource"
    }
   },
   "SupermarketApiGatewayapinotifications896C54A4": {
@@ -2517,7 +5032,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketOrderApiFunction57C45CBC",
       "Arn"
      ]
     },
@@ -2553,7 +5068,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketOrderApiFunction57C45CBC",
       "Arn"
      ]
     },
@@ -2598,7 +5113,7 @@
         ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
         {
          "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
+          "SupermarketOrderApiFunction57C45CBC",
           "Arn"
          ]
         },
@@ -2682,7 +5197,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketOrderApiFunction57C45CBC",
       "Arn"
      ]
     },
@@ -2718,7 +5233,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketOrderApiFunction57C45CBC",
       "Arn"
      ]
     },
@@ -2763,7 +5278,7 @@
         ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
         {
          "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
+          "SupermarketOrderApiFunction57C45CBC",
           "Arn"
          ]
         },
@@ -2905,7 +5420,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPaymentApiFunctionA1BF6042",
       "Arn"
      ]
     },
@@ -2941,7 +5456,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPaymentApiFunctionA1BF6042",
       "Arn"
      ]
     },
@@ -2986,7 +5501,7 @@
         ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
         {
          "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
+          "SupermarketPaymentApiFunctionA1BF6042",
           "Arn"
          ]
         },
@@ -3070,7 +5585,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPaymentApiFunctionA1BF6042",
       "Arn"
      ]
     },
@@ -3106,7 +5621,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketPaymentApiFunctionA1BF6042",
       "Arn"
      ]
     },
@@ -3151,7 +5666,7 @@
         ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
         {
          "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
+          "SupermarketPaymentApiFunctionA1BF6042",
           "Arn"
          ]
         },
@@ -3238,7 +5753,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketAdminApiFunctionE4758CBD",
       "Arn"
      ]
     },
@@ -3274,7 +5789,7 @@
     "Action": "lambda:InvokeFunction",
     "FunctionName": {
      "Fn::GetAtt": [
-      "SupermarketApiFunctionD4E09F97",
+      "SupermarketAdminApiFunctionE4758CBD",
       "Arn"
      ]
     },
@@ -3322,7 +5837,7 @@
         ":apigateway:ap-southeast-1:lambda:path/2015-03-31/functions/",
         {
          "Fn::GetAtt": [
-          "SupermarketApiFunctionD4E09F97",
+          "SupermarketAdminApiFunctionE4758CBD",
           "Arn"
          ]
         },
@@ -3367,7 +5882,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VRwW7bMAz9luasaF0yDMNuabIVOxT1ku00DIUss64SS/REKpln+N8HyXbioeuhJz7yUY+P1EIu3i/l9ZU60VwXh3llctnuWOmDWD+6THllgcELdaKHtmicsljkcv3ovqm8AkFL2d4EfQCO7T360c6s+W3c7ONsqhoVaCkTRbJvXQXGDVTAcJ/vQTPNup+ipzKsjG4uqn3+Cu3+wY4VgwU3lb5RBJ2gXyTbrwECxCEJdKJSNi+UbD8Hp9mgi9QUZ+CtIYrZpyM43mHwGu5UXRtXxobn1U4YZWW7xSoNSvGyXI86obF0hlG23wl8hlhF8oxHsK4MOJ5SQ2VMN2iVcdOG55Vbj6E+v/hSgGPDTebxaArwt4hl7/Sljk7Q8kERAZNcxSBUbUrFcFKNbLdAvKpNWvUCV1pjcCw2UFfY2GGJSbZjVaapPdgCpRvGrxJ3wE9YRHJAIzsMGXB/wdE1rQI/oTd/wCcD56zrxDoQo/2/yj/UuHKykXaN9oavvg9cB+6EwwLknt4cF+/k2w/y+mpPxsx9cGwsyG0f/wKZCWDNaAMAAA=="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VSTY/TMBD9Lduza5YWIcStH7DigDakcEJo5SSz2WljT/CMW0qU/46cjzYI9rCneeP35vmNk4VevF3q2xtz4nleHOYVZrrZickPavPoEuONBQGvzIkfmuLsjKUi05tH99VkFShe6mYd8gNIlPfoezOz+Avd7P1s6hodeKk7inUvXQWhLVQgcJ/tIReetT9UTyVUYX6+uvb9C7z7gZ0YAQtuar02DK3in6ybLwECxEs60Co4RqluPsS6DhypC05D1WljbVVlbFYY3XwMLhckF5kpTsBbZEZyrUJjdZPSMB7rdb0etSqn0qGQbr4x+ISoiuQFj2BTITiZUsPJ2G7JGnRTwb8nd55CfZn4VIATlHPi6YgF+Duisk/6nKJVvHwwzCCsV7GoGmvg+FskWIMyNZZG4GTOukmBZVVjt/gVrvKcghO1hbqisx1WmnQ7MWWXoQcpMAWfQ/x06jPIExWRHNDIDpcMuH/PcQdeBXkij7/BdwEuXduqTWAh+3+Xv6jxAboY3eYxHroyztwHqYO0ylEBes+vjos3+vU7fXuzZ8S5D07Qgk77+gdThCJZeAMAAA=="
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/CDKMetadata/Default"
@@ -3404,7 +5919,42 @@
   },
   "FunctionName": {
    "Value": {
-    "Ref": "SupermarketApiFunctionD4E09F97"
+    "Ref": "SupermarketAdminApiFunctionE4758CBD"
+   }
+  },
+  "PublicApiFunctionName": {
+   "Value": {
+    "Ref": "SupermarketPublicApiFunctionDFF79A2D"
+   }
+  },
+  "OrderApiFunctionName": {
+   "Value": {
+    "Ref": "SupermarketOrderApiFunction57C45CBC"
+   }
+  },
+  "PaymentApiFunctionName": {
+   "Value": {
+    "Ref": "SupermarketPaymentApiFunctionA1BF6042"
+   }
+  },
+  "OrderWorkerFunctionName": {
+   "Value": {
+    "Ref": "SupermarketOrderWorkerFunction1F70A803"
+   }
+  },
+  "NotificationWorkerFunctionName": {
+   "Value": {
+    "Ref": "SupermarketNotificationWorkerFunction25857A91"
+   }
+  },
+  "AuditEventWorkerFunctionName": {
+   "Value": {
+    "Ref": "SupermarketAuditEventWorkerFunction0575D480"
+   }
+  },
+  "DomainEventBusName": {
+   "Value": {
+    "Ref": "SupermarketDomainEventBus19522C1C"
    }
   },
   "ApiGatewayUrl": {

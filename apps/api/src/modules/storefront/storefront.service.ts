@@ -55,7 +55,8 @@ type PublicProductDetail = PublicProductSummary & {
 
 type StorefrontQueueResult =
   | {
-      type: "storefront.order.requested";
+      type: "storefront.order.succeeded";
+      outcome: "success";
       requestId: string;
       orderId: string;
       customer: string;
@@ -65,6 +66,7 @@ type StorefrontQueueResult =
     }
   | {
       type: "storefront.order.failed";
+      outcome: "failed";
       requestId: string;
       orderId: "";
       customer: string;
@@ -221,7 +223,7 @@ export class StorefrontService {
 
   async createOrder(email: string, input: CreateStorefrontOrderInput) {
     if (!env.SQS_STOREFRONT_ORDERS_QUEUE_URL) {
-      this.logger.warn(`order.queue.disabled customer=${email}`);
+      this.logger.warn(`[queue-order] disabled customer=${email}`);
       throw new Error("Hàng đợi xử lý đơn hàng chưa được cấu hình.");
     }
 
@@ -241,7 +243,7 @@ export class StorefrontService {
       MessageBody: JSON.stringify(payload)
     }));
 
-    this.logger.log(`order.requested_enqueued requestId=${requestId} customer=${email} itemCount=${input.items.length}`);
+    this.logger.log(`[queue-order] enqueued requestId=${requestId} customer=${email} itemCount=${input.items.length}`);
     return {
       success: true,
       queued: true,
@@ -250,13 +252,28 @@ export class StorefrontService {
     };
   }
 
-  async processQueueRecords(records: Array<{ body?: string }>) {
-    this.logger.log(`storefront.queue.batch_received size=${records.length}`);
-    const results = await Promise.all(records.map((record) => this.processQueueRecord(record.body)));
-    const processedItems = results.filter(Boolean);
-    this.logger.log(`storefront.queue.batch_processed processed=${processedItems.length} items=${JSON.stringify(processedItems)}`);
+  async processQueueRecords(records: Array<{ body?: string; messageId?: string }>) {
+    this.logger.log(`[queue-order] batch_received size=${records.length}`);
+
+    const settled = await Promise.allSettled(records.map(async (record) => ({
+      messageId: String(record.messageId ?? ""),
+      item: await this.processQueueRecord(record.body)
+    })));
+
+    const processedItems = settled
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => (result as PromiseFulfilledResult<{ messageId: string; item: StorefrontQueueResult | null }>).value.item)
+      .filter(Boolean);
+
+    const failedMessageIds = settled
+      .flatMap((result, index) => result.status === "rejected" ? [String(records[index]?.messageId ?? "")] : [])
+      .filter(Boolean);
+
+    this.logger.log(`[queue-order] batch_processed processed=${processedItems.length} failed=${failedMessageIds.length} items=${JSON.stringify(processedItems)}`);
+
     return {
       processed: processedItems.length,
+      failedMessageIds,
       items: processedItems
     };
   }
@@ -267,17 +284,17 @@ export class StorefrontService {
 
   private async processQueueRecord(body: string | undefined) {
     if (!body) {
-      this.logger.warn("storefront.queue.record.empty");
+      this.logger.warn("[queue-order] record_empty");
       return null;
     }
 
     const payload = JSON.parse(body) as Partial<StorefrontOrderQueuePayload>;
     if (payload.type !== "storefront.order.requested" || !payload.email || !Array.isArray(payload.items) || payload.items.length === 0) {
-      this.logger.warn(`storefront.queue.ignored payload=${body}`);
+      this.logger.warn(`[queue-order] ignored payload=${body}`);
       return null;
     }
 
-    this.logger.log(`storefront.queue.processing requestId=${payload.requestId ?? ""} customer=${payload.email} itemCount=${payload.items.length}`);
+    this.logger.log(`[queue-order] processing requestId=${payload.requestId ?? ""} customer=${payload.email} itemCount=${payload.items.length}`);
     return this.finalizeQueuedOrder(payload.email, payload.items, payload.requestId);
   }
 
@@ -289,7 +306,7 @@ export class StorefrontService {
     try {
       const order = await createStorefrontOrder({ email, items });
       this.invalidateProductCaches(items.map((item) => item.productId));
-      this.logger.log(`order.created orderId=${order.id} requestId=${requestId ?? ""} customer=${email} status=${order.status} totalAmount=${order.totalAmount} itemCount=${order.items.length}`);
+      this.logger.log(`[dynamo-order] created orderId=${order.id} requestId=${requestId ?? ""} customer=${email} status=${order.status} totalAmount=${order.totalAmount} itemCount=${order.items.length}`);
 
       await this.notificationsService.createPendingNotification({
         email,
@@ -340,17 +357,18 @@ export class StorefrontService {
               lineTotal: item.lineTotal
             }))
           });
-          this.logger.log(`order.email_sent orderId=${order.id} requestId=${requestId ?? ""} to=${email}`);
+          this.logger.log(`[mail-ses] order_success_sent orderId=${order.id} requestId=${requestId ?? ""} to=${email}`);
         } catch (error) {
-          this.logger.warn(`order.email_failed orderId=${order.id} requestId=${requestId ?? ""} to=${email} error=${error instanceof Error ? error.message : "unknown"}`);
+          this.logger.warn(`[mail-ses] order_success_failed orderId=${order.id} requestId=${requestId ?? ""} to=${email} error=${error instanceof Error ? error.message : "unknown"}`);
         }
       } else {
-        this.logger.warn(`order.email_skipped orderId=${order.id} requestId=${requestId ?? ""} reason=ses_not_configured`);
+        this.logger.warn(`[mail-ses] order_success_skipped orderId=${order.id} requestId=${requestId ?? ""} reason=ses_not_configured`);
       }
 
-      this.logger.log(`order.enqueued orderId=${order.id} requestId=${requestId ?? ""} notificationChannels=system audit=true`);
+      this.logger.log(`[queue-notification] order_success_enqueued orderId=${order.id} requestId=${requestId ?? ""} notificationChannels=system audit=true`);
       return {
-        type: "storefront.order.requested",
+        type: "storefront.order.succeeded",
+        outcome: "success",
         requestId: requestId ?? "",
         orderId: order.id,
         customer: email,
@@ -362,7 +380,7 @@ export class StorefrontService {
       if (isInsufficientStockError(error)) {
         const failureReason = "Thanh toán thất bại vì sản phẩm không còn đủ tồn kho.";
         this.logger.warn(
-          `order.failed_after_queue requestId=${requestId ?? ""} customer=${email} reason=insufficient_stock error=${error.message}`
+          `[dynamo-stock] insufficient_after_queue requestId=${requestId ?? ""} customer=${email} reason=insufficient_stock error=${error.message}`
         );
 
         if (env.SES_FROM_EMAIL) {
@@ -380,10 +398,10 @@ export class StorefrontService {
                 };
               }))
             });
-            this.logger.log(`order.failure_email_sent requestId=${requestId ?? ""} customer=${email}`);
+            this.logger.log(`[mail-ses] order_failure_sent requestId=${requestId ?? ""} customer=${email}`);
           } catch (mailError) {
             this.logger.warn(
-              `order.failure_email_failed requestId=${requestId ?? ""} customer=${email} error=${mailError instanceof Error ? mailError.message : "unknown"}`
+              `[mail-ses] order_failure_failed requestId=${requestId ?? ""} customer=${email} error=${mailError instanceof Error ? mailError.message : "unknown"}`
             );
           }
         }
@@ -416,6 +434,7 @@ export class StorefrontService {
 
         return {
           type: "storefront.order.failed",
+          outcome: "failed",
           requestId: requestId ?? "",
           orderId: "",
           customer: email,
@@ -442,7 +461,7 @@ export class StorefrontService {
       const product = await getStorefrontProductById(item.productId);
 
       if (!product) {
-        this.logger.warn(`order.rejected_precheck_missing_product customer=${email} productId=${item.productId}`);
+        this.logger.warn(`[dynamo-product] missing customer=${email} productId=${item.productId}`);
         throw new NotFoundException(`Không tìm thấy sản phẩm ${item.productId}.`);
       }
     }

@@ -22,12 +22,17 @@ export const handler = async (event: any, context: unknown) => {
     })();
     const queueHandler = firstPayload?.type === "storefront.order.requested" ? storefrontService : notificationsService;
     const result = await queueHandler.processQueueRecords(event.Records);
-    console.log("[lambda] processed sqs event", {
+    const batchItemFailures = Array.isArray(result?.failedMessageIds)
+      ? result.failedMessageIds.map((messageId: string) => ({ itemIdentifier: messageId }))
+      : [];
+
+    console.log("[lambda-sqs] processed", {
       recordCount: event.Records.length,
       processed: result?.processed ?? 0,
+      failed: batchItemFailures.length,
       items: result?.items ?? []
     });
-    return result;
+    return { batchItemFailures };
   }
 
   const pathParameters = typeof event?.pathParameters === "object" && event.pathParameters ? { ...event.pathParameters } : {};
@@ -58,7 +63,7 @@ export const handler = async (event: any, context: unknown) => {
     break;
   }
 
-  console.log("[lambda] incoming event", {
+  console.log("[lambda-http] incoming", {
     path: event?.path,
     rawPath: event?.rawPath,
     httpMethod: event?.httpMethod,
@@ -70,7 +75,7 @@ export const handler = async (event: any, context: unknown) => {
 
   const response = await proxy(event, context);
 
-  console.log("[lambda] outgoing response", {
+  console.log("[lambda-http] outgoing", {
     statusCode: response?.statusCode,
     headers: response?.headers
   });

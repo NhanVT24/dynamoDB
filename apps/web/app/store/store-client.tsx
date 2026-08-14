@@ -113,11 +113,20 @@ function mergeNotifications(localItems: StoreNotification[], serverItems: StoreN
       continue;
     }
 
+    const preferredServerItem = existing.source === "server"
+      ? existing
+      : item.source === "server"
+        ? item
+        : null;
+
     merged.set(key, {
       ...existing,
       ...item,
+      id: preferredServerItem?.id ?? item.id,
+      channel: preferredServerItem?.channel ?? item.channel,
+      createdAt: preferredServerItem?.createdAt ?? item.createdAt,
       isRead: Boolean(existing.isRead || item.isRead),
-      source: existing.source === "server" || item.source === "server" ? "server" : item.source
+      source: preferredServerItem ? "server" : (item.source ?? existing.source)
     });
   }
 

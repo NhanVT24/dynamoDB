@@ -26,7 +26,7 @@ export class NotificationsService {
     metadata?: Record<string, unknown>;
   }) {
     if (input.channel === "email") {
-      this.logger.log(`notification.skipped channel=email email=${input.email}`);
+      this.logger.log(`[queue-notification] skipped channel=email email=${input.email}`);
       return null;
     }
 
@@ -35,7 +35,7 @@ export class NotificationsService {
       status: "pending"
     });
 
-    this.logger.log(`notification.created id=${notification.id} channel=${notification.channel} email=${notification.customerEmail}`);
+    this.logger.log(`[dynamo-notification] created id=${notification.id} channel=${notification.channel} email=${notification.customerEmail}`);
     await this.publishNotificationEvent(notification);
     return notification;
   }
@@ -47,7 +47,7 @@ export class NotificationsService {
     metadata?: Record<string, unknown>;
   }) {
     if (!env.SQS_AUDIT_QUEUE_URL) {
-      this.logger.warn(`audit.queue.disabled eventType=${input.eventType} resourceId=${input.resourceId ?? ""}`);
+      this.logger.warn(`[queue-audit] disabled eventType=${input.eventType} resourceId=${input.resourceId ?? ""}`);
       return { queued: false };
     }
 
@@ -62,7 +62,7 @@ export class NotificationsService {
       })
     }));
 
-    this.logger.log(`audit.enqueued eventType=${input.eventType} resourceId=${input.resourceId ?? ""} queue=${env.SQS_AUDIT_QUEUE_URL}`);
+    this.logger.log(`[queue-audit] enqueued eventType=${input.eventType} resourceId=${input.resourceId ?? ""} queue=${env.SQS_AUDIT_QUEUE_URL}`);
     return { queued: true };
   }
 
@@ -79,7 +79,7 @@ export class NotificationsService {
     forceFail?: boolean;
   }) {
     if (!env.SQS_PAYMENT_EVENTS_QUEUE_URL) {
-      this.logger.warn(`payment.queue.disabled txnRef=${input.txnRef}`);
+      this.logger.warn(`[queue-payment] disabled txnRef=${input.txnRef}`);
       return { queued: false };
     }
 
@@ -101,7 +101,7 @@ export class NotificationsService {
       })
     }));
 
-    this.logger.log(`payment.enqueued txnRef=${input.txnRef} queue=${env.SQS_PAYMENT_EVENTS_QUEUE_URL}`);
+    this.logger.log(`[queue-payment] success_enqueued txnRef=${input.txnRef} queue=${env.SQS_PAYMENT_EVENTS_QUEUE_URL}`);
     return { queued: true };
   }
 
@@ -119,7 +119,7 @@ export class NotificationsService {
     forceFail?: boolean;
   }) {
     if (!env.SQS_PAYMENT_EVENTS_QUEUE_URL) {
-      this.logger.warn(`payment.failed_queue.disabled txnRef=${input.txnRef}`);
+      this.logger.warn(`[queue-payment] failed_disabled txnRef=${input.txnRef}`);
       return { queued: false };
     }
 
@@ -142,7 +142,7 @@ export class NotificationsService {
       })
     }));
 
-    this.logger.log(`payment.failed_enqueued txnRef=${input.txnRef} responseCode=${input.responseCode} queue=${env.SQS_PAYMENT_EVENTS_QUEUE_URL}`);
+    this.logger.log(`[queue-payment] failed_enqueued txnRef=${input.txnRef} responseCode=${input.responseCode} queue=${env.SQS_PAYMENT_EVENTS_QUEUE_URL}`);
     return { queued: true };
   }
 
@@ -182,20 +182,35 @@ export class NotificationsService {
     return { success: true, deletedCount: notifications.length };
   }
 
-  async processQueueRecords(records: Array<{ body?: string }>) {
-    this.logger.log(`notification.queue.batch_received size=${records.length}`);
-    const results = await Promise.all(records.map((record) => this.processQueueRecord(record.body)));
-    const processedItems = results.filter(Boolean);
-    this.logger.log(`notification.queue.batch_processed processed=${processedItems.length} items=${JSON.stringify(processedItems)}`);
+  async processQueueRecords(records: Array<{ body?: string; messageId?: string }>) {
+    this.logger.log(`[queue-notification] batch_received size=${records.length}`);
+
+    const settled = await Promise.allSettled(records.map(async (record) => ({
+      messageId: String(record.messageId ?? ""),
+      item: await this.processQueueRecord(record.body)
+    })));
+
+    const processedItems = settled
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => (result as PromiseFulfilledResult<{ messageId: string; item: unknown }>).value.item)
+      .filter(Boolean);
+
+    const failedMessageIds = settled
+      .flatMap((result, index) => result.status === "rejected" ? [String(records[index]?.messageId ?? "")] : [])
+      .filter(Boolean);
+
+    this.logger.log(`[queue-notification] batch_processed processed=${processedItems.length} failed=${failedMessageIds.length} items=${JSON.stringify(processedItems)}`);
+
     return {
       processed: processedItems.length,
+      failedMessageIds,
       items: processedItems
     };
   }
 
   private async publishNotificationEvent(notification: NotificationRecord) {
     if (!env.SQS_NOTIFICATIONS_QUEUE_URL) {
-      this.logger.warn(`notification.queue.disabled notificationId=${notification.id}`);
+      this.logger.warn(`[queue-notification] disabled notificationId=${notification.id}`);
       return { queued: false };
     }
 
@@ -213,13 +228,13 @@ export class NotificationsService {
       })
     }));
 
-    this.logger.log(`notification.enqueued notificationId=${notification.id} channel=${notification.channel} queue=${env.SQS_NOTIFICATIONS_QUEUE_URL}`);
+    this.logger.log(`[queue-notification] enqueued notificationId=${notification.id} channel=${notification.channel} queue=${env.SQS_NOTIFICATIONS_QUEUE_URL}`);
     return { queued: true };
   }
 
   private async processQueueRecord(body: string | undefined) {
     if (!body) {
-      this.logger.warn("queue.record.empty");
+      this.logger.warn("[queue-notification] record_empty");
       return null;
     }
 
@@ -241,27 +256,27 @@ export class NotificationsService {
     };
 
     if (payload.type === "payment.completed") {
-      this.logger.log(`queue.record.received type=payment.completed txnRef=${payload.txnRef ?? ""} orderId=${payload.orderId ?? ""}`);
+      this.logger.log(`[queue-payment] received type=payment.completed txnRef=${payload.txnRef ?? ""} orderId=${payload.orderId ?? ""}`);
       return this.processPaymentCompletedEvent(payload);
     }
 
     if (payload.type === "payment.failed") {
-      this.logger.log(`queue.record.received type=payment.failed txnRef=${payload.txnRef ?? ""} orderId=${payload.orderId ?? ""}`);
+      this.logger.log(`[queue-payment] received type=payment.failed txnRef=${payload.txnRef ?? ""} orderId=${payload.orderId ?? ""}`);
       return this.processPaymentFailedEvent(payload);
     }
 
     if (payload.type !== "notification.pending" || !payload.notificationId) {
-      this.logger.warn(`notification.queue.ignored payload=${body}`);
+      this.logger.warn(`[queue-notification] ignored payload=${body}`);
       return null;
     }
 
-    this.logger.log(`queue.record.received type=notification.pending notificationId=${payload.notificationId} channel=${String((payload as { channel?: string }).channel ?? "")}`);
-    this.logger.log(`notification.queue.processing notificationId=${payload.notificationId} orderId=${String(payload.metadata?.orderId ?? "")}`);
+    this.logger.log(`[queue-notification] received type=notification.pending notificationId=${payload.notificationId} channel=${String((payload as { channel?: string }).channel ?? "")}`);
+    this.logger.log(`[queue-notification] processing notificationId=${payload.notificationId} orderId=${String(payload.metadata?.orderId ?? "")}`);
     await markNotificationAsSent(payload.notificationId);
 
     const orderId = String(payload.metadata?.orderId ?? "").trim();
     if (!orderId) {
-      this.logger.log(`notification.queue.completed notificationId=${payload.notificationId} orderCompleted=false`);
+      this.logger.log(`[queue-notification] completed notificationId=${payload.notificationId} orderCompleted=false`);
       return {
         type: "notification.pending",
         notificationId: payload.notificationId,
@@ -271,7 +286,7 @@ export class NotificationsService {
     }
 
     await this.completeOrderIfReady(orderId);
-    this.logger.log(`notification.queue.completed notificationId=${payload.notificationId} orderId=${orderId} orderCompleted=true`);
+    this.logger.log(`[queue-notification] completed notificationId=${payload.notificationId} orderId=${orderId} orderCompleted=true`);
     return {
       type: "notification.pending",
       notificationId: payload.notificationId,
@@ -294,7 +309,7 @@ export class NotificationsService {
     failureReason?: string;
   }) {
     if (!payload.email || !payload.txnRef) {
-      this.logger.warn(`payment.queue.ignored txnRef=${payload.txnRef ?? ""}`);
+      this.logger.warn(`[queue-payment] ignored txnRef=${payload.txnRef ?? ""}`);
       return null;
     }
 
@@ -302,10 +317,10 @@ export class NotificationsService {
     const orderId = payload.orderId?.trim() || "";
     const amount = Number(payload.amount ?? 0);
 
-    this.logger.log(`payment.queue.processing txnRef=${payload.txnRef} orderId=${orderId}`);
+    this.logger.log(`[queue-payment] success_processing txnRef=${payload.txnRef} orderId=${orderId}`);
 
     if (payload.forceFail) {
-      this.logger.error(`payment.queue.force_fail txnRef=${payload.txnRef}`);
+      this.logger.error(`[queue-payment] success_force_fail txnRef=${payload.txnRef}`);
       throw new Error(`Forced failure for payment txnRef=${payload.txnRef}`);
     }
 
@@ -339,7 +354,7 @@ export class NotificationsService {
       }
     });
 
-    this.logger.log(`payment.queue.completed txnRef=${payload.txnRef} orderId=${orderId}`);
+    this.logger.log(`[queue-payment] success_completed txnRef=${payload.txnRef} orderId=${orderId}`);
     return {
       type: "payment.completed",
       txnRef: payload.txnRef,
@@ -363,7 +378,7 @@ export class NotificationsService {
     forceFail?: boolean;
   }) {
     if (!payload.email || !payload.txnRef) {
-      this.logger.warn(`payment.failed_queue.ignored txnRef=${payload.txnRef ?? ""}`);
+      this.logger.warn(`[queue-payment] failed_ignored txnRef=${payload.txnRef ?? ""}`);
       return null;
     }
 
@@ -372,10 +387,10 @@ export class NotificationsService {
     const amount = Number(payload.amount ?? 0);
     const failureReason = String(payload.failureReason ?? "payment_failed");
 
-    this.logger.log(`payment.failed_queue.processing txnRef=${payload.txnRef} orderId=${orderId} responseCode=${payload.responseCode ?? ""}`);
+    this.logger.log(`[queue-payment] failed_processing txnRef=${payload.txnRef} orderId=${orderId} responseCode=${payload.responseCode ?? ""}`);
 
     if (payload.forceFail) {
-      this.logger.error(`payment.failed_queue.force_fail txnRef=${payload.txnRef}`);
+      this.logger.error(`[queue-payment] failed_force_fail txnRef=${payload.txnRef}`);
       throw new Error(`Forced failure for failed-payment txnRef=${payload.txnRef}`);
     }
 
@@ -390,10 +405,10 @@ export class NotificationsService {
         bankCode: payload.bankCode,
         payDate: payload.payDate
       });
-      this.logger.log(`payment.failed_email.sent txnRef=${payload.txnRef} to=${email}`);
+      this.logger.log(`[mail-ses] payment_failed_sent txnRef=${payload.txnRef} to=${email}`);
     } catch (error) {
       this.logger.warn(
-        `payment.failed_email.failed txnRef=${payload.txnRef} to=${email} error=${error instanceof Error ? error.message : "unknown"}`
+        `[mail-ses] payment_failed_failed txnRef=${payload.txnRef} to=${email} error=${error instanceof Error ? error.message : "unknown"}`
       );
     }
 
@@ -430,7 +445,7 @@ export class NotificationsService {
       }
     });
 
-    this.logger.log(`payment.failed_queue.completed txnRef=${payload.txnRef} orderId=${orderId}`);
+    this.logger.log(`[queue-payment] failed_completed txnRef=${payload.txnRef} orderId=${orderId}`);
     return {
       type: "payment.failed",
       txnRef: payload.txnRef,
@@ -452,11 +467,11 @@ export class NotificationsService {
     const systemSent = orderNotifications.some((item) => item.channel === "system" && item.status === "sent");
 
     if (!systemSent) {
-      this.logger.log(`order.pending orderId=${orderId} systemSent=${systemSent}`);
+      this.logger.log(`[dynamo-order] pending orderId=${orderId} systemSent=${systemSent}`);
       return;
     }
 
     await markOrderAsDone(orderId);
-    this.logger.log(`order.done orderId=${orderId}`);
+    this.logger.log(`[dynamo-order] done orderId=${orderId}`);
   }
 }

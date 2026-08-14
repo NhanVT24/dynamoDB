@@ -21,6 +21,7 @@ export const env = z.object({
   SQS_AUDIT_QUEUE_URL: z.string().optional(),
   SQS_PAYMENT_EVENTS_QUEUE_URL: z.string().optional(),
   SQS_STOREFRONT_ORDERS_QUEUE_URL: z.string().optional(),
+  EVENTBRIDGE_BUS_NAME: z.string().optional(),
   SES_FROM_EMAIL: z.string().email().optional(),
   NEXT_PUBLIC_API_URL: z.string().url().optional(),
   VNPAY_TMN_CODE: z.string().min(1),

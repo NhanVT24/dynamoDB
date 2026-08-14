@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
-import { DeleteItemCommand, GetItemCommand, PutItemCommand, ScanCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import { DeleteItemCommand, GetItemCommand, PutItemCommand, ScanCommand, TransactWriteItemsCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
+import { keys } from "../../database/dynamodb/keys.js";
 import { rawDb } from "../../database/dynamodb/client.js";
-import { getShoppingItem, incrementItemValue, listShoppingItems } from "../shopping/shopping.repository.js";
+import { getShoppingItem, listShoppingItems } from "../shopping/shopping.repository.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 
@@ -82,6 +83,9 @@ export async function getStorefrontProductById(id: string) {
 export async function createStorefrontOrder(input: CreateOrderPayload) {
   const lines: OrderLine[] = [];
   let totalAmount = 0;
+  const now = new Date().toISOString();
+  const orderId = crypto.randomUUID();
+  const productSnapshots = new Map<string, Record<string, any>>();
 
   for (const item of input.items) {
     const product = await getShoppingItem(item.productId);
@@ -96,6 +100,7 @@ export async function createStorefrontOrder(input: CreateOrderPayload) {
     const price = Number(product.price ?? 0);
     const lineTotal = price * item.quantity;
     totalAmount += lineTotal;
+    productSnapshots.set(item.productId, product);
     lines.push({
       productId: item.productId,
       productName: String(product.name ?? ""),
@@ -104,14 +109,6 @@ export async function createStorefrontOrder(input: CreateOrderPayload) {
       lineTotal
     });
   }
-
-  for (const item of input.items) {
-    await incrementItemValue(item.productId, "stock", -item.quantity);
-    await incrementItemValue(item.productId, "soldCount", item.quantity);
-  }
-
-  const now = new Date().toISOString();
-  const orderId = crypto.randomUUID();
   const orderRecord: StorefrontOrderRecord = {
     PK: `ORDER#${orderId}`,
     SK: "DETAIL",
@@ -125,11 +122,85 @@ export async function createStorefrontOrder(input: CreateOrderPayload) {
     updatedAt: now
   };
 
-  await rawDb.send(new PutItemCommand({
-    TableName,
-    Item: toDynamoItem(orderRecord),
-    ConditionExpression: "attribute_not_exists(PK)"
-  }));
+  try {
+    await rawDb.send(new TransactWriteItemsCommand({
+      TransactItems: [
+        ...input.items.map((item) => {
+          const product = productSnapshots.get(item.productId);
+          if (!product) {
+            throw new Error(`Product ${item.productId} not found`);
+          }
+
+          const currentStock = Number(product.stock ?? 0);
+          const nextStock = currentStock - item.quantity;
+          const currentSoldCount = Number(product.soldCount ?? 0);
+          const nextSoldCount = currentSoldCount + item.quantity;
+          const nextStatus = nextStock <= 0 ? "out_of_stock" : nextStock <= 10 ? "low_stock" : "active";
+          const currentVersion = Math.max(1, Number(product.version ?? 1));
+
+          return {
+            Update: {
+              TableName,
+              Key: toDynamoItem(keys.product(item.productId)),
+              UpdateExpression: [
+                "SET #stock = :stock",
+                "#soldCount = :soldCount",
+                "#status = :status",
+                "#searchName = :searchName",
+                "updatedAt = :updatedAt",
+                "#version = :nextVersion"
+              ].join(", "),
+              ConditionExpression: "attribute_exists(PK) AND #version = :expectedVersion AND #stock >= :quantity",
+              ExpressionAttributeNames: {
+                "#stock": "stock",
+                "#soldCount": "soldCount",
+                "#status": "status",
+                "#searchName": "searchName",
+                "#version": "version"
+              },
+              ExpressionAttributeValues: toDynamoItem({
+                ":stock": nextStock,
+                ":soldCount": nextSoldCount,
+                ":status": nextStatus,
+                ":searchName": String(product.searchName ?? ""),
+                ":updatedAt": now,
+                ":expectedVersion": currentVersion,
+                ":nextVersion": currentVersion + 1,
+                ":quantity": item.quantity
+              })
+            }
+          };
+        }),
+        {
+          Put: {
+            TableName,
+            Item: toDynamoItem(orderRecord),
+            ConditionExpression: "attribute_not_exists(PK)"
+          }
+        }
+      ]
+    }));
+  } catch (error) {
+    const candidate = error as { name?: string };
+    if (candidate?.name === "TransactionCanceledException") {
+      for (const item of input.items) {
+        const latestProduct = await getShoppingItem(item.productId);
+        if (!latestProduct) {
+          throw new Error(`Product ${item.productId} not found`);
+        }
+
+        if (Number(latestProduct.stock ?? 0) < item.quantity) {
+          throw new Error(`Insufficient stock for ${latestProduct.name}`);
+        }
+      }
+
+      const conflictError = new Error("Product inventory changed during checkout");
+      conflictError.name = "ConditionalCheckFailedException";
+      throw conflictError;
+    }
+
+    throw error;
+  }
 
   return orderRecord;
 }

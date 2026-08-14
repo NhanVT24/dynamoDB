@@ -13,8 +13,11 @@ import {
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as events from "aws-cdk-lib/aws-events";
+import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
@@ -212,6 +215,10 @@ export class AwsApiStack extends Stack {
         queue: paymentEventsDlq,
         maxReceiveCount: 3
       }
+    });
+
+    const domainEventBus = new events.EventBus(this, "SupermarketDomainEventBus", {
+      eventBusName: "supermarket-domain-bus"
     });
 
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
@@ -465,79 +472,260 @@ exports.handler = async (event) => {
       cognitoDomain: { domainPrefix: cognitoDomainPrefix.valueAsString }
     });
 
-    const lambdaFunction = new lambda.Function(this, "SupermarketApiFunction", {
-      functionName: "supermarket-api-aws",
-      runtime: lambda.Runtime.NODEJS_20_X,
-      architecture: lambda.Architecture.X86_64,
-      handler: "src/lambda.handler",
-      timeout: Duration.seconds(10),
-      memorySize: 256,
-      code: lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip")),
-      environment: {
-        DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString,
-        S3_BUCKET_NAME: productImagesBucket.bucketName,
-        S3_PUBLIC_BASE_URL: `https://${productImagesBucket.bucketName}.s3.${this.region}.amazonaws.com`,
-        SQS_NOTIFICATIONS_QUEUE_URL: notificationsQueue.queueUrl,
-        SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
-        SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
-        SQS_STOREFRONT_ORDERS_QUEUE_URL: storefrontOrdersQueue.queueUrl,
-        SES_FROM_EMAIL: sesFromEmail.valueAsString,
-        VNPAY_TMN_CODE: vnpayTmnCodeValue,
-        VNPAY_HASH_SECRET: vnpayHashSecret.valueAsString,
-        VNPAY_PAYMENT_URL: vnpayPaymentUrlValue,
-        VNPAY_RETURN_URL: vnpayReturnUrl.valueAsString,
-        VNPAY_IPN_URL: vnpayIpnUrl.valueAsString
+    const sharedLambdaCode = lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip"));
+    const sharedEnvironment = {
+      DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString,
+      S3_BUCKET_NAME: productImagesBucket.bucketName,
+      S3_PUBLIC_BASE_URL: `https://${productImagesBucket.bucketName}.s3.${this.region}.amazonaws.com`,
+      SQS_NOTIFICATIONS_QUEUE_URL: notificationsQueue.queueUrl,
+      SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
+      SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
+      SQS_STOREFRONT_ORDERS_QUEUE_URL: storefrontOrdersQueue.queueUrl,
+      EVENTBRIDGE_BUS_NAME: domainEventBus.eventBusName,
+      SES_FROM_EMAIL: sesFromEmail.valueAsString,
+      VNPAY_TMN_CODE: vnpayTmnCodeValue,
+      VNPAY_HASH_SECRET: vnpayHashSecret.valueAsString,
+      VNPAY_PAYMENT_URL: vnpayPaymentUrlValue,
+      VNPAY_RETURN_URL: vnpayReturnUrl.valueAsString,
+      VNPAY_IPN_URL: vnpayIpnUrl.valueAsString
+    };
+
+    const attachSharedPolicies = (fn: lambda.Function) => {
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        actions: [
+          "dynamodb:BatchGetItem",
+          "dynamodb:BatchWriteItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:UpdateItem",
+          "dynamodb:TransactWriteItems"
+        ],
+        resources: [
+          table.attrArn,
+          `${table.attrArn}/index/*`
+        ]
+      }));
+
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["ses:SendEmail", "ses:SendRawEmail"],
+        resources: ["*"]
+      }));
+
+      productImagesBucket.grantReadWrite(fn);
+      notificationsQueue.grantSendMessages(fn);
+      auditQueue.grantSendMessages(fn);
+      storefrontOrdersQueue.grantSendMessages(fn);
+      paymentEventsQueue.grantSendMessages(fn);
+    };
+
+    const createApplicationLambda = (
+      id: string,
+      functionName: string,
+      handler: string,
+      timeoutSeconds = 10,
+      memorySize = 256
+    ) => {
+      const fn = new lambda.Function(this, id, {
+        functionName,
+        runtime: lambda.Runtime.NODEJS_20_X,
+        architecture: lambda.Architecture.X86_64,
+        handler,
+        timeout: Duration.seconds(timeoutSeconds),
+        memorySize,
+        code: sharedLambdaCode,
+        environment: {
+          ...sharedEnvironment,
+          LAMBDA_FUNCTION_CONTEXT: functionName
+        }
+      });
+
+      attachSharedPolicies(fn);
+      return fn;
+    };
+
+    const publicApiFunction = createApplicationLambda(
+      "SupermarketPublicApiFunction",
+      "supermarket-public-api-aws",
+      "src/lambda-public.handler"
+    );
+    const orderApiFunction = createApplicationLambda(
+      "SupermarketOrderApiFunction",
+      "supermarket-order-api-aws",
+      "src/lambda-order-api.handler"
+    );
+    const paymentApiFunction = createApplicationLambda(
+      "SupermarketPaymentApiFunction",
+      "supermarket-payment-vnpay-api-aws",
+      "src/lambda-payment-vnpay.handler",
+      15,
+      512
+    );
+    const adminApiFunction = createApplicationLambda(
+      "SupermarketAdminApiFunction",
+      "supermarket-admin-api-aws",
+      "src/lambda-admin.handler"
+    );
+    const orderWorkerFunction = createApplicationLambda(
+      "SupermarketOrderWorkerFunction",
+      "supermarket-order-worker-aws",
+      "src/lambda-order-worker.handler",
+      20,
+      512
+    );
+    const notificationWorkerFunction = createApplicationLambda(
+      "SupermarketNotificationWorkerFunction",
+      "supermarket-notification-worker-aws",
+      "src/lambda-notification-worker.handler",
+      20,
+      512
+    );
+    const auditEventWorkerFunction = createApplicationLambda(
+      "SupermarketAuditEventWorkerFunction",
+      "supermarket-audit-event-worker-aws",
+      "src/lambda-audit-event-worker.handler",
+      15,
+      256
+    );
+
+    const createPipeRole = (id: string, sourceQueue: sqs.Queue, targetArn: string, extraStatements: iam.PolicyStatement[] = []) => {
+      const role = new iam.Role(this, id, {
+        assumedBy: new iam.ServicePrincipal("pipes.amazonaws.com")
+      });
+
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:ChangeMessageVisibility"
+        ],
+        resources: [sourceQueue.queueArn]
+      }));
+
+      role.addToPolicy(new iam.PolicyStatement({
+        actions: ["lambda:InvokeFunction"],
+        resources: [targetArn]
+      }));
+
+      for (const statement of extraStatements) {
+        role.addToPolicy(statement);
+      }
+
+      return role;
+    };
+
+    const orderWorkerPipeRole = createPipeRole(
+      "StorefrontOrdersPipeRole",
+      storefrontOrdersQueue,
+      orderWorkerFunction.functionArn
+    );
+    const notificationPipeRole = createPipeRole(
+      "NotificationsPipeRole",
+      notificationsQueue,
+      notificationWorkerFunction.functionArn
+    );
+    const paymentPipeRole = createPipeRole(
+      "PaymentEventsPipeRole",
+      paymentEventsQueue,
+      notificationWorkerFunction.functionArn
+    );
+    const auditPipeRole = new iam.Role(this, "AuditQueueToBusPipeRole", {
+      assumedBy: new iam.ServicePrincipal("pipes.amazonaws.com")
+    });
+    auditPipeRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:ChangeMessageVisibility"
+      ],
+      resources: [auditQueue.queueArn]
+    }));
+    auditPipeRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["events:PutEvents"],
+      resources: [domainEventBus.eventBusArn]
+    }));
+
+    new pipes.CfnPipe(this, "StorefrontOrdersPipe", {
+      name: "supermarket-storefront-orders-pipe",
+      roleArn: orderWorkerPipeRole.roleArn,
+      source: storefrontOrdersQueue.queueArn,
+      target: orderWorkerFunction.functionArn,
+      sourceParameters: {
+        sqsQueueParameters: {
+          batchSize: 10
+        }
+      },
+      targetParameters: {
+        lambdaFunctionParameters: {
+          invocationType: "REQUEST_RESPONSE"
+        }
       }
     });
 
-    lambdaFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: [
-        "dynamodb:BatchGetItem",
-        "dynamodb:BatchWriteItem",
-        "dynamodb:DeleteItem",
-        "dynamodb:GetItem",
-        "dynamodb:PutItem",
-        "dynamodb:Query",
-        "dynamodb:Scan",
-        "dynamodb:UpdateItem"
-      ],
-      resources: [
-        table.attrArn,
-        `${table.attrArn}/index/*`
-      ]
-    }));
-
-    productImagesBucket.grantReadWrite(lambdaFunction);
-    notificationsQueue.grantSendMessages(lambdaFunction);
-    notificationsQueue.grantConsumeMessages(lambdaFunction);
-    auditQueue.grantSendMessages(lambdaFunction);
-    storefrontOrdersQueue.grantSendMessages(lambdaFunction);
-    storefrontOrdersQueue.grantConsumeMessages(lambdaFunction);
-    storefrontOrdersDlq.grantConsumeMessages(lambdaFunction);
-    paymentEventsQueue.grantSendMessages(lambdaFunction);
-    paymentEventsQueue.grantConsumeMessages(lambdaFunction);
-    paymentEventsDlq.grantConsumeMessages(lambdaFunction);
-    lambdaFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ["ses:SendEmail", "ses:SendRawEmail"],
-      resources: ["*"]
-    }));
-
-    new lambda.EventSourceMapping(this, "NotificationsQueueEventSource", {
-      target: lambdaFunction,
-      eventSourceArn: notificationsQueue.queueArn,
-      batchSize: 10
+    new pipes.CfnPipe(this, "NotificationsPipe", {
+      name: "supermarket-notifications-pipe",
+      roleArn: notificationPipeRole.roleArn,
+      source: notificationsQueue.queueArn,
+      target: notificationWorkerFunction.functionArn,
+      sourceParameters: {
+        sqsQueueParameters: {
+          batchSize: 10
+        }
+      },
+      targetParameters: {
+        lambdaFunctionParameters: {
+          invocationType: "REQUEST_RESPONSE"
+        }
+      }
     });
 
-    new lambda.EventSourceMapping(this, "PaymentEventsQueueEventSource", {
-      target: lambdaFunction,
-      eventSourceArn: paymentEventsQueue.queueArn,
-      batchSize: 10
+    new pipes.CfnPipe(this, "PaymentEventsPipe", {
+      name: "supermarket-payment-events-pipe",
+      roleArn: paymentPipeRole.roleArn,
+      source: paymentEventsQueue.queueArn,
+      target: notificationWorkerFunction.functionArn,
+      sourceParameters: {
+        sqsQueueParameters: {
+          batchSize: 10
+        }
+      },
+      targetParameters: {
+        lambdaFunctionParameters: {
+          invocationType: "REQUEST_RESPONSE"
+        }
+      }
     });
 
-    new lambda.EventSourceMapping(this, "StorefrontOrdersQueueEventSource", {
-      target: lambdaFunction,
-      eventSourceArn: storefrontOrdersQueue.queueArn,
-      batchSize: 10
+    new pipes.CfnPipe(this, "AuditQueueToBusPipe", {
+      name: "supermarket-audit-bus-pipe",
+      roleArn: auditPipeRole.roleArn,
+      source: auditQueue.queueArn,
+      target: domainEventBus.eventBusArn,
+      sourceParameters: {
+        sqsQueueParameters: {
+          batchSize: 10
+        }
+      },
+      targetParameters: {
+        eventBridgeEventBusParameters: {
+          source: "supermarket.audit.queue",
+          detailType: "audit.message"
+        },
+        inputTemplate: "{\"messageId\": <$.messageId>, \"body\": <$.body>, \"attributes\": <$.attributes>, \"eventSourceArn\": <$.eventSourceARN>}"
+      }
+    });
+
+    new events.Rule(this, "AuditEventsRule", {
+      eventBus: domainEventBus,
+      ruleName: "supermarket-audit-events-rule",
+      eventPattern: {
+        source: ["supermarket.audit.queue"]
+      },
+      targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction)]
     });
 
     const api = new apigateway.RestApi(this, "SupermarketApiGateway", {
@@ -548,60 +736,72 @@ exports.handler = async (event) => {
       }
     });
 
-    const lambdaIntegration = new apigateway.LambdaIntegration(lambdaFunction);
+    const publicIntegration = new apigateway.LambdaIntegration(publicApiFunction);
+    const orderIntegration = new apigateway.LambdaIntegration(orderApiFunction);
+    const paymentIntegration = new apigateway.LambdaIntegration(paymentApiFunction);
+    const adminIntegration = new apigateway.LambdaIntegration(adminApiFunction);
     const cognitoAuthorizer = new apigateway.CognitoUserPoolsAuthorizer(this, "SupermarketApiAuthorizer", {
       cognitoUserPools: [userPool]
     });
 
-    api.root.addMethod("GET", lambdaIntegration, {
+    api.root.addMethod("GET", publicIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const healthResource = api.root.addResource("health");
-    healthResource.addMethod("GET", lambdaIntegration, {
+    healthResource.addMethod("GET", publicIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const apiResource = api.root.addResource("api");
     const productsResource = apiResource.addResource("products");
-    productsResource.addMethod("ANY", lambdaIntegration, {
+    productsResource.addMethod("ANY", publicIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
     const productsProxyResource = productsResource.addResource("{proxy+}");
-    productsProxyResource.addMethod("ANY", lambdaIntegration, {
+    productsProxyResource.addMethod("ANY", publicIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const storefrontResource = apiResource.addResource("storefront");
-    storefrontResource.addMethod("ANY", lambdaIntegration, {
+    const storefrontProductsResource = storefrontResource.addResource("products");
+    storefrontProductsResource.addMethod("ANY", publicIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
-    const storefrontProxyResource = storefrontResource.addResource("{proxy+}");
-    storefrontProxyResource.addMethod("ANY", lambdaIntegration, {
+    const storefrontProductsProxyResource = storefrontProductsResource.addResource("{proxy+}");
+    storefrontProductsProxyResource.addMethod("ANY", publicIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+    const storefrontOrdersResource = storefrontResource.addResource("orders");
+    storefrontOrdersResource.addMethod("POST", orderIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+    const storefrontOrdersMeResource = storefrontOrdersResource.addResource("me");
+    storefrontOrdersMeResource.addMethod("GET", orderIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const notificationsResource = apiResource.addResource("notifications");
-    notificationsResource.addMethod("ANY", lambdaIntegration, {
+    notificationsResource.addMethod("ANY", orderIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
     const notificationsProxyResource = notificationsResource.addResource("{proxy+}");
-    notificationsProxyResource.addMethod("ANY", lambdaIntegration, {
+    notificationsProxyResource.addMethod("ANY", orderIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const paymentsResource = apiResource.addResource("payments");
     const vnpayResource = paymentsResource.addResource("vnpay");
-    vnpayResource.addMethod("ANY", lambdaIntegration, {
+    vnpayResource.addMethod("ANY", paymentIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
     const vnpayProxyResource = vnpayResource.addResource("{proxy+}");
-    vnpayProxyResource.addMethod("ANY", lambdaIntegration, {
+    vnpayProxyResource.addMethod("ANY", paymentIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const proxyResource = api.root.addResource("{proxy+}");
-    proxyResource.addMethod("ANY", lambdaIntegration, {
+    proxyResource.addMethod("ANY", adminIntegration, {
       authorizer: cognitoAuthorizer,
       authorizationType: apigateway.AuthorizationType.COGNITO
     });
@@ -611,7 +811,35 @@ exports.handler = async (event) => {
     });
 
     new CfnOutput(this, "FunctionName", {
-      value: lambdaFunction.functionName
+      value: adminApiFunction.functionName
+    });
+
+    new CfnOutput(this, "PublicApiFunctionName", {
+      value: publicApiFunction.functionName
+    });
+
+    new CfnOutput(this, "OrderApiFunctionName", {
+      value: orderApiFunction.functionName
+    });
+
+    new CfnOutput(this, "PaymentApiFunctionName", {
+      value: paymentApiFunction.functionName
+    });
+
+    new CfnOutput(this, "OrderWorkerFunctionName", {
+      value: orderWorkerFunction.functionName
+    });
+
+    new CfnOutput(this, "NotificationWorkerFunctionName", {
+      value: notificationWorkerFunction.functionName
+    });
+
+    new CfnOutput(this, "AuditEventWorkerFunctionName", {
+      value: auditEventWorkerFunction.functionName
+    });
+
+    new CfnOutput(this, "DomainEventBusName", {
+      value: domainEventBus.eventBusName
     });
 
     new CfnOutput(this, "ApiGatewayUrl", {

@@ -141,8 +141,8 @@ export class VnpayService {
       expiresAt: expiresAt.toISOString()
     });
 
-    this.logger.log(`payment.created txnRef=${txnRef} amount=${totalAmount} itemCount=${input.items.length} ip=${resolvedIpAddress} expiresAt=${expiresAt.toISOString()}`);
-    console.log("[vnpay] payment.created", {
+    this.logger.log(`[payment-vnpay] created txnRef=${txnRef} amount=${totalAmount} itemCount=${input.items.length} ip=${resolvedIpAddress} expiresAt=${expiresAt.toISOString()}`);
+    console.log("[payment-vnpay]", {
       txnRef,
       email: input.email?.trim().toLowerCase() ?? "",
       amount: totalAmount,
@@ -206,14 +206,14 @@ export class VnpayService {
       payDate: query.vnp_PayDate || ""
     };
 
-    this.logger.log(`payment.return_checked txnRef=${query.vnp_TxnRef || ""} valid=${isValidSignature} responseCode=${responseCode}`);
+    this.logger.log(`[payment-vnpay] return_checked txnRef=${query.vnp_TxnRef || ""} valid=${isValidSignature} responseCode=${responseCode}`);
 
     try {
       const handled = await this.handlePaymentEvent(result, "return");
       return handled ? { ...result, ...handled } : result;
     } catch (error) {
       this.logger.error(
-        `payment.return_processing_failed txnRef=${result.txnRef} responseCode=${result.responseCode} error=${error instanceof Error ? error.message : "unknown"}`,
+        `[payment-vnpay] return_processing_failed txnRef=${result.txnRef} responseCode=${result.responseCode} error=${error instanceof Error ? error.message : "unknown"}`,
         error instanceof Error ? error.stack : undefined
       );
 
@@ -237,7 +237,7 @@ export class VnpayService {
 
   async verifyIpn(rawQuery: Record<string, unknown>) {
     const result = await this.verifyReturn(rawQuery);
-    this.logger.log(`payment.ipn_checked txnRef=${result.txnRef} valid=${result.isValidSignature} status=${result.transactionStatus}`);
+    this.logger.log(`[payment-vnpay] ipn_checked txnRef=${result.txnRef} valid=${result.isValidSignature} status=${result.transactionStatus}`);
 
     if (!result.isValidSignature) {
       return { RspCode: "97", Message: "Invalid Checksum" };
@@ -280,16 +280,16 @@ export class VnpayService {
   }
 
   private async handlePaymentEvent(result: VnpayReturnPayload, source: "return" | "ipn"): Promise<VnpayHandlingOverride | null> {
-    this.logger.log(`payment.queue.evaluate txnRef=${result.txnRef} source=${source} valid=${result.isValidSignature} status=${result.transactionStatus}`);
+    this.logger.log(`[queue-payment] evaluate txnRef=${result.txnRef} source=${source} valid=${result.isValidSignature} status=${result.transactionStatus}`);
 
     if (!result.isValidSignature) {
-      this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=invalid_signature source=${source}`);
+      this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=invalid_signature source=${source}`);
       return null;
     }
 
     const session = result.txnRef ? await getPaymentSessionByTxnRef(result.txnRef) : null;
     if (!session) {
-      this.logger.warn(`payment.session.missing txnRef=${result.txnRef} source=${source}`);
+      this.logger.warn(`[dynamo-payment] session_missing txnRef=${result.txnRef} source=${source}`);
       return {
         transactionStatus: "failed" as const,
         message: "Không tìm thấy phiên thanh toán."
@@ -297,8 +297,8 @@ export class VnpayService {
     }
 
     if (session.status !== "pending") {
-      this.logger.log(`payment.session.finalized txnRef=${result.txnRef} source=${source} status=${session.status} email=${session.email ?? ""}`);
-      this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=already_finalized_${session.status} source=${source}`);
+      this.logger.log(`[dynamo-payment] session_finalized txnRef=${result.txnRef} source=${source} status=${session.status} email=${session.email ?? ""}`);
+      this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=already_finalized_${session.status} source=${source}`);
       return {
         transactionStatus: session.status === "expired" ? "expired" : session.status,
         message: session.status === "expired" ? PAYMENT_TIMEOUT_MESSAGE : mapResponseCode(session.responseCode ?? result.responseCode)
@@ -319,9 +319,9 @@ export class VnpayService {
         : mapResponseCode(result.responseCode);
 
       this.logger.log(
-        `payment.failed_context txnRef=${result.txnRef} source=${source} sessionEmail=${session.email ?? ""} responseCode=${result.responseCode} sesFromEmail=${env.SES_FROM_EMAIL ?? ""}`
+        `[queue-payment] failed_context txnRef=${result.txnRef} source=${source} sessionEmail=${session.email ?? ""} responseCode=${result.responseCode} sesFromEmail=${env.SES_FROM_EMAIL ?? ""}`
       );
-      console.log("[vnpay] payment.failed_context", {
+      console.log("[queue-payment]", {
         txnRef: result.txnRef,
         source,
         sessionEmail: session.email ?? "",
@@ -336,7 +336,7 @@ export class VnpayService {
     }
 
     if (!session.email) {
-      this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=missing_payment_session_email source=${source}`);
+      this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=missing_payment_session_email source=${source}`);
       return null;
     }
 
@@ -354,7 +354,7 @@ export class VnpayService {
       });
     } catch (error) {
       if (isConditionalCheckFailedError(error)) {
-        this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=finalized_during_success source=${source}`);
+        this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=finalized_during_success source=${source}`);
         return {
           transactionStatus: "failed" as const,
           message: "Phiên thanh toán đã được chốt bởi một callback khác."
@@ -377,7 +377,7 @@ export class VnpayService {
     }, source);
 
     await this.markPaymentEventEnqueuedSafely(result.txnRef, source);
-    this.logger.log(`payment.queue.triggered txnRef=${result.txnRef} source=${source}`);
+    this.logger.log(`[queue-payment] success_triggered txnRef=${result.txnRef} source=${source}`);
     return null;
   }
 
@@ -393,18 +393,18 @@ export class VnpayService {
       });
     } catch (error) {
       if (isConditionalCheckFailedError(error)) {
-        this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=finalized_during_expiry source=${source}`);
+        this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=finalized_during_expiry source=${source}`);
         return;
       }
 
       throw error;
     }
 
-    this.logger.warn(`payment.expired txnRef=${result.txnRef} source=${source} expiresAt=${session.expiresAt}`);
+    this.logger.warn(`[payment-vnpay] expired txnRef=${result.txnRef} source=${source} expiresAt=${session.expiresAt}`);
     this.logger.log(
-      `payment.expired_context txnRef=${result.txnRef} source=${source} sessionEmail=${session.email ?? ""} responseCode=${result.responseCode || "TIMEOUT"} sesFromEmail=${env.SES_FROM_EMAIL ?? ""}`
+      `[queue-payment] expired_context txnRef=${result.txnRef} source=${source} sessionEmail=${session.email ?? ""} responseCode=${result.responseCode || "TIMEOUT"} sesFromEmail=${env.SES_FROM_EMAIL ?? ""}`
     );
-    console.log("[vnpay] payment.expired_context", {
+    console.log("[queue-payment]", {
       txnRef: result.txnRef,
       source,
       sessionEmail: session.email ?? "",
@@ -413,8 +413,8 @@ export class VnpayService {
     });
 
     if (!session.email) {
-      this.logger.warn(`payment.expired_email_skipped txnRef=${result.txnRef} source=${source} reason=missing_session_email`);
-      console.warn("[vnpay] payment.expired_email_skipped", {
+      this.logger.warn(`[mail-ses] payment_expired_skipped txnRef=${result.txnRef} source=${source} reason=missing_session_email`);
+      console.warn("[mail-ses]", {
         txnRef: result.txnRef,
         source,
         reason: "missing_session_email"
@@ -444,7 +444,7 @@ export class VnpayService {
     source: "return" | "ipn",
     failureReason: string
   ) {
-    console.log("[vnpay] payment.failed_finalize.begin", {
+    console.log("[queue-payment]", {
       txnRef: result.txnRef,
       source,
       sessionStatus: session.status,
@@ -460,15 +460,15 @@ export class VnpayService {
         bankCode: result.bankCode,
         payDate: result.payDate
       });
-      console.log("[vnpay] payment.failed_finalize.updated", {
+      console.log("[queue-payment]", {
         txnRef: result.txnRef,
         source,
         nextStatus: "failed"
       });
     } catch (error) {
       if (isConditionalCheckFailedError(error)) {
-        this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=finalized_during_failure source=${source}`);
-        console.warn("[vnpay] payment.failed_finalize.finalized_during_failure", {
+        this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=finalized_during_failure source=${source}`);
+        console.warn("[queue-payment]", {
           txnRef: result.txnRef,
           source,
           errorName: (error as { name?: string })?.name ?? "",
@@ -477,7 +477,7 @@ export class VnpayService {
         return;
       }
 
-      console.error("[vnpay] payment.failed_finalize.error", {
+      console.error("[queue-payment]", {
         txnRef: result.txnRef,
         source,
         errorName: error instanceof Error ? error.name : "unknown",
@@ -503,15 +503,15 @@ export class VnpayService {
         failureReason
       }, source);
     } else {
-      this.logger.warn(`payment.failed_email_skipped txnRef=${result.txnRef} source=${source} reason=missing_session_email`);
-      console.warn("[vnpay] payment.failed_email_skipped", {
+      this.logger.warn(`[mail-ses] payment_failed_skipped txnRef=${result.txnRef} source=${source} reason=missing_session_email`);
+      console.warn("[mail-ses]", {
         txnRef: result.txnRef,
         source,
         reason: "missing_session_email"
       });
     }
 
-    this.logger.warn(`payment.queue.skipped txnRef=${result.txnRef} reason=status_${result.transactionStatus} source=${source}`);
+    this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=status_${result.transactionStatus} source=${source}`);
   }
 
   private async enqueueFailedPaymentNotification(
@@ -531,9 +531,9 @@ export class VnpayService {
   ) {
     try {
       this.logger.log(
-        `payment.failed_queue.enqueue_begin txnRef=${input.txnRef} source=${source} to=${input.email} responseCode=${input.responseCode}`
+        `[queue-payment] failed_enqueue_begin txnRef=${input.txnRef} source=${source} to=${input.email} responseCode=${input.responseCode}`
       );
-      console.log("[vnpay] payment.failed_queue.enqueue_begin", {
+      console.log("[queue-payment]", {
         txnRef: input.txnRef,
         source,
         to: input.email,
@@ -541,10 +541,10 @@ export class VnpayService {
       });
       await this.notificationsService.publishPaymentFailedEvent(input);
       await this.markPaymentEventEnqueuedSafely(input.txnRef, source);
-      this.logger.log(`payment.failed_queue.triggered txnRef=${input.txnRef} source=${source}`);
+      this.logger.log(`[queue-payment] failed_triggered txnRef=${input.txnRef} source=${source}`);
     } catch (error) {
       this.logger.warn(
-        `payment.failed_queue.enqueue_failed txnRef=${input.txnRef} source=${source} error=${error instanceof Error ? error.message : "unknown"}`
+        `[queue-payment] failed_enqueue_failed txnRef=${input.txnRef} source=${source} error=${error instanceof Error ? error.message : "unknown"}`
       );
     }
   }
@@ -567,7 +567,7 @@ export class VnpayService {
       await this.notificationsService.publishPaymentCompletedEvent(input);
     } catch (error) {
       this.logger.warn(
-        `payment.completed_queue.enqueue_failed txnRef=${input.txnRef} source=${source} error=${error instanceof Error ? error.message : "unknown"}`
+        `[queue-payment] success_enqueue_failed txnRef=${input.txnRef} source=${source} error=${error instanceof Error ? error.message : "unknown"}`
       );
     }
   }
@@ -578,7 +578,7 @@ export class VnpayService {
   ) {
     try {
       await this.notificationsService.publishAuditLog(input);
-      this.logger.log(`payment.audit_enqueued resourceId=${input.resourceId ?? ""} eventType=${input.eventType}`);
+      this.logger.log(`[queue-audit] payment_enqueued resourceId=${input.resourceId ?? ""} eventType=${input.eventType}`);
     } catch (error) {
       this.logger.warn(`${failureLogMessage} error=${error instanceof Error ? error.message : "unknown"}`);
     }
@@ -589,7 +589,7 @@ export class VnpayService {
       await markPaymentEventEnqueued(txnRef);
     } catch (error) {
       if (isConditionalCheckFailedError(error)) {
-        this.logger.log(`payment.queue.already_enqueued txnRef=${txnRef} source=${source}`);
+        this.logger.log(`[queue-payment] already_enqueued txnRef=${txnRef} source=${source}`);
         return;
       }
 

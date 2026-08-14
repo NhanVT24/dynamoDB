@@ -28,25 +28,140 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:217:36)",
+                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:224:36)",
                 "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
             },
             {
-              "constructPath": "SupermarketAwsStack/SupermarketApiFunction/Resource",
+              "constructPath": "SupermarketAwsStack/SupermarketPublicApiFunction/Resource",
               "constructFqn": "aws-cdk-lib.aws_lambda.CfnFunction",
               "libraryVersion": "2.263.0",
               "cloudFormationResource": {
                 "templatePath": "SupermarketAwsStack.template.json",
-                "logicalId": "SupermarketApiFunctionD4E09F97",
+                "logicalId": "SupermarketPublicApiFunctionDFF79A2D",
                 "propertyPaths": [
                   "Properties.Runtime"
                 ]
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:468:28)",
+                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:531:18)",
+                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:31)",
+                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "...node internals, ts-node, ts-node..."
+              ]
+            },
+            {
+              "constructPath": "SupermarketAwsStack/SupermarketOrderApiFunction/Resource",
+              "constructFqn": "aws-cdk-lib.aws_lambda.CfnFunction",
+              "libraryVersion": "2.263.0",
+              "cloudFormationResource": {
+                "templatePath": "SupermarketAwsStack.template.json",
+                "logicalId": "SupermarketOrderApiFunction57C45CBC",
+                "propertyPaths": [
+                  "Properties.Runtime"
+                ]
+              },
+              "stackTraces": [
+                "...new Function2 in aws-cdk-lib...",
+                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:531:18)",
+                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:554:30)",
+                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "...node internals, ts-node, ts-node..."
+              ]
+            },
+            {
+              "constructPath": "SupermarketAwsStack/SupermarketPaymentApiFunction/Resource",
+              "constructFqn": "aws-cdk-lib.aws_lambda.CfnFunction",
+              "libraryVersion": "2.263.0",
+              "cloudFormationResource": {
+                "templatePath": "SupermarketAwsStack.template.json",
+                "logicalId": "SupermarketPaymentApiFunctionA1BF6042",
+                "propertyPaths": [
+                  "Properties.Runtime"
+                ]
+              },
+              "stackTraces": [
+                "...new Function2 in aws-cdk-lib...",
+                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:531:18)",
+                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:559:32)",
+                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "...node internals, ts-node, ts-node..."
+              ]
+            },
+            {
+              "constructPath": "SupermarketAwsStack/SupermarketAdminApiFunction/Resource",
+              "constructFqn": "aws-cdk-lib.aws_lambda.CfnFunction",
+              "libraryVersion": "2.263.0",
+              "cloudFormationResource": {
+                "templatePath": "SupermarketAwsStack.template.json",
+                "logicalId": "SupermarketAdminApiFunctionE4758CBD",
+                "propertyPaths": [
+                  "Properties.Runtime"
+                ]
+              },
+              "stackTraces": [
+                "...new Function2 in aws-cdk-lib...",
+                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:531:18)",
+                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:566:30)",
+                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "...node internals, ts-node, ts-node..."
+              ]
+            },
+            {
+              "constructPath": "SupermarketAwsStack/SupermarketOrderWorkerFunction/Resource",
+              "constructFqn": "aws-cdk-lib.aws_lambda.CfnFunction",
+              "libraryVersion": "2.263.0",
+              "cloudFormationResource": {
+                "templatePath": "SupermarketAwsStack.template.json",
+                "logicalId": "SupermarketOrderWorkerFunction1F70A803",
+                "propertyPaths": [
+                  "Properties.Runtime"
+                ]
+              },
+              "stackTraces": [
+                "...new Function2 in aws-cdk-lib...",
+                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:531:18)",
+                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:571:33)",
+                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "...node internals, ts-node, ts-node..."
+              ]
+            },
+            {
+              "constructPath": "SupermarketAwsStack/SupermarketNotificationWorkerFunction/Resource",
+              "constructFqn": "aws-cdk-lib.aws_lambda.CfnFunction",
+              "libraryVersion": "2.263.0",
+              "cloudFormationResource": {
+                "templatePath": "SupermarketAwsStack.template.json",
+                "logicalId": "SupermarketNotificationWorkerFunction25857A91",
+                "propertyPaths": [
+                  "Properties.Runtime"
+                ]
+              },
+              "stackTraces": [
+                "...new Function2 in aws-cdk-lib...",
+                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:531:18)",
+                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:578:40)",
+                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "...node internals, ts-node, ts-node..."
+              ]
+            },
+            {
+              "constructPath": "SupermarketAwsStack/SupermarketAuditEventWorkerFunction/Resource",
+              "constructFqn": "aws-cdk-lib.aws_lambda.CfnFunction",
+              "libraryVersion": "2.263.0",
+              "cloudFormationResource": {
+                "templatePath": "SupermarketAwsStack.template.json",
+                "logicalId": "SupermarketAuditEventWorkerFunction0575D480",
+                "propertyPaths": [
+                  "Properties.Runtime"
+                ]
+              },
+              "stackTraces": [
+                "...new Function2 in aws-cdk-lib...",
+                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:531:18)",
+                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:585:38)",
                 "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
