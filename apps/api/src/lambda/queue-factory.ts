@@ -7,15 +7,33 @@ type QueueHandlerConfig = {
   worker: "storefront" | "notifications";
 };
 
+type SqsRecord = {
+  body?: string;
+  messageId?: string;
+  eventSource?: string;
+  eventSourceARN?: string;
+};
+
+function normalizeSqsRecords(event: any): SqsRecord[] {
+  const candidates = Array.isArray(event)
+    ? event
+    : Array.isArray(event?.Records)
+      ? event.Records
+      : [];
+
+  return candidates.filter((record: any) => record?.eventSource === "aws:sqs");
+}
+
 export function createQueueHandler(config: QueueHandlerConfig) {
   const appPromise = createNestApp();
 
   return async (event: any) => {
-    const records = Array.isArray(event?.Records) ? event.Records.filter((record: any) => record?.eventSource === "aws:sqs") : [];
+    const records = normalizeSqsRecords(event);
 
     if (records.length === 0) {
       console.log(`[lambda-sqs:${config.lambdaName}] skipped`, {
-        reason: "no_sqs_records"
+        reason: "no_sqs_records",
+        payloadShape: Array.isArray(event) ? "array" : typeof event
       });
       return { batchItemFailures: [] };
     }
@@ -27,6 +45,7 @@ export function createQueueHandler(config: QueueHandlerConfig) {
 
     console.log(`[lambda-sqs:${config.lambdaName}] batch_received`, {
       recordCount: records.length,
+      payloadShape: Array.isArray(event) ? "array" : "records",
       queueArns: [...new Set(records.map((record: any) => String(record.eventSourceARN ?? ""))).values()]
     });
 

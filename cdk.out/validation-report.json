@@ -28,8 +28,8 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:230:36)",
-                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "new AwsApiStack (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:230:36)",
+                "<anonymous> (D:\\JAVA\\Doan\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
             },
@@ -46,9 +46,9 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:567:31)",
-                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "createApplicationLambda (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
+                "new AwsApiStack (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:567:31)",
+                "<anonymous> (D:\\JAVA\\Doan\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
             },
@@ -65,9 +65,9 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:572:30)",
-                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "createApplicationLambda (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
+                "new AwsApiStack (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:572:30)",
+                "<anonymous> (D:\\JAVA\\Doan\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
             },
@@ -84,9 +84,9 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:577:32)",
-                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "createApplicationLambda (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
+                "new AwsApiStack (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:577:32)",
+                "<anonymous> (D:\\JAVA\\Doan\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
             },
@@ -103,9 +103,9 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:584:30)",
-                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "createApplicationLambda (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
+                "new AwsApiStack (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:584:30)",
+                "<anonymous> (D:\\JAVA\\Doan\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
             },
@@ -122,9 +122,9 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:589:33)",
-                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "createApplicationLambda (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
+                "new AwsApiStack (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:589:33)",
+                "<anonymous> (D:\\JAVA\\Doan\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
             },
@@ -141,9 +141,9 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:596:40)",
-                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "createApplicationLambda (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
+                "new AwsApiStack (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:596:40)",
+                "<anonymous> (D:\\JAVA\\Doan\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
             },
@@ -160,9 +160,9 @@
               },
               "stackTraces": [
                 "...new Function2 in aws-cdk-lib...",
-                "createApplicationLambda (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
-                "new AwsApiStack (C:\\project\\dynamoDB\\infra\\lib\\aws-api-stack.ts:603:38)",
-                "<anonymous> (C:\\project\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
+                "createApplicationLambda (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:549:18)",
+                "new AwsApiStack (D:\\JAVA\\Doan\\dynamoDB\\infra\\lib\\aws-api-stack.ts:603:38)",
+                "<anonymous> (D:\\JAVA\\Doan\\dynamoDB\\infra\\bin\\aws-api.ts:7:1)",
                 "...node internals, ts-node, ts-node..."
               ]
             }
