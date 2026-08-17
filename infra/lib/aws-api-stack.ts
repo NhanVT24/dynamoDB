@@ -19,6 +19,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as s3n from "aws-cdk-lib/aws-s3-notifications";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 
@@ -219,6 +220,22 @@ export class AwsApiStack extends Stack {
       retentionPeriod: Duration.days(4),
       deadLetterQueue: {
         queue: paymentEventsDlq,
+        maxReceiveCount: 3
+      }
+    });
+
+    const imageUploadsDlq = new sqs.Queue(this, "ImageUploadsDlq", {
+      queueName: "supermarket-image-uploads-dlq",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14)
+    });
+
+    const imageUploadsQueue = new sqs.Queue(this, "ImageUploadsQueue", {
+      queueName: "supermarket-image-uploads",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(4),
+      deadLetterQueue: {
+        queue: imageUploadsDlq,
         maxReceiveCount: 3
       }
     });
@@ -493,6 +510,7 @@ exports.handler = async (event) => {
       SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
       SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
       SQS_STOREFRONT_ORDERS_QUEUE_URL: storefrontOrdersQueue.queueUrl,
+      SQS_IMAGE_UPLOADS_QUEUE_URL: imageUploadsQueue.queueUrl,
       EVENTBRIDGE_BUS_NAME: platformEventBus.eventBusName,
       EVENTBRIDGE_DEFAULT_BUS_NAME: platformEventBus.eventBusName,
       EVENTBRIDGE_COMMERCE_BUS_NAME: commerceEventBus.eventBusName,
@@ -544,6 +562,7 @@ exports.handler = async (event) => {
       auditQueue.grantSendMessages(fn);
       storefrontOrdersQueue.grantSendMessages(fn);
       paymentEventsQueue.grantSendMessages(fn);
+      imageUploadsQueue.grantSendMessages(fn);
     };
 
     const createApplicationLambda = (
@@ -614,6 +633,13 @@ exports.handler = async (event) => {
       30,
       512
     );
+    const imageUploadWorkerFunction = createApplicationLambda(
+      "SupermarketImageUploadWorkerFunction",
+      "supermarket-image-upload-worker-aws",
+      "src/lambda-image-upload-worker.handler",
+      20,
+      256
+    );
     const auditEventWorkerFunction = createApplicationLambda(
       "SupermarketAuditEventWorkerFunction",
       "supermarket-audit-event-worker-aws",
@@ -663,6 +689,11 @@ exports.handler = async (event) => {
       "PaymentEventsPipeRole",
       paymentEventsQueue,
       notificationWorkerFunction.functionArn
+    );
+    const imageUploadsPipeRole = createPipeRole(
+      "ImageUploadsPipeRole",
+      imageUploadsQueue,
+      imageUploadWorkerFunction.functionArn
     );
     new pipes.CfnPipe(this, "StorefrontOrdersPipe", {
       name: "supermarket-storefront-orders-pipe",
@@ -714,6 +745,28 @@ exports.handler = async (event) => {
         }
       }
     });
+
+    new pipes.CfnPipe(this, "ImageUploadsPipe", {
+      name: "supermarket-image-uploads-pipe",
+      roleArn: imageUploadsPipeRole.roleArn,
+      source: imageUploadsQueue.queueArn,
+      target: imageUploadWorkerFunction.functionArn,
+      sourceParameters: {
+        sqsQueueParameters: {
+          batchSize: 10
+        }
+      },
+      targetParameters: {
+        lambdaFunctionParameters: {
+          invocationType: "REQUEST_RESPONSE"
+        }
+      }
+    });
+
+    productImagesBucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED_PUT,
+      new s3n.SqsDestination(imageUploadsQueue)
+    );
 
     new events.Rule(this, "CommerceOrderRequestedRule", {
       eventBus: commerceEventBus,

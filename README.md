@@ -1,88 +1,56 @@
-# Admin quản lý sản phẩm - Next.js + Node.js + DynamoDB
+# Supermarket Platform
 
-Ứng dụng demo trang admin quản lý sản phẩm, dùng Next.js ở frontend, Fastify ở backend và DynamoDB single-table ở local.
+Monorepo cho nền tảng supermarket gồm:
 
-## Nội dung đã chỉnh
+- `apps/web`: frontend Next.js, gom cả khu `admin` và `customer/store`
+- `apps/api`: backend NestJS/Fastify, tổ chức lại theo `core/`, `modules/`, `entrypoints/`
+- `infra`: CDK stack deploy AWS
 
-- Chuyển model từ danh sách mua sắm sang quản lý sản phẩm.
-- Thêm các trường hợp lý cho sản phẩm: `sku`, `brand`, `stock`, `price`, `originalPrice`, `status`, `rating`, `soldCount`, `featured`.
-- Giao diện admin đơn giản: thẻ thống kê nằm ngang, bảng sản phẩm, form thêm/sửa, filter và phân trang.
-- Backend dùng raw DynamoDB commands: `PutItemCommand`, `GetItemCommand`, `ScanCommand`, `QueryCommand`, `UpdateItemCommand`, `DeleteItemCommand`.
-- Cấu hình local DynamoDB dùng LocalStack qua cổng `4566`.
+## Route chính
 
-## Cách chạy
+- `http://localhost:3000/admin`: giao diện admin
+- `http://localhost:3000/store`: giao diện customer/storefront
+- `http://localhost:3000/`: tự điều hướng sang `admin` hoặc `store` theo session hiện tại
+
+## Cấu trúc mới
+
+### Web
+
+- `app/admin`: route admin
+- `app/store`: route customer/storefront
+- `src/features/admin`: màn hình và component quản trị
+- `src/features/auth`: logic Cognito client-side
+
+### API
+
+- `src/core/app`: bootstrap app và `AppModule`
+- `src/modules`: business modules
+- `src/integrations`: S3, SQS, SES, EventBridge
+- `src/entrypoints/http`: entrypoint chạy server
+- `src/entrypoints/lambda`: entrypoint Lambda theo nhóm `http`, `queue`, `jobs`
+
+### Infra
+
+- `infra/bin/aws-api.ts`: CDK entry
+- `infra/lib/aws-api-stack.ts`: AWS stack chính
+
+## Chạy local
 
 ```bash
 npm install
-npm run db:up
 npm run db:init
 npm run db:seed
 npm run dev
 ```
 
-Web: `http://localhost:3000`
-
-API: `http://localhost:4000`
-
-## Biến môi trường
-
-Root `.env`:
+## Deploy AWS
 
 ```bash
-PORT=4000
-AWS_REGION=ap-southeast-1
-AWS_ACCESS_KEY_ID=local
-AWS_SECRET_ACCESS_KEY=local
-DYNAMODB_ENDPOINT=http://localhost:4566
-DYNAMODB_TABLE_NAME=MarketplaceProducts
-NEXT_PUBLIC_API_URL=http://localhost:4000
+npm run cdk:aws:bootstrap
+npm run cdk:aws:deploy
 ```
 
-## Single-table design
+## Ghi chú
 
-Table dùng một bảng và một GSI:
-
-| Entity | PK | SK | GSI1PK | GSI1SK |
-| --- | --- | --- | --- | --- |
-| Product | `PRODUCT#id` | `DETAIL` | `CATEGORY#category` | `STATUS#status#NAME#name#PRODUCT#id` |
-
-Ý nghĩa:
-
-- `PK/SK` lưu bản ghi chi tiết sản phẩm.
-- `GSI1PK` gom sản phẩm theo danh mục.
-- `GSI1SK` sắp theo trạng thái và tên để hỗ trợ filter/admin dashboard.
-
-## Product fields
-
-| Field | Type | Purpose |
-| --- | --- | --- |
-| `name` | string | Tên sản phẩm |
-| `category` | string | Danh mục chính |
-| `brand` | string | Thương hiệu |
-| `sku` | string | Mã sản phẩm nội bộ |
-| `stock` | number | Tồn kho hiện tại |
-| `price` | number | Giá bán |
-| `originalPrice` | number | Giá gốc để hiển thị khuyến mãi |
-| `status` | string | `active`, `low_stock`, `out_of_stock` |
-| `rating` | number | Đánh giá trung bình |
-| `soldCount` | number | Lượt bán |
-| `featured` | boolean | Sản phẩm nổi bật |
-| `version` | number | Optimistic locking khi update |
-
-## API chính
-
-| Tác vụ | Endpoint | DynamoDB command |
-| --- | --- | --- |
-| Thêm sản phẩm | `POST /api/shopping-items` | `PutItemCommand` |
-| Đọc sản phẩm | `GET /api/shopping-items/:id` | `GetItemCommand` |
-| Lọc theo danh mục | `GET /api/shopping-items?category=Dien%20tu` | `QueryCommand` |
-| Tải danh sách | `GET /api/shopping-items?page=1&limit=8` | `ScanCommand` hoặc `QueryCommand` |
-| Sửa sản phẩm | `PATCH /api/shopping-items/:id` | `UpdateItemCommand` |
-| Tăng/giảm tồn kho | `PATCH /api/shopping-items/:id/increment` | `UpdateItemCommand` |
-| Xóa sản phẩm | `DELETE /api/shopping-items/:id` | `DeleteItemCommand` |
-
-## Ghi chú
-
-- `npm run db:seed` có kiểm tra dữ liệu cũ, nếu bảng đã có sản phẩm thì script sẽ bỏ qua.
-- Nếu Windows báo lỗi `.next/trace`, hãy dừng các tiến trình Node cũ rồi chạy lại `npm run dev`.
-- Hướng deploy chính hiện tại cho local là TypeScript CDK + LocalStack ở [docs/deploy-cdk-localstack.md](C:/project/dynamoDB/docs/deploy-cdk-localstack.md).
+- LocalStack và các script/stack liên quan đã được loại bỏ khỏi repo.
+- Các file entry cũ trong `apps/api/src` đang giữ làm wrapper mỏng để tránh gãy handler/CDK trong lúc chuyển cấu trúc.

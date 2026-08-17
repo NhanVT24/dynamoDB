@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { exchangeAuthorizationCodeForSession } from "../../lib/cognito-auth";
+import { exchangeAuthorizationCodeForSession } from "../../../src/features/auth/lib/cognito-auth";
 
 function AuthCallbackContent() {
   const router = useRouter();
@@ -26,7 +26,7 @@ function AuthCallbackContent() {
 
     exchangeAuthorizationCodeForSession(code)
       .then((session) => {
-        router.replace(session.role === "admin" ? "/" : "/store");
+        router.replace(session.role === "admin" ? "/admin" : "/store");
       })
       .catch((reason: unknown) => {
         setMessage(reason instanceof Error ? reason.message : "Không thể hoàn tất đăng nhập Google.");

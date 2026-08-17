@@ -27,7 +27,7 @@ Muc free-tier-friendly hien tai:
 - `infra/bin/aws-api.ts`
 - `infra/lib/aws-api-stack.ts`
 
-Stack local cho LocalStack van giu nguyen, khong bi anh huong.
+Repo hien tai da bo LocalStack, chi giu huong deploy AWS CDK chinh.
 
 ## 3. Dieu can cai truoc
 

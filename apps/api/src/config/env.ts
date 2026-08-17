@@ -21,6 +21,7 @@ export const env = z.object({
   SQS_AUDIT_QUEUE_URL: z.string().optional(),
   SQS_PAYMENT_EVENTS_QUEUE_URL: z.string().optional(),
   SQS_STOREFRONT_ORDERS_QUEUE_URL: z.string().optional(),
+  SQS_IMAGE_UPLOADS_QUEUE_URL: z.string().optional(),
   EVENTBRIDGE_BUS_NAME: z.string().optional(),
   EVENTBRIDGE_DEFAULT_BUS_NAME: z.string().optional(),
   EVENTBRIDGE_COMMERCE_BUS_NAME: z.string().optional(),

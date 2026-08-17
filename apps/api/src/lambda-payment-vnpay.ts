@@ -1,9 +1,1 @@
-import "reflect-metadata";
-import { createHttpHandler } from "./lambda/http-factory.js";
-
-export const handler = createHttpHandler({
-  lambdaName: "payment-vnpay-api",
-  rewritablePrefixes: [
-    "/api/payments/vnpay"
-  ]
-});
+export { handler } from "./entrypoints/lambda/http/payment-vnpay.js";

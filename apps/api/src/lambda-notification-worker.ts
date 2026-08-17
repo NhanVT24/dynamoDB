@@ -1,7 +1,1 @@
-import "reflect-metadata";
-import { createQueueHandler } from "./lambda/queue-factory.js";
-
-export const handler = createQueueHandler({
-  lambdaName: "notification-worker",
-  worker: "notifications"
-});
+export { handler } from "./entrypoints/lambda/queue/notification-worker.js";

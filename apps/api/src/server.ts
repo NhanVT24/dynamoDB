@@ -1,4 +1,4 @@
 import "reflect-metadata";
-import { startNestApp } from "./app.js";
+import { startNestApp } from "./core/app/create-app.js";
 
 await startNestApp();
