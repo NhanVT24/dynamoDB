@@ -23,7 +23,8 @@
     "db:down": "docker compose down",
     "db:init": "npm run db:init -w @supermarket/api",
     "db:seed": "npm run db:seed -w @supermarket/api",
-    "db:localize": "npm run db:localize -w @supermarket/api"
+    "db:localize": "npm run db:localize -w @supermarket/api",
+    "mail:test:weekly-report": "npm run mail:test:weekly-report -w @supermarket/api"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

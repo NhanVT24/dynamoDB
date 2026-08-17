@@ -101,6 +101,12 @@ export class AwsApiStack extends Stack {
       description: "Verified SES sender email address"
     });
 
+    const adminReportEmail = new CfnParameter(this, "AdminReportEmail", {
+      type: "String",
+      default: "vonhan2432005@gmail.com",
+      description: "Admin email address that receives the weekly revenue report"
+    });
+
     const table = new dynamodb.CfnTable(this, "MarketplaceProductsTable", {
       tableName: dynamoTableName.valueAsString,
       billingMode: "PAY_PER_REQUEST",
@@ -493,6 +499,7 @@ exports.handler = async (event) => {
       EVENTBRIDGE_PAYMENT_BUS_NAME: paymentEventBus.eventBusName,
       EVENTBRIDGE_PLATFORM_BUS_NAME: platformEventBus.eventBusName,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
+      ADMIN_REPORT_EMAIL: adminReportEmail.valueAsString,
       VNPAY_TMN_CODE: vnpayTmnCodeValue,
       VNPAY_HASH_SECRET: vnpayHashSecret.valueAsString,
       VNPAY_PAYMENT_URL: vnpayPaymentUrlValue,
@@ -598,6 +605,13 @@ exports.handler = async (event) => {
       "supermarket-notification-worker-aws",
       "src/lambda-notification-worker.handler",
       20,
+      512
+    );
+    const weeklyAdminReportFunction = createApplicationLambda(
+      "SupermarketWeeklyAdminReportFunction",
+      "supermarket-weekly-admin-report-aws",
+      "src/lambda-weekly-admin-report.handler",
+      30,
       512
     );
     const auditEventWorkerFunction = createApplicationLambda(
@@ -757,6 +771,16 @@ exports.handler = async (event) => {
         detailType: ["audit.log.created"]
       },
       targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction)]
+    });
+
+    new events.Rule(this, "WeeklyAdminRevenueReportSchedule", {
+      ruleName: "supermarket-weekly-admin-revenue-report",
+      schedule: events.Schedule.cron({
+        minute: "45",
+        hour: "2",
+        weekDay: "MON"
+      }),
+      targets: [new eventsTargets.LambdaFunction(weeklyAdminReportFunction)]
     });
 
     const api = new apigateway.RestApi(this, "SupermarketApiGateway", {

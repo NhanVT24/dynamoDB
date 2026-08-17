@@ -63,6 +63,11 @@
    "Default": "nhan18072020@gmail.com",
    "Description": "Verified SES sender email address"
   },
+  "AdminReportEmail": {
+   "Type": "String",
+   "Default": "vonhan2432005@gmail.com",
+   "Description": "Admin email address that receives the weekly revenue report"
+  },
   "BootstrapVersion": {
    "Type": "AWS::SSM::Parameter::Value<String>",
    "Default": "/cdk-bootstrap/hnb659fds/version",
@@ -1233,7 +1238,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip"
+     "S3Key": "48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip"
     },
     "Environment": {
      "Variables": {
@@ -1284,6 +1289,9 @@
       },
       "SES_FROM_EMAIL": {
        "Ref": "SesFromEmail"
+      },
+      "ADMIN_REPORT_EMAIL": {
+       "Ref": "AdminReportEmail"
       },
       "VNPAY_TMN_CODE": {
        "Fn::Join": [
@@ -1339,7 +1347,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketPublicApiFunction/Resource",
-    "aws:asset:path": "asset.486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip",
+    "aws:asset:path": "asset.48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -1566,7 +1574,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip"
+     "S3Key": "48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip"
     },
     "Environment": {
      "Variables": {
@@ -1617,6 +1625,9 @@
       },
       "SES_FROM_EMAIL": {
        "Ref": "SesFromEmail"
+      },
+      "ADMIN_REPORT_EMAIL": {
+       "Ref": "AdminReportEmail"
       },
       "VNPAY_TMN_CODE": {
        "Fn::Join": [
@@ -1672,7 +1683,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketOrderApiFunction/Resource",
-    "aws:asset:path": "asset.486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip",
+    "aws:asset:path": "asset.48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -1899,7 +1910,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip"
+     "S3Key": "48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip"
     },
     "Environment": {
      "Variables": {
@@ -1950,6 +1961,9 @@
       },
       "SES_FROM_EMAIL": {
        "Ref": "SesFromEmail"
+      },
+      "ADMIN_REPORT_EMAIL": {
+       "Ref": "AdminReportEmail"
       },
       "VNPAY_TMN_CODE": {
        "Fn::Join": [
@@ -2005,7 +2019,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketPaymentApiFunction/Resource",
-    "aws:asset:path": "asset.486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip",
+    "aws:asset:path": "asset.48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -2232,7 +2246,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip"
+     "S3Key": "48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip"
     },
     "Environment": {
      "Variables": {
@@ -2283,6 +2297,9 @@
       },
       "SES_FROM_EMAIL": {
        "Ref": "SesFromEmail"
+      },
+      "ADMIN_REPORT_EMAIL": {
+       "Ref": "AdminReportEmail"
       },
       "VNPAY_TMN_CODE": {
        "Fn::Join": [
@@ -2338,7 +2355,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketAdminApiFunction/Resource",
-    "aws:asset:path": "asset.486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip",
+    "aws:asset:path": "asset.48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -2565,7 +2582,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip"
+     "S3Key": "48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip"
     },
     "Environment": {
      "Variables": {
@@ -2616,6 +2633,9 @@
       },
       "SES_FROM_EMAIL": {
        "Ref": "SesFromEmail"
+      },
+      "ADMIN_REPORT_EMAIL": {
+       "Ref": "AdminReportEmail"
       },
       "VNPAY_TMN_CODE": {
        "Fn::Join": [
@@ -2671,7 +2691,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketOrderWorkerFunction/Resource",
-    "aws:asset:path": "asset.486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip",
+    "aws:asset:path": "asset.48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -2898,7 +2918,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip"
+     "S3Key": "48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip"
     },
     "Environment": {
      "Variables": {
@@ -2949,6 +2969,9 @@
       },
       "SES_FROM_EMAIL": {
        "Ref": "SesFromEmail"
+      },
+      "ADMIN_REPORT_EMAIL": {
+       "Ref": "AdminReportEmail"
       },
       "VNPAY_TMN_CODE": {
        "Fn::Join": [
@@ -3004,7 +3027,343 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketNotificationWorkerFunction/Resource",
-    "aws:asset:path": "asset.486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip",
+    "aws:asset:path": "asset.48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "SupermarketWeeklyAdminReportFunctionServiceRole29ECD08B": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketWeeklyAdminReportFunction/ServiceRole/Resource"
+   }
+  },
+  "SupermarketWeeklyAdminReportFunctionServiceRoleDefaultPolicyCE9B596A": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem",
+        "dynamodb:TransactWriteItems"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "MarketplaceProductsTable",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "MarketplaceProductsTable",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+       ],
+       "Effect": "Allow",
+       "Resource": "*"
+      },
+      {
+       "Action": "events:PutEvents",
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "SupermarketCommerceEventBusB1676C0F",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::GetAtt": [
+          "SupermarketPaymentEventBusFB497C2B",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::GetAtt": [
+          "SupermarketPlatformEventBusB8FC3B47",
+          "Arn"
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging",
+        "s3:Abort*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "ProductImagesBucket03BDA4C8",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "ProductImagesBucket03BDA4C8",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "NotificationsQueue3B766469",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuditQueue1D3C234B",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "StorefrontOrdersQueueCA45F131",
+         "Arn"
+        ]
+       }
+      },
+      {
+       "Action": [
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "PaymentEventsQueueD28497E2",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "SupermarketWeeklyAdminReportFunctionServiceRoleDefaultPolicyCE9B596A",
+    "Roles": [
+     {
+      "Ref": "SupermarketWeeklyAdminReportFunctionServiceRole29ECD08B"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketWeeklyAdminReportFunction/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "SupermarketWeeklyAdminReportFunctionFA79598D": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "x86_64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
+     "S3Key": "48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "DYNAMODB_TABLE_NAME": {
+       "Ref": "DynamoTableName"
+      },
+      "S3_BUCKET_NAME": {
+       "Ref": "ProductImagesBucket03BDA4C8"
+      },
+      "S3_PUBLIC_BASE_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "https://",
+         {
+          "Ref": "ProductImagesBucket03BDA4C8"
+         },
+         ".s3.ap-southeast-1.amazonaws.com"
+        ]
+       ]
+      },
+      "SQS_NOTIFICATIONS_QUEUE_URL": {
+       "Ref": "NotificationsQueue3B766469"
+      },
+      "SQS_AUDIT_QUEUE_URL": {
+       "Ref": "AuditQueue1D3C234B"
+      },
+      "SQS_PAYMENT_EVENTS_QUEUE_URL": {
+       "Ref": "PaymentEventsQueueD28497E2"
+      },
+      "SQS_STOREFRONT_ORDERS_QUEUE_URL": {
+       "Ref": "StorefrontOrdersQueueCA45F131"
+      },
+      "EVENTBRIDGE_BUS_NAME": {
+       "Ref": "SupermarketPlatformEventBusB8FC3B47"
+      },
+      "EVENTBRIDGE_DEFAULT_BUS_NAME": {
+       "Ref": "SupermarketPlatformEventBusB8FC3B47"
+      },
+      "EVENTBRIDGE_COMMERCE_BUS_NAME": {
+       "Ref": "SupermarketCommerceEventBusB1676C0F"
+      },
+      "EVENTBRIDGE_PAYMENT_BUS_NAME": {
+       "Ref": "SupermarketPaymentEventBusFB497C2B"
+      },
+      "EVENTBRIDGE_PLATFORM_BUS_NAME": {
+       "Ref": "SupermarketPlatformEventBusB8FC3B47"
+      },
+      "SES_FROM_EMAIL": {
+       "Ref": "SesFromEmail"
+      },
+      "ADMIN_REPORT_EMAIL": {
+       "Ref": "AdminReportEmail"
+      },
+      "VNPAY_TMN_CODE": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayTmnCodeSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_HASH_SECRET": {
+       "Ref": "VnpayHashSecret"
+      },
+      "VNPAY_PAYMENT_URL": {
+       "Fn::Join": [
+        "",
+        [
+         "{{resolve:ssm:",
+         {
+          "Ref": "VnpayPaymentUrlSsmPath"
+         },
+         "}}"
+        ]
+       ]
+      },
+      "VNPAY_RETURN_URL": {
+       "Ref": "VnpayReturnUrl"
+      },
+      "VNPAY_IPN_URL": {
+       "Ref": "VnpayIpnUrl"
+      },
+      "LAMBDA_FUNCTION_CONTEXT": "supermarket-weekly-admin-report-aws"
+     }
+    },
+    "FunctionName": "supermarket-weekly-admin-report-aws",
+    "Handler": "src/lambda-weekly-admin-report.handler",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "SupermarketWeeklyAdminReportFunctionServiceRole29ECD08B",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Timeout": 30
+   },
+   "DependsOn": [
+    "SupermarketWeeklyAdminReportFunctionServiceRoleDefaultPolicyCE9B596A",
+    "SupermarketWeeklyAdminReportFunctionServiceRole29ECD08B"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/SupermarketWeeklyAdminReportFunction/Resource",
+    "aws:asset:path": "asset.48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -3231,7 +3590,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-510935912072-ap-southeast-1",
-     "S3Key": "486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip"
+     "S3Key": "48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip"
     },
     "Environment": {
      "Variables": {
@@ -3282,6 +3641,9 @@
       },
       "SES_FROM_EMAIL": {
        "Ref": "SesFromEmail"
+      },
+      "ADMIN_REPORT_EMAIL": {
+       "Ref": "AdminReportEmail"
       },
       "VNPAY_TMN_CODE": {
        "Fn::Join": [
@@ -3337,7 +3699,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/SupermarketAuditEventWorkerFunction/Resource",
-    "aws:asset:path": "asset.486b2a7969957af2e224325e73e3c24c861eedaff9720cc798274fd819cb3c61.zip",
+    "aws:asset:path": "asset.48ec0b1bf4d6499a2b60eb0166afa2f961f6dd59eed8c6dafbf67ba213e3758e.zip",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -3896,6 +4258,50 @@
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/PlatformAuditRule/AllowEventRuleSupermarketAwsStackSupermarketAuditEventWorkerFunction5742CDA3"
+   }
+  },
+  "WeeklyAdminRevenueReportSchedule7F1A9119": {
+   "Type": "AWS::Events::Rule",
+   "Properties": {
+    "Name": "supermarket-weekly-admin-revenue-report",
+    "ScheduleExpression": "cron(45 2 ? * MON *)",
+    "State": "ENABLED",
+    "Targets": [
+     {
+      "Arn": {
+       "Fn::GetAtt": [
+        "SupermarketWeeklyAdminReportFunctionFA79598D",
+        "Arn"
+       ]
+      },
+      "Id": "Target0"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/WeeklyAdminRevenueReportSchedule/Resource"
+   }
+  },
+  "WeeklyAdminRevenueReportScheduleAllowEventRuleSupermarketAwsStackSupermarketWeeklyAdminReportFunctionC71040E6EDBB2CFF": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "SupermarketWeeklyAdminReportFunctionFA79598D",
+      "Arn"
+     ]
+    },
+    "Principal": "events.amazonaws.com",
+    "SourceArn": {
+     "Fn::GetAtt": [
+      "WeeklyAdminRevenueReportSchedule7F1A9119",
+      "Arn"
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "SupermarketAwsStack/WeeklyAdminRevenueReportSchedule/AllowEventRuleSupermarketAwsStackSupermarketWeeklyAdminReportFunctionC71040E6"
    }
   },
   "SupermarketApiGatewayD32A94E9": {
@@ -6386,7 +6792,7 @@
   "CDKMetadata": {
    "Type": "AWS::CDK::Metadata",
    "Properties": {
-    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VSTZPTMAz9Lduza0o7w4FbP9idPTAbUjgxzI6TaLNqYytYckvJ5L8zzkcbBjhwid7zk54kO0u9fLfSiztz5nleHOcVZrrZi8mPavviEuONBQGvzJmfm+LijKUi09sX99lkFShe6WYT8iNITO/R12Zm8Qe62fvZ1DU68Ep3Eus+dR2EdlCBwFN2gFx41n5TvZRQhfnl5trz//DuC/ZiBCy4qfXGMLSKv7NuPgUIEJv0oPveOk9oq+AUXXTzIcZN4JhwxWmoOpsYW1UZmxVGN/fB5YLkojLFCXiLzEiuVWisblIaymO89R9b51Q6FNLNFwafEFVRvOIRbCsEJ1NpOBnpjqxBN0348+TBU6ivFY8FOEG5JJ5OWIB/ICr7Sf+V0SpePRtmENbrGFSNNXD8YxKsQZkaSyNwNhfdpMCyrrFb/AbXeU7BidpBXdHFDitN2F5M2c3QgxSYgs8hvqr6CPJKRRQHNKpDkwH39znuwOsgr+TxJ/hugCtrW7UNLGT/7vKbNF5AN0a3eRwPXRlrnoLUQVrlqAB94Den5UIvF/rt3YER5z44QQs67eMvJEjNWJMDAAA="
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/5VSTY/TMBD9Lduza5YWIcStH7DigDakcEJo5SSz2WljT/CMW0qU/46cjzYI9rCXzHt+M29m7Cz04u1S396YE8/z4jCvMNPNTkx+UJtHlxhvLAh4ZU780BRnZywVmd48uq8mq0DxUjfrkB9AYnqPvjczi7/Qzd7Ppq7RgZe6k1j3qasgtIUKBO6zPeTCs/aH6qWEKszPV9eev8C7L9iJEbDgptZrw9Aq/sm6+RIgQGzSg+577TyhrYJjdNHNhxjXgWPCBaeh6mxibFVlbFYY3XwMLhckF5UpTsBbZEZyrUJjdZPSUB7jtf/YOqfSoZBuvjH4hKiK4gWPYFMhOJlKw8lIt2QNumnCvyd3nkJ9qfhUgBOUc+LpiAX4O6Kyn/S5jFbx8sEwg7BexaBqrIHjH5NgDcrUWBqBkznrJgWWVY3d4le4ynMKTtQW6orOdlhpwnZiym6GHqTAFHwO8VXVZ5AnKqI4oFEdmgy4v89xB14FeSKPv8F3A1xY26pNYCH7f5e/pPECujG6zeN46MpYcx+kDtIqRwXoPb86Lt7o1+/07c2eEec+OEELOu3jH0zNRMmTAwAA"
    },
    "Metadata": {
     "aws:cdk:path": "SupermarketAwsStack/CDKMetadata/Default"
