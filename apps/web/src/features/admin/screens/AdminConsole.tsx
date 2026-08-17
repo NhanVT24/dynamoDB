@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import ShoppingManager from "../components/ShoppingManager";
 import {
   beginGoogleSignIn,
@@ -90,6 +90,7 @@ function PasswordField({
 
 export default function Home() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -124,10 +125,25 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!ready || !session) return;
-    if (session.role !== "admin") {
-      router.replace("/store");
+    if (searchParams.get("auth") === "insufficient-role") {
+      setMessage("Tài khoản hiện tại đã đăng nhập nhưng không thuộc nhóm admin, nên không thể vào màn quản trị.");
     }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!ready || !session) return;
+
+    if (session.role !== "admin") {
+      setMessage(`Tài khoản ${session.email} đang có quyền ${session.role}. Muốn vào admin, hãy đăng nhập bằng user thuộc group admin.`);
+    }
+  }, [ready, session]);
+
+  useEffect(() => {
+    if (!ready || !session || session.role === "admin") {
+      return;
+    }
+
+    router.replace("/store");
   }, [ready, router, session]);
 
   useEffect(() => {
@@ -166,7 +182,8 @@ export default function Home() {
       lowered.includes("sai") ||
       lowered.includes("hết hạn") ||
       lowered.includes("khớp") ||
-      lowered.includes("đã được đăng ký")
+      lowered.includes("đã được đăng ký") ||
+      lowered.includes("không thuộc nhóm admin")
     ) {
       return "border-rose-200 bg-rose-50 text-rose-700";
     }
@@ -189,7 +206,15 @@ export default function Home() {
       });
 
       setSession(nextSession);
-      setMessage(nextSession.role === "admin" ? "Đăng nhập admin thành công." : "Đăng nhập thành công, đang chuyển sang trang mua sắm.");
+      if (nextSession.role !== "admin") {
+        router.replace("/store");
+        return;
+      }
+      setMessage(
+        nextSession.role === "admin"
+          ? "Đăng nhập admin thành công."
+          : `Đăng nhập thành công nhưng tài khoản hiện tại có quyền ${nextSession.role}, chưa đủ để vào admin.`
+      );
     } catch (error) {
       const text = error instanceof Error ? error.message : "Đăng nhập thất bại";
       setMessage(text);
@@ -338,7 +363,7 @@ export default function Home() {
 
   return (
     <div className="grid gap-4">
-      {!session ? (
+      {!session || session.role !== "admin" ? (
         <section className="mx-auto w-full max-w-md rounded-[28px] border border-white/70 bg-white p-6 shadow-[0_30px_100px_rgba(15,23,42,0.12)]">
           <div className="mb-5 text-center">
             <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
@@ -349,198 +374,220 @@ export default function Home() {
               {authMode === "reset" && "Đặt lại mật khẩu"}
             </h2>
             <p className={`mt-3 rounded-2xl border px-4 py-3 text-left text-sm ${renderMessageTone()}`}>{message}</p>
-          </div>
-
-          {authMode === "login" ? (
-            <form className="grid gap-4" onSubmit={handleLogin}>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Email</span>
-                <input className={inputClassName} type="email" placeholder="admin@example.com" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Mật khẩu</span>
-                <PasswordField
-                  value={loginPassword}
-                  onChange={setLoginPassword}
-                  placeholder="Nhập mật khẩu của bạn"
-                  autoComplete="current-password"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}
-              </button>
-              <button
-                type="button"
-                onClick={beginGoogleSignIn}
-                className="inline-flex h-11 items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                  <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.8-6-6.2s2.7-6.2 6-6.2c1.9 0 3.2.8 3.9 1.5l2.7-2.6C17 2.9 14.7 2 12 2 6.9 2 2.8 6.3 2.8 11.8S6.9 21.5 12 21.5c6.9 0 9.2-4.9 9.2-7.5 0-.5 0-.9-.1-1.3H12Z" />
-                  <path fill="#4285F4" d="M3.8 7.3l3.2 2.4C7.8 7.3 9.7 5.6 12 5.6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C17 2.9 14.7 2 12 2 8 2 4.6 4.3 3 7.7l.8-.4Z" />
-                  <path fill="#FBBC05" d="M12 21.5c2.6 0 4.8-.9 6.4-2.5l-3-2.5c-.8.6-1.9 1-3.4 1-3.9 0-5.2-2.6-5.5-3.9l-3.2 2.5C4.6 19.2 8 21.5 12 21.5Z" />
-                  <path fill="#34A853" d="M6.5 13.6c-.2-.6-.3-1.2-.3-1.8s.1-1.2.3-1.8L3.3 7.5C2.8 8.7 2.5 10.2 2.5 11.8s.3 3.1.8 4.3l3.2-2.5Z" />
-                </svg>
-                <span>Đăng nhập với Google</span>
-              </button>
-            </form>
-          ) : null}
-
-          {authMode === "register" ? (
-            <form className="grid gap-4" onSubmit={handleRegister}>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Họ và tên</span>
-                <input className={inputClassName} placeholder="Ví dụ: Nguyễn Văn A" value={registerName} onChange={(event) => setRegisterName(event.target.value)} />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Email</span>
-                <input className={inputClassName} type="email" placeholder="you@example.com" value={registerEmail} onChange={(event) => setRegisterEmail(event.target.value)} required />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Mật khẩu</span>
-                <PasswordField
-                  value={registerPassword}
-                  onChange={setRegisterPassword}
-                  placeholder="Ít nhất 8 ký tự, có chữ hoa, chữ thường và số"
-                  autoComplete="new-password"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Xác nhận mật khẩu</span>
-                <PasswordField
-                  value={registerConfirmPassword}
-                  onChange={setRegisterConfirmPassword}
-                  placeholder="Nhập lại mật khẩu để xác nhận"
-                  autoComplete="new-password"
-                />
-              </label>
-              <p className="text-xs text-slate-500">
-                Quy tắc mật khẩu: ít nhất 8 ký tự, có chữ hoa, chữ thường và số.
-              </p>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-cyan-600 px-4 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSubmitting ? "Đang tạo tài khoản..." : "Tạo tài khoản"}
-              </button>
-            </form>
-          ) : null}
-
-          {authMode === "confirm" ? (
-            <form className="grid gap-4" onSubmit={handleConfirm}>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Email</span>
-                <input className={inputClassName} type="email" placeholder="Email vừa đăng ký" value={confirmEmail} onChange={(event) => setConfirmEmail(event.target.value)} required />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Mã xác nhận</span>
-                <input className={inputClassName} placeholder="Nhập mã gồm 6 chữ số từ email" value={confirmCode} onChange={(event) => setConfirmCode(event.target.value)} required />
-              </label>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSubmitting ? "Đang xác nhận..." : "Xác nhận tài khoản"}
-              </button>
-              <button
-                type="button"
-                onClick={handleResendCode}
-                disabled={isSubmitting || resendCountdown > 0}
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {resendCountdown > 0 ? `Gửi lại mã sau ${resendCountdown}s` : "Gửi lại mã"}
-              </button>
-            </form>
-          ) : null}
-
-          {authMode === "forgot" ? (
-            <form className="grid gap-4" onSubmit={handleForgotPassword}>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Email</span>
-                <input className={inputClassName} type="email" placeholder="Nhập email tài khoản của bạn" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
-              </label>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSubmitting ? "Đang gửi mã..." : "Gửi mã đặt lại"}
-              </button>
-            </form>
-          ) : null}
-
-          {authMode === "reset" ? (
-            <form className="grid gap-4" onSubmit={handleResetPassword}>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Email</span>
-                <input className={inputClassName} type="email" placeholder="Email cần đặt lại mật khẩu" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Mã đặt lại</span>
-                <input className={inputClassName} placeholder="Nhập mã đặt lại từ email" value={resetCode} onChange={(event) => setResetCode(event.target.value)} required />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Mật khẩu mới</span>
-                <PasswordField
-                  value={resetPassword}
-                  onChange={setResetPassword}
-                  placeholder="Tạo mật khẩu mới mạnh hơn mật khẩu cũ"
-                  autoComplete="new-password"
-                />
-              </label>
-              <label className="grid gap-2 text-sm font-medium text-slate-700">
-                <span>Xác nhận mật khẩu mới</span>
-                <PasswordField
-                  value={resetConfirmPassword}
-                  onChange={setResetConfirmPassword}
-                  placeholder="Nhập lại mật khẩu mới"
-                  autoComplete="new-password"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSubmitting ? "Đang cập nhật mật khẩu..." : "Cập nhật mật khẩu"}
-              </button>
-            </form>
-          ) : null}
-
-          <div className={`mt-5 grid gap-3 ${singleActionMode ? "grid-cols-1" : "grid-cols-2"}`}>
-            {authMode !== "register" && authMode !== "forgot" && authMode !== "reset" && authMode !== "confirm" ? (
-              <button
-                type="button"
-                onClick={() => setAuthMode("register")}
-                className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-cyan-200 bg-cyan-50 px-4 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-100"
-              >
-                Tạo tài khoản
-              </button>
-            ) : null}
-            {authMode !== "forgot" && authMode !== "reset" && authMode !== "register" && authMode !== "confirm" ? (
-              <button
-                type="button"
-                onClick={() => setAuthMode("forgot")}
-                className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Quên mật khẩu
-              </button>
-            ) : null}
-            {authMode !== "login" ? (
-              <button
-                type="button"
-                onClick={() => setAuthMode("login")}
-                className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Quay lại đăng nhập
-              </button>
+            {session && session.role !== "admin" ? (
+              <div className="mt-3 flex flex-wrap justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => router.push("/")}
+                  className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Về trang chủ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleHostedLogout}
+                  className="inline-flex h-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
+                >
+                  Đăng xuất để đổi tài khoản
+                </button>
+              </div>
             ) : null}
           </div>
+
+          {!session ? (
+            <>
+              {authMode === "login" ? (
+                <form className="grid gap-4" onSubmit={handleLogin}>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Email</span>
+                    <input className={inputClassName} type="email" placeholder="admin@example.com" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required />
+                  </label>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Mật khẩu</span>
+                    <PasswordField
+                      value={loginPassword}
+                      onChange={setLoginPassword}
+                      placeholder="Nhập mật khẩu của bạn"
+                      autoComplete="current-password"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={beginGoogleSignIn}
+                    className="inline-flex h-11 items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                      <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.8-6-6.2s2.7-6.2 6-6.2c1.9 0 3.2.8 3.9 1.5l2.7-2.6C17 2.9 14.7 2 12 2 6.9 2 2.8 6.3 2.8 11.8S6.9 21.5 12 21.5c6.9 0 9.2-4.9 9.2-7.5 0-.5 0-.9-.1-1.3H12Z" />
+                      <path fill="#4285F4" d="M3.8 7.3l3.2 2.4C7.8 7.3 9.7 5.6 12 5.6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C17 2.9 14.7 2 12 2 8 2 4.6 4.3 3 7.7l.8-.4Z" />
+                      <path fill="#FBBC05" d="M12 21.5c2.6 0 4.8-.9 6.4-2.5l-3-2.5c-.8.6-1.9 1-3.4 1-3.9 0-5.2-2.6-5.5-3.9l-3.2 2.5C4.6 19.2 8 21.5 12 21.5Z" />
+                      <path fill="#34A853" d="M6.5 13.6c-.2-.6-.3-1.2-.3-1.8s.1-1.2.3-1.8L3.3 7.5C2.8 8.7 2.5 10.2 2.5 11.8s.3 3.1.8 4.3l3.2-2.5Z" />
+                    </svg>
+                    <span>Đăng nhập với Google</span>
+                  </button>
+                </form>
+              ) : null}
+
+              {authMode === "register" ? (
+                <form className="grid gap-4" onSubmit={handleRegister}>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Họ và tên</span>
+                    <input className={inputClassName} placeholder="Ví dụ: Nguyễn Văn A" value={registerName} onChange={(event) => setRegisterName(event.target.value)} />
+                  </label>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Email</span>
+                    <input className={inputClassName} type="email" placeholder="you@example.com" value={registerEmail} onChange={(event) => setRegisterEmail(event.target.value)} required />
+                  </label>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Mật khẩu</span>
+                    <PasswordField
+                      value={registerPassword}
+                      onChange={setRegisterPassword}
+                      placeholder="Ít nhất 8 ký tự, có chữ hoa, chữ thường và số"
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Xác nhận mật khẩu</span>
+                    <PasswordField
+                      value={registerConfirmPassword}
+                      onChange={setRegisterConfirmPassword}
+                      placeholder="Nhập lại mật khẩu để xác nhận"
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <p className="text-xs text-slate-500">
+                    Quy tắc mật khẩu: ít nhất 8 ký tự, có chữ hoa, chữ thường và số.
+                  </p>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="inline-flex h-11 items-center justify-center rounded-xl bg-cyan-600 px-4 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isSubmitting ? "Đang tạo tài khoản..." : "Tạo tài khoản"}
+                  </button>
+                </form>
+              ) : null}
+
+              {authMode === "confirm" ? (
+                <form className="grid gap-4" onSubmit={handleConfirm}>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Email</span>
+                    <input className={inputClassName} type="email" placeholder="Email vừa đăng ký" value={confirmEmail} onChange={(event) => setConfirmEmail(event.target.value)} required />
+                  </label>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Mã xác nhận</span>
+                    <input className={inputClassName} placeholder="Nhập mã gồm 6 chữ số từ email" value={confirmCode} onChange={(event) => setConfirmCode(event.target.value)} required />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isSubmitting ? "Đang xác nhận..." : "Xác nhận tài khoản"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResendCode}
+                    disabled={isSubmitting || resendCountdown > 0}
+                    className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {resendCountdown > 0 ? `Gửi lại mã sau ${resendCountdown}s` : "Gửi lại mã"}
+                  </button>
+                </form>
+              ) : null}
+
+              {authMode === "forgot" ? (
+                <form className="grid gap-4" onSubmit={handleForgotPassword}>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Email</span>
+                    <input className={inputClassName} type="email" placeholder="Nhập email tài khoản của bạn" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isSubmitting ? "Đang gửi mã..." : "Gửi mã đặt lại"}
+                  </button>
+                </form>
+              ) : null}
+
+              {authMode === "reset" ? (
+                <form className="grid gap-4" onSubmit={handleResetPassword}>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Email</span>
+                    <input className={inputClassName} type="email" placeholder="Email cần đặt lại mật khẩu" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
+                  </label>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Mã đặt lại</span>
+                    <input className={inputClassName} placeholder="Nhập mã đặt lại từ email" value={resetCode} onChange={(event) => setResetCode(event.target.value)} required />
+                  </label>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Mật khẩu mới</span>
+                    <PasswordField
+                      value={resetPassword}
+                      onChange={setResetPassword}
+                      placeholder="Tạo mật khẩu mới mạnh hơn mật khẩu cũ"
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm font-medium text-slate-700">
+                    <span>Xác nhận mật khẩu mới</span>
+                    <PasswordField
+                      value={resetConfirmPassword}
+                      onChange={setResetConfirmPassword}
+                      placeholder="Nhập lại mật khẩu mới"
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isSubmitting ? "Đang cập nhật mật khẩu..." : "Cập nhật mật khẩu"}
+                  </button>
+                </form>
+              ) : null}
+
+              <div className={`mt-5 grid gap-3 ${singleActionMode ? "grid-cols-1" : "grid-cols-2"}`}>
+                {authMode !== "register" && authMode !== "forgot" && authMode !== "reset" && authMode !== "confirm" ? (
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode("register")}
+                    className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-cyan-200 bg-cyan-50 px-4 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-100"
+                  >
+                    Tạo tài khoản
+                  </button>
+                ) : null}
+                {authMode !== "forgot" && authMode !== "reset" && authMode !== "register" && authMode !== "confirm" ? (
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode("forgot")}
+                    className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Quên mật khẩu
+                  </button>
+                ) : null}
+                {authMode !== "login" ? (
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode("login")}
+                    className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    Quay lại đăng nhập
+                  </button>
+                ) : null}
+              </div>
+            </>
+          ) : null}
         </section>
       ) : null}
 

@@ -1,11 +1,11 @@
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
-import { AppModule } from "./app.module.js";
 import { isAdminRequest } from "../../common/auth/cognito-groups.js";
 import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
-import { env } from "../../config/env.js";
 import { AppExceptionFilter } from "../../common/filters/app-exception.filter.js";
+import { env } from "../../config/env.js";
+import { AppModule } from "./app.module.js";
 
 export async function createNestApp(): Promise<NestFastifyApplication> {
   const adapter = new FastifyAdapter({ logger: true });
@@ -40,6 +40,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
 
   fastify.addHook("onRequest", async (request, _reply) => {
     request.log.info({
+      lambdaName: (request.raw as { requestContext?: { lambdaName?: string } })?.requestContext?.lambdaName ?? "http-api",
       method: request.method,
       url: request.url,
       query: request.query,
@@ -119,6 +120,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
 
   fastify.addHook("onResponse", async (request, reply) => {
     request.log.info({
+      lambdaName: (request.raw as { requestContext?: { lambdaName?: string } })?.requestContext?.lambdaName ?? "http-api",
       method: request.method,
       url: request.url,
       statusCode: reply.statusCode

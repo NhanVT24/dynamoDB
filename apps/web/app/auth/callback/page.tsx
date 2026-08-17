@@ -26,7 +26,12 @@ function AuthCallbackContent() {
 
     exchangeAuthorizationCodeForSession(code)
       .then((session) => {
-        router.replace(session.role === "admin" ? "/admin" : "/store");
+        if (session.role === "admin") {
+          router.replace("/admin");
+          return;
+        }
+
+        router.replace("/store");
       })
       .catch((reason: unknown) => {
         setMessage(reason instanceof Error ? reason.message : "Không thể hoàn tất đăng nhập Google.");

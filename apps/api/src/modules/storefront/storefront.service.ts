@@ -308,6 +308,14 @@ export class StorefrontService {
     return listOrdersByCustomer(email);
   }
 
+  async finalizeWorkflowOrder(input: {
+    email: string;
+    items: CreateStorefrontOrderInput["items"];
+    requestId?: string;
+  }) {
+    return this.finalizeQueuedOrder(input.email, input.items, input.requestId);
+  }
+
   private async processQueueRecord(body: string | undefined) {
     if (!body) {
       this.logger.warn("[queue-order] record_empty");

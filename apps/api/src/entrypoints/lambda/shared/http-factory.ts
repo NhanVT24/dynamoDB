@@ -46,32 +46,12 @@ export function createHttpHandler(config: HttpHandlerConfig) {
 
   return async (event: any, context: unknown) => {
     rewriteProxyPath(event, config.rewritablePrefixes);
-
-    console.log(`[lambda-http:${config.lambdaName}] incoming`, {
-      path: event?.path,
-      rawPath: event?.rawPath,
-      httpMethod: event?.httpMethod,
-      routeKey: event?.routeKey,
-      stage: event?.requestContext?.stage,
-      pathParameters: event?.pathParameters,
-      queryStringParameters: event?.queryStringParameters,
-      hasBody: typeof event?.body === "string" ? event.body.length > 0 : Boolean(event?.body),
-      bodyLength: typeof event?.body === "string" ? event.body.length : 0,
-      isBase64Encoded: Boolean(event?.isBase64Encoded),
-      contentType:
-        event?.headers?.["content-type"] ??
-        event?.headers?.["Content-Type"] ??
-        null
-    });
+    event.requestContext = {
+      ...(event?.requestContext ?? {}),
+      lambdaName: config.lambdaName
+    };
 
     const proxy = await proxyPromise;
-    const response = await proxy(event, context);
-
-    console.log(`[lambda-http:${config.lambdaName}] outgoing`, {
-      statusCode: response?.statusCode,
-      headers: response?.headers
-    });
-
-    return response;
+    return proxy(event, context);
   };
 }

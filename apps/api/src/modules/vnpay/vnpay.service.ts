@@ -279,6 +279,24 @@ export class VnpayService {
     };
   }
 
+  async createWorkflowPaymentUrl(input: {
+    email: string;
+    items: CreateVnpayPaymentInput["items"];
+    orderId?: string;
+    orderDescription?: string;
+    bankCode?: string;
+    locale?: "vn" | "en";
+    ipAddress?: string;
+  }) {
+    return this.createPaymentUrl({
+      email: input.email,
+      items: input.items,
+      orderDescription: input.orderDescription?.trim() || (input.orderId ? `Thanh toán đơn hàng ${input.orderId}` : "Thanh toán đơn hàng"),
+      bankCode: input.bankCode,
+      locale: input.locale
+    }, input.ipAddress?.trim() || "127.0.0.1");
+  }
+
   private async handlePaymentEvent(result: VnpayReturnPayload, source: "return" | "ipn"): Promise<VnpayHandlingOverride | null> {
     this.logger.log(`[queue-payment] evaluate txnRef=${result.txnRef} source=${source} valid=${result.isValidSignature} status=${result.transactionStatus}`);
 

@@ -11,6 +11,7 @@ import {
   StackProps
 } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
@@ -21,6 +22,8 @@ import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3n from "aws-cdk-lib/aws-s3-notifications";
 import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as sfn from "aws-cdk-lib/aws-stepfunctions";
+import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import { Construct } from "constructs";
 
 export class AwsApiStack extends Stack {
@@ -180,16 +183,32 @@ export class AwsApiStack extends Stack {
       autoDeleteObjects: true
     });
 
+    const notificationsDlq = new sqs.Queue(this, "NotificationsDlq", {
+      queueName: "supermarket-notifications-dlq",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14)
+    });
+
     const notificationsQueue = new sqs.Queue(this, "NotificationsQueue", {
       queueName: "supermarket-notifications",
       visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(4)
+      retentionPeriod: Duration.days(4),
+      deadLetterQueue: {
+        queue: notificationsDlq,
+        maxReceiveCount: 3
+      }
     });
 
     const auditQueue = new sqs.Queue(this, "AuditQueue", {
       queueName: "supermarket-audit-log",
       visibilityTimeout: Duration.seconds(30),
       retentionPeriod: Duration.days(4)
+    });
+
+    const eventBridgeTargetDlq = new sqs.Queue(this, "EventBridgeTargetDlq", {
+      queueName: "supermarket-eventbridge-target-dlq",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14)
     });
 
     const storefrontOrdersDlq = new sqs.Queue(this, "StorefrontOrdersDlq", {
@@ -248,6 +267,24 @@ export class AwsApiStack extends Stack {
     });
     const platformEventBus = new events.EventBus(this, "SupermarketPlatformEventBus", {
       eventBusName: "supermarket-platform-bus"
+    });
+    const commerceArchive = new events.CfnArchive(this, "SupermarketCommerceArchive", {
+      archiveName: "supermarket-commerce-archive",
+      description: "Lưu lịch sử event commerce để replay khi cần.",
+      sourceArn: commerceEventBus.eventBusArn,
+      retentionDays: 30
+    });
+    const paymentArchive = new events.CfnArchive(this, "SupermarketPaymentArchive", {
+      archiveName: "supermarket-payment-archive",
+      description: "Lưu lịch sử event payment để replay khi cần.",
+      sourceArn: paymentEventBus.eventBusArn,
+      retentionDays: 30
+    });
+    const platformArchive = new events.CfnArchive(this, "SupermarketPlatformArchive", {
+      archiveName: "supermarket-platform-archive",
+      description: "Lưu lịch sử event platform để replay khi cần.",
+      sourceArn: platformEventBus.eventBusArn,
+      retentionDays: 30
     });
 
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
@@ -511,11 +548,19 @@ exports.handler = async (event) => {
       SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
       SQS_STOREFRONT_ORDERS_QUEUE_URL: storefrontOrdersQueue.queueUrl,
       SQS_IMAGE_UPLOADS_QUEUE_URL: imageUploadsQueue.queueUrl,
+      SQS_NOTIFICATIONS_DLQ_URL: notificationsDlq.queueUrl,
+      SQS_STOREFRONT_ORDERS_DLQ_URL: storefrontOrdersDlq.queueUrl,
+      SQS_PAYMENT_EVENTS_DLQ_URL: paymentEventsDlq.queueUrl,
+      SQS_IMAGE_UPLOADS_DLQ_URL: imageUploadsDlq.queueUrl,
+      SQS_EVENTBRIDGE_TARGET_DLQ_URL: eventBridgeTargetDlq.queueUrl,
       EVENTBRIDGE_BUS_NAME: platformEventBus.eventBusName,
       EVENTBRIDGE_DEFAULT_BUS_NAME: platformEventBus.eventBusName,
       EVENTBRIDGE_COMMERCE_BUS_NAME: commerceEventBus.eventBusName,
       EVENTBRIDGE_PAYMENT_BUS_NAME: paymentEventBus.eventBusName,
       EVENTBRIDGE_PLATFORM_BUS_NAME: platformEventBus.eventBusName,
+      EVENTBRIDGE_COMMERCE_ARCHIVE_ARN: commerceArchive.attrArn,
+      EVENTBRIDGE_PAYMENT_ARCHIVE_ARN: paymentArchive.attrArn,
+      EVENTBRIDGE_PLATFORM_ARCHIVE_ARN: platformArchive.attrArn,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
       ADMIN_REPORT_EMAIL: adminReportEmail.valueAsString,
       VNPAY_TMN_CODE: vnpayTmnCodeValue,
@@ -549,11 +594,37 @@ exports.handler = async (event) => {
         resources: ["*"]
       }));
       fn.addToRolePolicy(new iam.PolicyStatement({
+        actions: [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:DeleteMessageBatch",
+          "sqs:GetQueueAttributes",
+          "sqs:ChangeMessageVisibility",
+          "sqs:ChangeMessageVisibilityBatch"
+        ],
+        resources: [
+          notificationsDlq.queueArn,
+          storefrontOrdersDlq.queueArn,
+          paymentEventsDlq.queueArn,
+          imageUploadsDlq.queueArn,
+          eventBridgeTargetDlq.queueArn
+        ]
+      }));
+      fn.addToRolePolicy(new iam.PolicyStatement({
         actions: ["events:PutEvents"],
         resources: [
           commerceEventBus.eventBusArn,
           paymentEventBus.eventBusArn,
           platformEventBus.eventBusArn
+        ]
+      }));
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["events:StartReplay", "events:DescribeReplay"],
+        resources: [
+          commerceArchive.attrArn,
+          paymentArchive.attrArn,
+          platformArchive.attrArn,
+          `arn:aws:events:${this.region}:${this.account}:replay/*`
         ]
       }));
 
@@ -590,26 +661,9 @@ exports.handler = async (event) => {
       return fn;
     };
 
-    const publicApiFunction = createApplicationLambda(
-      "SupermarketPublicApiFunction",
-      "supermarket-public-api-aws",
-      "src/lambda-public.handler"
-    );
-    const orderApiFunction = createApplicationLambda(
-      "SupermarketOrderApiFunction",
-      "supermarket-order-api-aws",
-      "src/lambda-order-api.handler"
-    );
-    const paymentApiFunction = createApplicationLambda(
-      "SupermarketPaymentApiFunction",
-      "supermarket-payment-vnpay-api-aws",
-      "src/lambda-payment-vnpay.handler",
-      15,
-      512
-    );
-    const adminApiFunction = createApplicationLambda(
-      "SupermarketAdminApiFunction",
-      "supermarket-admin-api-aws",
+    const httpApiFunction = createApplicationLambda(
+      "SupermarketHttpApiFunction",
+      "supermarket-http-api-aws",
       "src/lambda-admin.handler"
     );
     const orderWorkerFunction = createApplicationLambda(
@@ -633,6 +687,41 @@ exports.handler = async (event) => {
       30,
       512
     );
+    const orderWorkflowStepFunction = createApplicationLambda(
+      "SupermarketOrderWorkflowStepFunction",
+      "supermarket-order-workflow-step-aws",
+      "src/lambda-order-workflow-step.handler",
+      30,
+      512
+    );
+    const paymentWorkflowStepFunction = createApplicationLambda(
+      "SupermarketPaymentWorkflowStepFunction",
+      "supermarket-payment-workflow-step-aws",
+      "src/lambda-payment-workflow-step.handler",
+      30,
+      512
+    );
+    const imageWorkflowStepFunction = createApplicationLambda(
+      "SupermarketImageWorkflowStepFunction",
+      "supermarket-image-workflow-step-aws",
+      "src/lambda-image-workflow-step.handler",
+      20,
+      256
+    );
+    const buildWeeklyReportFunction = createApplicationLambda(
+      "SupermarketBuildWeeklyReportFunction",
+      "supermarket-build-weekly-report-aws",
+      "src/lambda-build-weekly-report.handler",
+      30,
+      512
+    );
+    const sendMailWorkflowStepFunction = createApplicationLambda(
+      "SupermarketSendMailWorkflowStepFunction",
+      "supermarket-send-mail-workflow-step-aws",
+      "src/lambda-send-mail-workflow-step.handler",
+      20,
+      256
+    );
     const imageUploadWorkerFunction = createApplicationLambda(
       "SupermarketImageUploadWorkerFunction",
       "supermarket-image-upload-worker-aws",
@@ -647,6 +736,79 @@ exports.handler = async (event) => {
       15,
       256
     );
+
+    const orderWorkflowTask = new tasks.LambdaInvoke(this, "OrderWorkflowTask", {
+      lambdaFunction: orderWorkflowStepFunction,
+      payload: sfn.TaskInput.fromObject({
+        detail: sfn.JsonPath.objectAt("$.detail")
+      }),
+      resultPath: "$.orderResult",
+      payloadResponseOnly: true
+    });
+
+    const paymentWorkflowTask = new tasks.LambdaInvoke(this, "PaymentWorkflowTask", {
+      lambdaFunction: paymentWorkflowStepFunction,
+      payload: sfn.TaskInput.fromObject({
+        detail: sfn.JsonPath.objectAt("$.detail"),
+        orderResult: sfn.JsonPath.objectAt("$.orderResult")
+      }),
+      resultPath: "$.paymentResult",
+      payloadResponseOnly: true
+    });
+
+    const imageWorkflowTask = new tasks.LambdaInvoke(this, "ImageWorkflowTask", {
+      lambdaFunction: imageWorkflowStepFunction,
+      payloadResponseOnly: true
+    });
+
+    const buildWeeklyReportTask = new tasks.LambdaInvoke(this, "BuildWeeklyReportTask", {
+      lambdaFunction: buildWeeklyReportFunction,
+      payloadResponseOnly: true
+    });
+
+    const sendWeeklyMailTask = new tasks.LambdaInvoke(this, "SendWeeklyMailTask", {
+      lambdaFunction: sendMailWorkflowStepFunction,
+      payload: sfn.TaskInput.fromObject({
+        mailType: sfn.JsonPath.stringAt("$.mailType"),
+        summary: sfn.JsonPath.objectAt("$.summary")
+      }),
+      payloadResponseOnly: true
+    });
+
+    const orderOutcomeChoice = new sfn.Choice(this, "OrderWorkflowOutcome");
+    const orderPaymentWorkflow = new sfn.StateMachine(this, "OrderPaymentWorkflow", {
+      stateMachineName: "supermarket-order-payment-workflow",
+      definitionBody: sfn.DefinitionBody.fromChainable(
+        orderWorkflowTask
+          .addRetry({ maxAttempts: 2, interval: Duration.seconds(2) })
+          .addCatch(new sfn.Fail(this, "OrderWorkflowFailed"), { resultPath: "$.error" })
+          .next(orderOutcomeChoice
+            .when(sfn.Condition.stringEquals("$.orderResult.outcome", "success"), paymentWorkflowTask)
+            .otherwise(new sfn.Succeed(this, "OrderWorkflowCompletedWithoutPayment")))
+      ),
+      timeout: Duration.minutes(5)
+    });
+
+    const imageUploadWorkflow = new sfn.StateMachine(this, "ImageUploadWorkflow", {
+      stateMachineName: "supermarket-image-upload-workflow",
+      definitionBody: sfn.DefinitionBody.fromChainable(
+        imageWorkflowTask
+          .addRetry({ maxAttempts: 2, interval: Duration.seconds(2) })
+          .next(new sfn.Succeed(this, "ImageWorkflowCompleted"))
+      ),
+      timeout: Duration.minutes(2)
+    });
+
+    const weeklyReportMailWorkflow = new sfn.StateMachine(this, "WeeklyReportMailWorkflow", {
+      stateMachineName: "supermarket-weekly-report-mail-workflow",
+      definitionBody: sfn.DefinitionBody.fromChainable(
+        buildWeeklyReportTask
+          .addRetry({ maxAttempts: 2, interval: Duration.seconds(2) })
+          .next(sendWeeklyMailTask)
+          .next(new sfn.Succeed(this, "WeeklyReportMailWorkflowCompleted"))
+      ),
+      timeout: Duration.minutes(5)
+    });
 
     const createPipeRole = (id: string, sourceQueue: sqs.Queue, targetArn: string, extraStatements: iam.PolicyStatement[] = []) => {
       const role = new iam.Role(this, id, {
@@ -690,11 +852,22 @@ exports.handler = async (event) => {
       paymentEventsQueue,
       notificationWorkerFunction.functionArn
     );
-    const imageUploadsPipeRole = createPipeRole(
-      "ImageUploadsPipeRole",
-      imageUploadsQueue,
-      imageUploadWorkerFunction.functionArn
-    );
+    const imageUploadsPipeRole = new iam.Role(this, "ImageUploadsPipeRole", {
+      assumedBy: new iam.ServicePrincipal("pipes.amazonaws.com")
+    });
+    imageUploadsPipeRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:ChangeMessageVisibility"
+      ],
+      resources: [imageUploadsQueue.queueArn]
+    }));
+    imageUploadsPipeRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["states:StartExecution"],
+      resources: [imageUploadWorkflow.stateMachineArn]
+    }));
     new pipes.CfnPipe(this, "StorefrontOrdersPipe", {
       name: "supermarket-storefront-orders-pipe",
       roleArn: orderWorkerPipeRole.roleArn,
@@ -750,15 +923,15 @@ exports.handler = async (event) => {
       name: "supermarket-image-uploads-pipe",
       roleArn: imageUploadsPipeRole.roleArn,
       source: imageUploadsQueue.queueArn,
-      target: imageUploadWorkerFunction.functionArn,
+      target: imageUploadWorkflow.stateMachineArn,
       sourceParameters: {
         sqsQueueParameters: {
           batchSize: 10
         }
       },
       targetParameters: {
-        lambdaFunctionParameters: {
-          invocationType: "REQUEST_RESPONSE"
+        stepFunctionStateMachineParameters: {
+          invocationType: "FIRE_AND_FORGET"
         }
       }
     });
@@ -775,7 +948,10 @@ exports.handler = async (event) => {
         source: ["supermarket.commerce"],
         detailType: ["storefront.order.requested"]
       },
-      targets: [new eventsTargets.SqsQueue(storefrontOrdersQueue)]
+      targets: [new eventsTargets.SfnStateMachine(orderPaymentWorkflow, {
+        deadLetterQueue: eventBridgeTargetDlq,
+        retryAttempts: 2
+      })]
     });
 
     new events.Rule(this, "CommerceLifecycleAuditRule", {
@@ -784,7 +960,10 @@ exports.handler = async (event) => {
       eventPattern: {
         source: ["supermarket.commerce"]
       },
-      targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction)]
+      targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction, {
+        deadLetterQueue: eventBridgeTargetDlq,
+        retryAttempts: 2
+      })]
     });
 
     new events.Rule(this, "PaymentLifecycleQueueRule", {
@@ -794,7 +973,9 @@ exports.handler = async (event) => {
         source: ["supermarket.payment"],
         detailType: ["payments.vnpay.completed", "payments.vnpay.failed"]
       },
-      targets: [new eventsTargets.SqsQueue(paymentEventsQueue)]
+      targets: [new eventsTargets.SqsQueue(paymentEventsQueue, {
+        deadLetterQueue: eventBridgeTargetDlq
+      })]
     });
 
     new events.Rule(this, "PaymentLifecycleAuditRule", {
@@ -803,7 +984,10 @@ exports.handler = async (event) => {
       eventPattern: {
         source: ["supermarket.payment"]
       },
-      targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction)]
+      targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction, {
+        deadLetterQueue: eventBridgeTargetDlq,
+        retryAttempts: 2
+      })]
     });
 
     new events.Rule(this, "PlatformNotificationsRule", {
@@ -813,7 +997,9 @@ exports.handler = async (event) => {
         source: ["supermarket.platform"],
         detailType: ["notifications.pending"]
       },
-      targets: [new eventsTargets.SqsQueue(notificationsQueue)]
+      targets: [new eventsTargets.SqsQueue(notificationsQueue, {
+        deadLetterQueue: eventBridgeTargetDlq
+      })]
     });
 
     new events.Rule(this, "PlatformAuditRule", {
@@ -823,7 +1009,10 @@ exports.handler = async (event) => {
         source: ["supermarket.platform"],
         detailType: ["audit.log.created"]
       },
-      targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction)]
+      targets: [new eventsTargets.LambdaFunction(auditEventWorkerFunction, {
+        deadLetterQueue: eventBridgeTargetDlq,
+        retryAttempts: 2
+      })]
     });
 
     new events.Rule(this, "WeeklyAdminRevenueReportSchedule", {
@@ -833,8 +1022,32 @@ exports.handler = async (event) => {
         hour: "2",
         weekDay: "MON"
       }),
-      targets: [new eventsTargets.LambdaFunction(weeklyAdminReportFunction)]
+      targets: [new eventsTargets.SfnStateMachine(weeklyReportMailWorkflow, {
+        deadLetterQueue: eventBridgeTargetDlq,
+        retryAttempts: 2
+      })]
     });
+
+    const createDlqAlarm = (id: string, queue: sqs.Queue, queueName: string) => {
+      new cloudwatch.Alarm(this, id, {
+        alarmName: `${queueName}-messages-visible`,
+        metric: queue.metricApproximateNumberOfMessagesVisible({
+          period: Duration.minutes(5),
+          statistic: "Maximum"
+        }),
+        threshold: 1,
+        evaluationPeriods: 1,
+        datapointsToAlarm: 1,
+        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        alarmDescription: `DLQ ${queueName} có message cần kiểm tra`
+      });
+    };
+
+    createDlqAlarm("NotificationsDlqAlarm", notificationsDlq, "supermarket-notifications-dlq");
+    createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
+    createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
+    createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");
+    createDlqAlarm("EventBridgeTargetDlqAlarm", eventBridgeTargetDlq, "supermarket-eventbridge-target-dlq");
 
     const api = new apigateway.RestApi(this, "SupermarketApiGateway", {
       defaultCorsPreflightOptions: {
@@ -844,72 +1057,69 @@ exports.handler = async (event) => {
       }
     });
 
-    const publicIntegration = new apigateway.LambdaIntegration(publicApiFunction);
-    const orderIntegration = new apigateway.LambdaIntegration(orderApiFunction);
-    const paymentIntegration = new apigateway.LambdaIntegration(paymentApiFunction);
-    const adminIntegration = new apigateway.LambdaIntegration(adminApiFunction);
+    const httpIntegration = new apigateway.LambdaIntegration(httpApiFunction);
     const cognitoAuthorizer = new apigateway.CognitoUserPoolsAuthorizer(this, "SupermarketApiAuthorizer", {
       cognitoUserPools: [userPool]
     });
 
-    api.root.addMethod("GET", publicIntegration, {
+    api.root.addMethod("GET", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const healthResource = api.root.addResource("health");
-    healthResource.addMethod("GET", publicIntegration, {
+    healthResource.addMethod("GET", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const apiResource = api.root.addResource("api");
     const productsResource = apiResource.addResource("products");
-    productsResource.addMethod("ANY", publicIntegration, {
+    productsResource.addMethod("ANY", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
     const productsProxyResource = productsResource.addResource("{proxy+}");
-    productsProxyResource.addMethod("ANY", publicIntegration, {
+    productsProxyResource.addMethod("ANY", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const storefrontResource = apiResource.addResource("storefront");
     const storefrontProductsResource = storefrontResource.addResource("products");
-    storefrontProductsResource.addMethod("ANY", publicIntegration, {
+    storefrontProductsResource.addMethod("ANY", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
     const storefrontProductsProxyResource = storefrontProductsResource.addResource("{proxy+}");
-    storefrontProductsProxyResource.addMethod("ANY", publicIntegration, {
+    storefrontProductsProxyResource.addMethod("ANY", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
     const storefrontOrdersResource = storefrontResource.addResource("orders");
-    storefrontOrdersResource.addMethod("POST", orderIntegration, {
+    storefrontOrdersResource.addMethod("POST", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
     const storefrontOrdersMeResource = storefrontOrdersResource.addResource("me");
-    storefrontOrdersMeResource.addMethod("GET", orderIntegration, {
+    storefrontOrdersMeResource.addMethod("GET", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const notificationsResource = apiResource.addResource("notifications");
-    notificationsResource.addMethod("ANY", orderIntegration, {
+    notificationsResource.addMethod("ANY", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
     const notificationsProxyResource = notificationsResource.addResource("{proxy+}");
-    notificationsProxyResource.addMethod("ANY", orderIntegration, {
+    notificationsProxyResource.addMethod("ANY", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const paymentsResource = apiResource.addResource("payments");
     const vnpayResource = paymentsResource.addResource("vnpay");
-    vnpayResource.addMethod("ANY", paymentIntegration, {
+    vnpayResource.addMethod("ANY", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
     const vnpayProxyResource = vnpayResource.addResource("{proxy+}");
-    vnpayProxyResource.addMethod("ANY", paymentIntegration, {
+    vnpayProxyResource.addMethod("ANY", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
     const proxyResource = api.root.addResource("{proxy+}");
-    proxyResource.addMethod("ANY", adminIntegration, {
+    proxyResource.addMethod("ANY", httpIntegration, {
       authorizer: cognitoAuthorizer,
       authorizationType: apigateway.AuthorizationType.COGNITO
     });
@@ -919,19 +1129,19 @@ exports.handler = async (event) => {
     });
 
     new CfnOutput(this, "FunctionName", {
-      value: adminApiFunction.functionName
+      value: httpApiFunction.functionName
     });
 
     new CfnOutput(this, "PublicApiFunctionName", {
-      value: publicApiFunction.functionName
+      value: httpApiFunction.functionName
     });
 
     new CfnOutput(this, "OrderApiFunctionName", {
-      value: orderApiFunction.functionName
+      value: httpApiFunction.functionName
     });
 
     new CfnOutput(this, "PaymentApiFunctionName", {
-      value: paymentApiFunction.functionName
+      value: httpApiFunction.functionName
     });
 
     new CfnOutput(this, "OrderWorkerFunctionName", {
@@ -956,6 +1166,18 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "PlatformEventBusName", {
       value: platformEventBus.eventBusName
+    });
+
+    new CfnOutput(this, "CommerceArchiveArn", {
+      value: commerceArchive.attrArn
+    });
+
+    new CfnOutput(this, "PaymentArchiveArn", {
+      value: paymentArchive.attrArn
+    });
+
+    new CfnOutput(this, "PlatformArchiveArn", {
+      value: platformArchive.attrArn
     });
 
     new CfnOutput(this, "ApiGatewayUrl", {
