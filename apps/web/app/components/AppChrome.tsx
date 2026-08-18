@@ -9,9 +9,9 @@ type AppChromeProps = {
 
 export function AppChrome({ children }: AppChromeProps) {
   const pathname = usePathname();
-  const isStorefront = pathname.startsWith("/store");
+  const isAdminRoute = pathname.startsWith("/admin");
 
-  if (isStorefront) {
+  if (!isAdminRoute) {
     return <>{children}</>;
   }
 

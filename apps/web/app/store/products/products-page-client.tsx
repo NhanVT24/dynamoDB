@@ -155,6 +155,39 @@ function ProductCard({ product }: { product: StoreProduct }) {
   );
 }
 
+function ProductCardSkeleton({ isDark }: { isDark: boolean }) {
+  return (
+    <article
+      className={`animate-pulse overflow-hidden rounded-[1.75rem] border ${
+        isDark ? "border-white/10 bg-slate-900/85" : "border-slate-200 bg-white shadow-[0_20px_70px_-48px_rgba(15,23,42,0.35)]"
+      }`}
+    >
+      <div className={`h-64 w-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+      <div className="p-4">
+        <div className="flex items-center gap-2">
+          <div className={`h-3 w-16 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+          <div className={`h-3 w-3 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+          <div className={`h-3 w-20 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+        </div>
+        <div className={`mt-3 h-6 w-4/5 rounded-xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+        <div className={`mt-2 h-6 w-2/3 rounded-xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+        <div className="mt-4 grid gap-2">
+          <div className={`h-4 w-full rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+          <div className={`h-4 w-5/6 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+        </div>
+        <div className="mt-4 flex items-center gap-2">
+          <div className={`h-8 w-16 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+          <div className={`h-8 w-20 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+        </div>
+        <div className="mt-4">
+          <div className={`h-4 w-24 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+          <div className={`mt-2 h-8 w-32 rounded-xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export function ProductsPageClient({ category, sort }: { category?: string; sort?: string }) {
   const { theme } = useStorefront();
   const pathname = usePathname();
@@ -310,11 +343,12 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
           </div>
         </div>
         <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-          {paginatedProducts.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
+          {loading
+            ? Array.from({ length: 8 }).map((_, index) => <ProductCardSkeleton key={`skeleton-${index}`} isDark={isDark} />)
+            : paginatedProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
         </div>
-        {loading ? <p className={`mt-6 text-sm ${isDark ? "text-slate-300" : "text-slate-500"}`}>Đang tải sản phẩm...</p> : null}
         {!loading && error ? <p className="mt-6 text-sm font-medium text-rose-500">{error}</p> : null}
         {!loading && !error && totalPages > 1 ? (
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">

@@ -10,6 +10,7 @@ import {
   createStorefrontOrder,
   getActiveProductSelectionLock,
   getStorefrontProductById,
+  type InventoryStockChange,
   listOrdersByCustomer,
   listStorefrontProducts,
   type StorefrontOrderQueuePayload
@@ -338,9 +339,10 @@ export class StorefrontService {
     requestId?: string
   ): Promise<StorefrontQueueResult> {
     try {
-      const order = await createStorefrontOrder({ email, items });
+      const { order, stockChanges } = await createStorefrontOrder({ email, items });
       this.invalidateProductCaches(items.map((item) => item.productId));
       this.logger.log(`[dynamo-order] created orderId=${order.id} requestId=${requestId ?? ""} customer=${email} status=${order.status} totalAmount=${order.totalAmount} itemCount=${order.items.length}`);
+      await this.publishInventoryAlertsFromOrder(stockChanges, email);
 
       await this.notificationsService.createPendingNotification({
         email,
@@ -546,5 +548,25 @@ export class StorefrontService {
     });
 
     this.logger.log(`[eventbridge-commerce] lifecycle_published detailType=${input.detailType} bus=${published.eventBusName} eventId=${published.eventId}`);
+  }
+
+  private async publishInventoryAlertsFromOrder(changes: InventoryStockChange[], email: string) {
+    for (const change of changes) {
+      if ((change.status !== "low_stock" && change.status !== "out_of_stock") || change.previousStatus === change.status) {
+        continue;
+      }
+
+      await this.notificationsService.publishInventoryStockAlert({
+        productId: change.productId,
+        productName: change.productName,
+        sku: change.sku,
+        stock: change.stock,
+        previousStock: change.previousStock,
+        status: change.status,
+        previousStatus: change.previousStatus,
+        source: "storefront.order",
+        changedBy: email
+      });
+    }
   }
 }

@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { NotificationsService } from "../notifications/notifications.service.js";
 import {
   createShoppingItem,
   deleteShoppingItem,
@@ -19,6 +20,8 @@ import {
 
 @Injectable()
 export class ShoppingService {
+  constructor(private readonly notificationsService: NotificationsService) {}
+
   listMockItems() {
     return listMockShoppingItems();
   }
@@ -79,15 +82,52 @@ export class ShoppingService {
     return createShoppingItem(input);
   }
 
-  update(id: string, patch: Record<string, any>, version: number) {
-    return updateShoppingItem(id, patch, version);
+  async update(id: string, patch: Record<string, any>, version: number) {
+    const current = await getShoppingItem(id);
+    const updated = await updateShoppingItem(id, patch, version);
+    await this.publishInventoryAlertIfNeeded(current, updated, "admin.update");
+    return updated;
   }
 
-  increment(id: string, field: string, incrementBy: number) {
-    return incrementItemValue(id, field, incrementBy);
+  async increment(id: string, field: string, incrementBy: number) {
+    const current = await getShoppingItem(id);
+    const updated = await incrementItemValue(id, field, incrementBy);
+    await this.publishInventoryAlertIfNeeded(current, updated, "admin.increment");
+    return updated;
   }
 
   remove(id: string) {
     return deleteShoppingItem(id);
+  }
+
+  private async publishInventoryAlertIfNeeded(
+    current: Record<string, any> | null,
+    updated: Record<string, any> | null,
+    source: "admin.update" | "admin.increment"
+  ) {
+    if (!updated) {
+      return;
+    }
+
+    const nextStatus = String(updated.status ?? "");
+    if (nextStatus !== "low_stock" && nextStatus !== "out_of_stock") {
+      return;
+    }
+
+    const previousStatus = String(current?.status ?? "");
+    if (previousStatus === nextStatus) {
+      return;
+    }
+
+    await this.notificationsService.publishInventoryStockAlert({
+      productId: String(updated.id ?? ""),
+      productName: String(updated.name ?? ""),
+      sku: updated.sku ? String(updated.sku) : undefined,
+      stock: Number(updated.stock ?? 0),
+      previousStock: Number(current?.stock ?? 0),
+      status: nextStatus,
+      previousStatus,
+      source
+    });
   }
 }

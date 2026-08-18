@@ -47,6 +47,9 @@ const themeStorageKey = "web-storefront-theme";
 const cartStorageKey = "web-storefront-cart";
 const localNotificationsStorageKey = "web-storefront-local-notifications";
 const notificationsUpdatedEvent = "storefront-notifications-updated";
+const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
+const processedPaymentPrefix = "web-storefront-payment-processed-";
+const pendingOrderRequestPrefix = "web-storefront-order-request-";
 
 function readLocalNotifications(): StoreNotification[] {
   if (typeof window === "undefined") {
@@ -77,6 +80,35 @@ function writeLocalNotifications(items: StoreNotification[]) {
   }
 
   window.localStorage.setItem(localNotificationsStorageKey, JSON.stringify(items));
+  window.dispatchEvent(new Event(notificationsUpdatedEvent));
+}
+
+function clearStorefrontSessionArtifacts() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const removableKeys = [cartStorageKey, localNotificationsStorageKey, pendingCheckoutStorageKey];
+  for (const key of removableKeys) {
+    window.localStorage.removeItem(key);
+  }
+
+  const dynamicKeys: string[] = [];
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+    if (!key) {
+      continue;
+    }
+
+    if (key.startsWith(processedPaymentPrefix) || key.startsWith(pendingOrderRequestPrefix)) {
+      dynamicKeys.push(key);
+    }
+  }
+
+  for (const key of dynamicKeys) {
+    window.localStorage.removeItem(key);
+  }
+
   window.dispatchEvent(new Event(notificationsUpdatedEvent));
 }
 
@@ -783,6 +815,8 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
   }
 
   function handleStorefrontLogout() {
+    clearStorefrontSessionArtifacts();
+    setSession(null);
     try {
       signOutFromCognitoHostedUi();
     } catch {
@@ -827,7 +861,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
                 </div>
               ) : (
                 <Link
-                  href="/"
+                  href="/admin"
                   className={`hidden h-11 items-center justify-center rounded-2xl border px-4 text-sm font-semibold lg:inline-flex ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
                 >
                   {"\u0110\u0103ng nh\u1eadp"}
@@ -847,7 +881,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
             </div>
           </div>
         </div>
-        <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 px-4 py-2 text-center text-xs font-medium text-white">Storefront client đã được nối vào dự án tại route /store</div>
+        <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 px-4 py-2 text-center text-xs font-medium text-white">Storefront client đang chạy tại route /store, còn khu quản trị nằm ở /admin</div>
       </header>
       <CartDrawer />
       <main>{children}</main>
@@ -859,6 +893,7 @@ export function HomeSections() {
   const { theme } = useStorefront();
   const isDark = theme === "dark";
   const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -868,6 +903,9 @@ export function HomeSections() {
         const data = await fetchStorefrontProducts();
         if (!cancelled) setProducts(data.items);
       } catch {}
+      finally {
+        if (!cancelled) setIsLoading(false);
+      }
     }
 
     void loadProducts();
@@ -880,6 +918,107 @@ export function HomeSections() {
   const flashSaleProducts = [...products].sort((a, b) => (b.originalPrice - b.price) - (a.originalPrice - a.price)).slice(0, 4);
   const newArrivals = [...products].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 8);
 
+  if (isLoading) {
+    return (
+      <div className="animate-pulse">
+        <section className="px-4 pb-8 pt-6 sm:px-6 lg:px-8">
+          <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[1.3fr_0.7fr]">
+            <div className="overflow-hidden rounded-[2rem] bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 p-[1px]">
+              <div className={`rounded-[calc(2rem-1px)] px-6 py-8 sm:px-8 lg:px-10 ${isDark ? "bg-[#101826]" : "bg-white"}`}>
+                <div className={`h-10 w-48 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                <div className={`mt-5 h-14 w-5/6 rounded-[1.5rem] ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                <div className={`mt-3 h-14 w-4/5 rounded-[1.5rem] ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                <div className="mt-5 grid gap-3">
+                  <div className={`h-4 w-full rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                  <div className={`h-4 w-11/12 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                  <div className={`h-4 w-3/4 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                </div>
+                <div className="mt-7 flex flex-wrap gap-3">
+                  <div className={`h-12 w-32 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                  <div className={`h-12 w-36 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                </div>
+                <div className="mt-8 grid gap-4 sm:grid-cols-3">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={index} className={`h-16 rounded-[1.5rem] ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="grid gap-4">
+              {Array.from({ length: 2 }).map((_, index) => (
+                <div key={index} className={`rounded-[2rem] border p-6 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
+                  <div className={`h-4 w-24 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                  <div className={`mt-4 h-10 w-4/5 rounded-2xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                  <div className="mt-4 grid gap-3">
+                    <div className={`h-4 w-full rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                    <div className={`h-4 w-3/4 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="px-4 py-8 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-7xl">
+            <div className="grid gap-3">
+              <div className={`h-4 w-24 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+              <div className={`h-10 w-72 rounded-2xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+              <div className={`h-4 w-96 max-w-full rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+            </div>
+            <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className={`rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
+                  <div className="flex items-start gap-4">
+                    <div className={`h-24 w-24 rounded-3xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                    <div className="flex-1">
+                      <div className={`h-7 w-32 rounded-xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                      <div className="mt-3 grid gap-2">
+                        <div className={`h-4 w-full rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                        <div className={`h-4 w-5/6 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {["Bán chạy", "Flash Pick", "Newest"].map((title) => (
+          <section key={title} className="px-4 py-8 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-7xl">
+              <div className="flex items-end justify-between gap-4">
+                <div className="grid gap-3">
+                  <div className={`h-4 w-24 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                  <div className={`h-10 w-56 rounded-2xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                  <div className={`h-4 w-80 max-w-full rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                </div>
+                <div className={`h-12 w-32 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+              </div>
+              <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className={`overflow-hidden rounded-[1.75rem] border ${isDark ? "border-white/10 bg-slate-900/85" : "border-slate-200 bg-white shadow-[0_20px_70px_-48px_rgba(15,23,42,0.35)]"}`}>
+                    <div className={`h-64 w-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                    <div className="p-4">
+                      <div className={`h-3 w-24 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                      <div className={`mt-3 h-6 w-4/5 rounded-xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                      <div className={`mt-2 h-6 w-2/3 rounded-xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                      <div className="mt-4 grid gap-2">
+                        <div className={`h-4 w-full rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                        <div className={`h-4 w-5/6 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <>
       <section className="px-4 pb-8 pt-6 sm:px-6 lg:px-8">
@@ -888,7 +1027,7 @@ export function HomeSections() {
             <div className={`rounded-[calc(2rem-1px)] px-6 py-8 sm:px-8 lg:px-10 ${isDark ? "bg-[#101826]" : "bg-white"}`}>
               <div className="inline-flex rounded-full bg-orange-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-orange-600">Deal công nghệ hôm nay</div>
               <h1 className={`mt-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl ${isDark ? "text-white" : "text-slate-950"}`}>Storefront client đã nối vào dự án hiện tại để test mua hàng trực tiếp.</h1>
-              <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>Luồng này chạy ngay trong Next app ở route /store, giữ nguyên admin ở route gốc và có sẵn dark mode, kéo thả vào giỏ và listing riêng.</p>
+              <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>Luồng này chạy ngay trong Next app ở route /store, còn admin ở route /admin và có sẵn dark mode, kéo thả vào giỏ và listing riêng.</p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">Mua ngay</Link>
                 <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 text-white" : "border-slate-200 text-slate-800"}`}>Xem catalog</Link>
@@ -1069,17 +1208,25 @@ export function ProductDetailClient({ slug }: { slug: string }) {
     let cancelled = false;
 
     async function loadProducts() {
-      const productId = slug.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)?.[0];
-      if (!productId) {
-        if (!cancelled) setIsLoading(false);
-        return;
-      }
-
       try {
-        const [detail, listing] = await Promise.all([
-          fetchStorefrontProductById(productId),
-          fetchStorefrontProducts({ category: "all", limit: "12" })
-        ]);
+        const listing = await fetchStorefrontProducts({ category: "all", limit: "12" });
+        const matchedFromListing = listing.items.find((item) => item.slug === slug) ?? null;
+        const productId = matchedFromListing?.id
+          || slug.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)?.[0]
+          || null;
+
+        if (!productId) {
+          if (!cancelled) {
+            setProduct(null);
+            setRelatedProducts([]);
+          }
+          return;
+        }
+
+        const detail = matchedFromListing && matchedFromListing.id === productId
+          ? matchedFromListing
+          : await fetchStorefrontProductById(productId);
+
         if (!cancelled) {
           setProduct(detail);
           setRelatedProducts(
@@ -1096,14 +1243,49 @@ export function ProductDetailClient({ slug }: { slug: string }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [slug]);
 
   if (isLoading) {
     return (
-      <section className="px-4 py-20 sm:px-6 lg:px-8">
-        <div className={`mx-auto max-w-3xl rounded-[2rem] border p-10 text-center ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
-          <p className="text-sm uppercase tracking-[0.3em] text-orange-500">Đang tải</p>
-          <h1 className={`mt-4 text-3xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>Đang tải dữ liệu sản phẩm...</h1>
+      <section className="px-4 py-10 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl animate-pulse">
+          <div className="grid gap-3">
+            <div className={`h-4 w-40 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+            <div className={`h-10 w-96 max-w-full rounded-2xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+            <div className={`h-4 w-72 max-w-full rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+          </div>
+          <div className="mt-8 grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
+            <div className={`overflow-hidden rounded-[2rem] border p-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white shadow-[0_28px_80px_-56px_rgba(15,23,42,0.35)]"}`}>
+              <div className={`h-[28rem] w-full rounded-[1.75rem] sm:h-[36rem] ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+            </div>
+            <div className={`rounded-[2rem] border p-6 sm:p-8 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white shadow-[0_28px_80px_-56px_rgba(15,23,42,0.35)]"}`}>
+              <div className={`h-4 w-28 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+              <div className={`mt-4 h-12 w-4/5 rounded-2xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+              <div className="mt-5 grid gap-3">
+                <div className={`h-4 w-full rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                <div className={`h-4 w-11/12 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                <div className={`h-4 w-3/4 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+              </div>
+              <div className="mt-6 flex flex-wrap gap-3">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={index} className={`h-10 w-28 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                ))}
+              </div>
+              <div className="mt-8 flex items-end gap-4">
+                <div className={`h-12 w-40 rounded-2xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                <div className={`h-7 w-24 rounded-xl ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+              </div>
+              <div className="mt-6 grid gap-4 sm:grid-cols-3">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={index} className={`h-24 rounded-[1.5rem] ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                ))}
+              </div>
+              <div className="mt-8 flex flex-wrap items-center gap-4">
+                <div className={`h-14 w-36 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                <div className={`h-14 w-48 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     );

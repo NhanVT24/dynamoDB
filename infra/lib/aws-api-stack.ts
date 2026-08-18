@@ -1002,6 +1002,21 @@ exports.handler = async (event) => {
       })]
     });
 
+    new events.Rule(this, "InventoryAdminAlertsRule", {
+      eventBus: platformEventBus,
+      ruleName: "supermarket-inventory-admin-alerts-rule",
+      eventPattern: {
+        source: ["supermarket.inventory"],
+        detailType: ["inventory.stock.alert"],
+        detail: {
+          alertLevel: ["low_stock", "out_of_stock"]
+        }
+      },
+      targets: [new eventsTargets.SqsQueue(notificationsQueue, {
+        deadLetterQueue: eventBridgeTargetDlq
+      })]
+    });
+
     new events.Rule(this, "PlatformAuditRule", {
       eventBus: platformEventBus,
       ruleName: "supermarket-platform-audit-rule",

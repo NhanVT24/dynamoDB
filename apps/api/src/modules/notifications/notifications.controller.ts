@@ -14,7 +14,7 @@ export class NotificationsController {
       return { items: [], pendingCount: 0 };
     }
 
-    return this.notificationsService.listForCustomer(principal.email);
+    return this.notificationsService.listForPrincipal(principal);
   }
 
   @Patch(":id/read")
@@ -24,7 +24,7 @@ export class NotificationsController {
       return { success: false };
     }
 
-    return this.notificationsService.markAsRead(principal.email, id);
+    return this.notificationsService.markAsReadForPrincipal(principal, id);
   }
 
   @Delete(":id")
@@ -34,7 +34,7 @@ export class NotificationsController {
       return { success: false };
     }
 
-    return this.notificationsService.remove(principal.email, id);
+    return this.notificationsService.removeForPrincipal(principal, id);
   }
 
   @Delete()
@@ -44,10 +44,9 @@ export class NotificationsController {
       return { success: false };
     }
 
-    return this.notificationsService.removeAll(principal.email);
+    return this.notificationsService.removeAllForPrincipal(principal);
   }
 }
-
 
 
 

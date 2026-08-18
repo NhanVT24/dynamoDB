@@ -29,6 +29,16 @@ export type StorefrontOrderQueuePayload = {
   createdAt: string;
 };
 
+export type InventoryStockChange = {
+  productId: string;
+  productName: string;
+  sku?: string;
+  previousStock: number;
+  stock: number;
+  previousStatus: string;
+  status: string;
+};
+
 export type ProductSelectionLock = {
   productId: string;
   customerEmail: string;
@@ -47,6 +57,11 @@ export type StorefrontOrderRecord = {
   totalAmount: number;
   createdAt: string;
   updatedAt: string;
+};
+
+export type StorefrontOrderCreationResult = {
+  order: StorefrontOrderRecord;
+  stockChanges: InventoryStockChange[];
 };
 
 function toDynamoItem(item: Record<string, unknown>) {
@@ -80,7 +95,7 @@ export async function getStorefrontProductById(id: string) {
   return getShoppingItem(id);
 }
 
-export async function createStorefrontOrder(input: CreateOrderPayload) {
+export async function createStorefrontOrder(input: CreateOrderPayload): Promise<StorefrontOrderCreationResult> {
   const lines: OrderLine[] = [];
   let totalAmount = 0;
   const now = new Date().toISOString();
@@ -121,6 +136,27 @@ export async function createStorefrontOrder(input: CreateOrderPayload) {
     createdAt: now,
     updatedAt: now
   };
+  const stockChanges: InventoryStockChange[] = input.items.map((item) => {
+    const product = productSnapshots.get(item.productId);
+    if (!product) {
+      throw new Error(`Product ${item.productId} not found`);
+    }
+
+    const previousStock = Number(product.stock ?? 0);
+    const stock = previousStock - item.quantity;
+    const previousStatus = String(product.status ?? "");
+    const status = stock <= 0 ? "out_of_stock" : stock <= 10 ? "low_stock" : "active";
+
+    return {
+      productId: item.productId,
+      productName: String(product.name ?? ""),
+      sku: product.sku ? String(product.sku) : undefined,
+      previousStock,
+      stock,
+      previousStatus,
+      status
+    };
+  });
 
   try {
     await rawDb.send(new TransactWriteItemsCommand({
@@ -202,7 +238,10 @@ export async function createStorefrontOrder(input: CreateOrderPayload) {
     throw error;
   }
 
-  return orderRecord;
+  return {
+    order: orderRecord,
+    stockChanges
+  };
 }
 
 export async function acquireProductSelectionLock(input: { productId: string; email: string; requestId: string; holdSeconds: number }) {

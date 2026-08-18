@@ -82,6 +82,22 @@ export async function listNotificationsByCustomer(email: string) {
     .sort((left, right) => String(right?.createdAt ?? "").localeCompare(String(left?.createdAt ?? "")));
 }
 
+export async function listAllNotifications() {
+  const result = await rawDb.send(new ScanCommand({
+    TableName,
+    FilterExpression: "entityType = :entityType",
+    ExpressionAttributeValues: toDynamoItem({
+      ":entityType": "NOTIFICATION"
+    })
+  }));
+
+  return (result.Items ?? [])
+    .map((item) => fromDynamoItem(item) as NotificationRecord | null)
+    .map((item) => item ? { ...item, isRead: Boolean(item.isRead ?? item.status === "read") } : item)
+    .filter(Boolean)
+    .sort((left, right) => String(right?.createdAt ?? "").localeCompare(String(left?.createdAt ?? "")));
+}
+
 export async function markNotificationAsRead(id: string) {
   const now = new Date().toISOString();
   await rawDb.send(new UpdateItemCommand({

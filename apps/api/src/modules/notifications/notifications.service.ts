@@ -7,6 +7,7 @@ import {
   createNotification,
   deleteNotification,
   deleteNotifications,
+  listAllNotifications,
   listNotificationsByCustomer,
   markNotificationAsRead,
   markNotificationAsSent,
@@ -161,6 +162,46 @@ export class NotificationsService {
     return { queued: true, eventId: published.eventId };
   }
 
+  async publishInventoryStockAlert(input: {
+    productId: string;
+    productName: string;
+    sku?: string;
+    stock: number;
+    previousStock?: number;
+    status: string;
+    previousStatus?: string;
+    source: "admin.update" | "admin.increment" | "storefront.order";
+    changedBy?: string;
+  }) {
+    if (!env.EVENTBRIDGE_PLATFORM_BUS_NAME) {
+      this.logger.warn(`[eventbridge-platform] inventory_alert_disabled productId=${input.productId} status=${input.status}`);
+      return { queued: false };
+    }
+
+    const published = await publishEventBridgeEvent({
+      busName: env.EVENTBRIDGE_PLATFORM_BUS_NAME,
+      source: "supermarket.inventory",
+      detailType: "inventory.stock.alert",
+      detail: {
+        type: "inventory.stock.alert",
+        alertLevel: input.status,
+        productId: input.productId,
+        productName: input.productName,
+        sku: input.sku ?? "",
+        stock: input.stock,
+        previousStock: input.previousStock ?? null,
+        status: input.status,
+        previousStatus: input.previousStatus ?? "",
+        source: input.source,
+        changedBy: input.changedBy ?? "",
+        createdAt: new Date().toISOString()
+      }
+    });
+
+    this.logger.log(`[eventbridge-platform] inventory_alert_published productId=${input.productId} status=${input.status} bus=${published.eventBusName} eventId=${published.eventId}`);
+    return { queued: true, eventId: published.eventId };
+  }
+
   async listForCustomer(email: string) {
     const items = await listNotificationsByCustomer(email);
     return {
@@ -169,9 +210,42 @@ export class NotificationsService {
     };
   }
 
+  async listForPrincipal(input: { email: string; role: "admin" | "customer" | "viewer" }) {
+    if (input.role !== "admin") {
+      return this.listForCustomer(input.email);
+    }
+
+    const items = await listAllNotifications();
+    const adminEmails = new Set([input.email, String(env.ADMIN_REPORT_EMAIL ?? "").trim().toLowerCase()].filter(Boolean));
+    const adminItems = items.filter((item) => {
+      const audience = String(item.metadata?.audience ?? "").trim().toLowerCase();
+      return audience === "admin" || adminEmails.has(String(item.customerEmail ?? "").trim().toLowerCase());
+    });
+
+    return {
+      items: adminItems,
+      pendingCount: adminItems.filter((item) => !item.isRead).length
+    };
+  }
+
   async markAsRead(email: string, id: string) {
     const notifications = await listNotificationsByCustomer(email);
     const target = notifications.find((item) => item.id === id);
+    if (!target) {
+      throw new NotFoundException("Không tìm thấy thông báo");
+    }
+
+    await markNotificationAsRead(id);
+    return { success: true };
+  }
+
+  async markAsReadForPrincipal(input: { email: string; role: "admin" | "customer" | "viewer" }, id: string) {
+    if (input.role !== "admin") {
+      return this.markAsRead(input.email, id);
+    }
+
+    const notifications = await this.listForPrincipal(input);
+    const target = notifications.items.find((item) => item.id === id);
     if (!target) {
       throw new NotFoundException("Không tìm thấy thông báo");
     }
@@ -191,10 +265,35 @@ export class NotificationsService {
     return { success: true };
   }
 
+  async removeForPrincipal(input: { email: string; role: "admin" | "customer" | "viewer" }, id: string) {
+    if (input.role !== "admin") {
+      return this.remove(input.email, id);
+    }
+
+    const notifications = await this.listForPrincipal(input);
+    const target = notifications.items.find((item) => item.id === id);
+    if (!target) {
+      throw new NotFoundException("Không tìm thấy thông báo");
+    }
+
+    await deleteNotification(id);
+    return { success: true };
+  }
+
   async removeAll(email: string) {
     const notifications = await listNotificationsByCustomer(email);
     await deleteNotifications(notifications.map((item) => item.id));
     return { success: true, deletedCount: notifications.length };
+  }
+
+  async removeAllForPrincipal(input: { email: string; role: "admin" | "customer" | "viewer" }) {
+    if (input.role !== "admin") {
+      return this.removeAll(input.email);
+    }
+
+    const notifications = await this.listForPrincipal(input);
+    await deleteNotifications(notifications.items.map((item) => item.id));
+    return { success: true, deletedCount: notifications.items.length };
   }
 
   async processQueueRecords(records: Array<{ body?: string; messageId?: string }>) {
@@ -270,6 +369,16 @@ export class NotificationsService {
       notificationId?: string;
       metadata?: Record<string, unknown>;
       failureReason?: string;
+      alertLevel?: string;
+      productId?: string;
+      productName?: string;
+      sku?: string;
+      stock?: number;
+      previousStock?: number;
+      status?: string;
+      previousStatus?: string;
+      source?: string;
+      changedBy?: string;
     };
 
     if (payload.type === "payment.completed") {
@@ -280,6 +389,11 @@ export class NotificationsService {
     if (payload.type === "payment.failed") {
       this.logger.log(`[queue-payment] received type=payment.failed txnRef=${payload.txnRef ?? ""} orderId=${payload.orderId ?? ""}`);
       return this.processPaymentFailedEvent(payload);
+    }
+
+    if (payload.type === "inventory.stock.alert") {
+      this.logger.log(`[queue-admin-alert] received type=inventory.stock.alert productId=${payload.productId ?? ""} level=${payload.alertLevel ?? ""}`);
+      return this.processInventoryStockAlert(payload);
     }
 
     if (payload.type !== "notification.pending" || !payload.notificationId) {
@@ -490,5 +604,78 @@ export class NotificationsService {
 
     await markOrderAsDone(orderId);
     this.logger.log(`[dynamo-order] done orderId=${orderId}`);
+  }
+
+  private async processInventoryStockAlert(payload: {
+    alertLevel?: string;
+    productId?: string;
+    productName?: string;
+    sku?: string;
+    stock?: number;
+    previousStock?: number;
+    status?: string;
+    previousStatus?: string;
+    source?: string;
+    changedBy?: string;
+  }) {
+    if (!env.ADMIN_REPORT_EMAIL || !payload.productId || !payload.productName) {
+      this.logger.warn(`[queue-admin-alert] skipped productId=${payload.productId ?? ""} reason=missing_admin_email_or_product`);
+      return null;
+    }
+
+    const stock = Number(payload.stock ?? 0);
+    const level = String(payload.alertLevel ?? payload.status ?? "").trim();
+    const source = String(payload.source ?? "").trim();
+    const changedBy = String(payload.changedBy ?? "").trim();
+    const title = level === "out_of_stock"
+      ? "Sản phẩm đã hết hàng"
+      : "Sản phẩm sắp hết hàng";
+    const message = level === "out_of_stock"
+      ? `${payload.productName} đã hết hàng. Số lượng hiện tại: ${stock}.`
+      : `${payload.productName} đang ở mức tồn kho thấp. Số lượng hiện tại: ${stock}.`;
+
+    const notification = await this.createPendingNotification({
+      email: env.ADMIN_REPORT_EMAIL,
+      channel: "system",
+      title,
+      message,
+      metadata: {
+        audience: "admin",
+        alertType: "inventory.stock.alert",
+        alertLevel: level,
+        productId: payload.productId,
+        productName: payload.productName,
+        sku: payload.sku ?? "",
+        stock,
+        previousStock: Number(payload.previousStock ?? 0),
+        status: payload.status ?? level,
+        previousStatus: payload.previousStatus ?? "",
+        source,
+        changedBy
+      }
+    });
+
+    await this.publishAuditLog({
+      eventType: "inventory.stock.alerted",
+      email: env.ADMIN_REPORT_EMAIL,
+      resourceId: payload.productId,
+      metadata: {
+        alertLevel: level,
+        productName: payload.productName,
+        sku: payload.sku ?? "",
+        stock,
+        previousStock: Number(payload.previousStock ?? 0),
+        source,
+        changedBy
+      }
+    });
+
+    return {
+      type: "inventory.stock.alert",
+      productId: payload.productId,
+      alertLevel: level,
+      notificationId: notification?.id ?? "",
+      adminEmail: env.ADMIN_REPORT_EMAIL
+    };
   }
 }

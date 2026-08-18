@@ -432,6 +432,88 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function SkeletonBlock({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-2xl bg-slate-200/80 ${className}`} />;
+}
+
+function ShoppingManagerSkeleton({ headerActions }: { headerActions?: ReactNode }) {
+  return (
+    <div style={pageGridStyle}>
+      <section className="flex flex-col gap-4 rounded-[28px] border border-white/70 bg-white/80 p-5 backdrop-blur md:flex-row md:items-center md:justify-between" style={heroStyle}>
+        <div className="grid gap-3">
+          <SkeletonBlock className="h-4 w-28" />
+          <SkeletonBlock className="h-10 w-72 max-w-[80vw]" />
+        </div>
+        {headerActions}
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" style={statsGridStyle}>
+        {Array.from({ length: 4 }).map((_, index) => (
+          <article key={index} className="rounded-2xl border border-white/70 bg-white/90 p-5 backdrop-blur" style={panelStyle}>
+            <SkeletonBlock className="h-4 w-24" />
+            <SkeletonBlock className="mt-3 h-8 w-24" />
+          </article>
+        ))}
+      </section>
+
+      <section className="grid gap-3 rounded-3xl border border-white/70 bg-white/90 p-4 md:grid-cols-2 xl:grid-cols-4" style={{ ...panelStyle, ...filterGridStyle }}>
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="grid gap-2">
+            <SkeletonBlock className="h-4 w-24" />
+            <SkeletonBlock className="h-11 w-full rounded-xl" />
+          </div>
+        ))}
+      </section>
+
+      <section className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_380px]" style={gridPanelsStyle}>
+        <div className="flex h-full min-h-full flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/90" style={tablePanelStyle}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #e2e8f0" }}>
+            <SkeletonBlock className="h-7 w-36" />
+            <SkeletonBlock className="h-4 w-40" />
+          </div>
+          <div className="grid gap-3 px-5 py-4">
+            {Array.from({ length: 7 }).map((_, index) => (
+              <div key={index} className="grid grid-cols-[2.2fr_1fr_1.2fr_1fr_1fr_0.9fr_1fr] items-center gap-3 rounded-2xl border border-slate-100 px-3 py-3">
+                <div className="flex items-center gap-3">
+                  <SkeletonBlock className="h-10 w-10 rounded-xl" />
+                  <div className="grid flex-1 gap-2">
+                    <SkeletonBlock className="h-4 w-32" />
+                    <SkeletonBlock className="h-3 w-24" />
+                  </div>
+                </div>
+                <SkeletonBlock className="h-4 w-16" />
+                <SkeletonBlock className="h-4 w-20" />
+                <SkeletonBlock className="h-4 w-14" />
+                <SkeletonBlock className="h-4 w-20" />
+                <SkeletonBlock className="h-8 w-24 rounded-full" />
+                <SkeletonBlock className="h-9 w-full rounded-xl" />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid h-full gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
+          <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "16px" }} className="grid gap-3">
+            <SkeletonBlock className="h-7 w-40" />
+            <SkeletonBlock className="h-4 w-56" />
+          </div>
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="grid gap-2">
+              <SkeletonBlock className="h-4 w-24" />
+              <SkeletonBlock className="h-11 w-full rounded-xl" />
+            </div>
+          ))}
+          <SkeletonBlock className="h-24 w-full rounded-2xl" />
+          <div className="flex gap-3 pt-2">
+            <SkeletonBlock className="h-11 w-32 rounded-xl" />
+            <SkeletonBlock className="h-11 w-24 rounded-xl" />
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function ShoppingManager({
   authToken = "",
   headerActions = null,
@@ -465,6 +547,7 @@ export default function ShoppingManager({
   const previewDiscount = Math.min(99, Math.max(0, Number(form.discountPercent) || 0));
   const previewSalePrice = computeSalePrice(previewBasePrice, previewDiscount);
   const isViewerOnly = !canManageProducts;
+  const isInitialLoading = busy && items.length === 0 && allItems.length === 0;
 
   const summary = useMemo(() => {
     const totalProducts = allItems.length;
@@ -936,6 +1019,10 @@ export default function ShoppingManager({
     } finally {
       setBusy(false);
     }
+  }
+
+  if (isInitialLoading) {
+    return <ShoppingManagerSkeleton headerActions={headerActions} />;
   }
 
   return (
