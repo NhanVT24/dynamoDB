@@ -53,7 +53,8 @@ function getPendingOrderRequestKey(txnRef: string) {
 
 export default function CheckoutResultPage() {
   const searchParams = useSearchParams();
-  const { clearCart } = useStorefront();
+  const { clearCart, theme } = useStorefront();
+  const isDark = theme === "dark";
   const verifiedQueryRef = useRef("");
   const finalizingTxnRef = useRef("");
   const [result, setResult] = useState<ReturnPayload | null>(null);
@@ -85,12 +86,6 @@ export default function CheckoutResultPage() {
           cache: "no-store"
         });
         const payload = (await response.json().catch(() => null)) as ReturnPayload | { message?: string } | null;
-        console.log("[checkout-result] verifyPayment", {
-          status: response.status,
-          ok: response.ok,
-          query,
-          payload
-        });
 
         if (!response.ok || !payload || !("txnRef" in payload)) {
           throw new Error(payload?.message || "Không thể xác minh kết quả thanh toán.");
@@ -318,7 +313,7 @@ export default function CheckoutResultPage() {
 
     if (queueState === "polling" || isFinalizingOrder) {
       return {
-        tone: "border-cyan-200 bg-cyan-50 text-cyan-700",
+        tone: isDark ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-200" : "border-cyan-200 bg-cyan-50 text-cyan-700",
         title: "Đang theo dõi queue",
         message: queueMessage || "Đơn hàng đã vào queue. Client đang kiểm tra trạng thái mỗi 5 giây."
       };
@@ -326,7 +321,7 @@ export default function CheckoutResultPage() {
 
     if (queueState === "done") {
       return {
-        tone: "border-emerald-200 bg-emerald-50 text-emerald-700",
+        tone: isDark ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" : "border-emerald-200 bg-emerald-50 text-emerald-700",
         title: "Queue đã xử lý xong",
         message: queueMessage || "Đơn hàng đã được queue xử lý thành công."
       };
@@ -334,29 +329,33 @@ export default function CheckoutResultPage() {
 
     if (queueState === "failed") {
       return {
-        tone: "border-amber-200 bg-amber-50 text-amber-700",
+        tone: isDark ? "border-amber-500/20 bg-amber-500/10 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-700",
         title: "Queue đã trả về thất bại",
         message: queueMessage || "Queue đã xử lý nhưng đơn hàng không thành công."
       };
     }
 
     return {
-      tone: "border-slate-200 bg-slate-50 text-slate-700",
+      tone: isDark ? "border-white/10 bg-white/5 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-700",
       title: "Đã tạo yêu cầu",
       message: queueMessage || "Yêu cầu đã được ghi nhận, chuẩn bị kiểm tra trạng thái queue."
     };
-  }, [isFinalizingOrder, isSuccess, queueMessage, queueState, requestId]);
+  }, [isDark, isFinalizingOrder, isSuccess, queueMessage, queueState, requestId]);
 
   return (
     <main className="px-4 py-12 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-3xl rounded-[2rem] border border-slate-200 bg-white p-8 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.25)]">
-        <p className={`text-xs font-semibold uppercase tracking-[0.28em] ${isSuccess ? "text-emerald-600" : "text-orange-500"}`}>
+      <div
+        className={`mx-auto max-w-3xl rounded-[2rem] border p-8 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.25)] ${
+          isDark ? "border-white/10 bg-[#101826] text-white" : "border-slate-200 bg-white text-slate-950"
+        }`}
+      >
+        <p className={`text-xs font-semibold uppercase tracking-[0.28em] ${isSuccess ? "text-emerald-500" : "text-orange-500"}`}>
           {isSuccess ? "Thanh toán thành công" : "Kết quả giao dịch"}
         </p>
-        <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+        <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>
           {result ? result.message : error || "Đang xác minh thanh toán..."}
         </h1>
-        <p className="mt-4 text-sm leading-7 text-slate-600">
+        <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
           {isSuccess
             ? "Sau khi VNPay sandbox xác nhận thành công, hệ thống sẽ đẩy yêu cầu tạo đơn vào queue rồi client tự kiểm tra lại trạng thái qua API."
             : "Nếu bạn vừa hủy giao dịch hoặc gặp lỗi, bạn có thể quay lại cửa hàng và thử lại bất cứ lúc nào."}
@@ -371,37 +370,47 @@ export default function CheckoutResultPage() {
         ) : null}
 
         {error ? (
-          <div className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${isSuccess ? "border-amber-200 bg-amber-50 text-amber-700" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
+          <div
+            className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${
+              isSuccess
+                ? isDark
+                  ? "border-amber-500/20 bg-amber-500/10 text-amber-200"
+                  : "border-amber-200 bg-amber-50 text-amber-700"
+                : isDark
+                  ? "border-rose-500/20 bg-rose-500/10 text-rose-200"
+                  : "border-rose-200 bg-rose-50 text-rose-700"
+            }`}
+          >
             {error}
           </div>
         ) : null}
 
         {result ? (
-          <div className="mt-8 grid gap-4 rounded-[1.5rem] bg-slate-50 p-5 sm:grid-cols-2">
+          <div className={`mt-8 grid gap-4 rounded-[1.5rem] p-5 sm:grid-cols-2 ${isDark ? "bg-white/5" : "bg-slate-50"}`}>
             <div>
-              <p className="text-sm text-slate-500">Mã giao dịch cửa hàng</p>
-              <p className="mt-1 font-semibold text-slate-950">{result.txnRef || "--"}</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Mã giao dịch cửa hàng</p>
+              <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{result.txnRef || "--"}</p>
             </div>
             <div>
-              <p className="text-sm text-slate-500">Số tiền</p>
-              <p className="mt-1 font-semibold text-slate-950">{formatCurrency(result.amount)}</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Số tiền</p>
+              <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{formatCurrency(result.amount)}</p>
             </div>
             <div>
-              <p className="text-sm text-slate-500">Ngân hàng</p>
-              <p className="mt-1 font-semibold text-slate-950">{result.bankCode || "--"}</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Ngân hàng</p>
+              <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{result.bankCode || "--"}</p>
             </div>
             <div>
-              <p className="text-sm text-slate-500">Mã phản hồi</p>
-              <p className="mt-1 font-semibold text-slate-950">{result.responseCode || "--"}</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Mã phản hồi</p>
+              <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{result.responseCode || "--"}</p>
             </div>
           </div>
         ) : null}
 
         {matchedNotification ? (
-          <div className="mt-6 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-5">
+          <div className={`mt-6 rounded-[1.5rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Thông báo từ queue</p>
-            <h2 className="mt-3 text-lg font-semibold text-slate-950">{matchedNotification.title}</h2>
-            <p className="mt-2 text-sm leading-7 text-slate-600">{matchedNotification.message}</p>
+            <h2 className={`mt-3 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{matchedNotification.title}</h2>
+            <p className={`mt-2 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{matchedNotification.message}</p>
           </div>
         ) : null}
 
@@ -409,7 +418,12 @@ export default function CheckoutResultPage() {
           <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
             Tiếp tục mua sắm
           </Link>
-          <Link href="/store/orders" className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700">
+          <Link
+            href="/store/orders"
+            className={`rounded-full px-5 py-3 text-sm font-semibold ${
+              isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
+            }`}
+          >
             Xem lịch sử mua hàng
           </Link>
         </div>

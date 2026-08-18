@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
@@ -17,7 +18,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
 
   app.enableCors({
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Correlation-Id", "X-Request-Id"],
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
 
@@ -38,8 +39,16 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
 
   const fastify = app.getHttpAdapter().getInstance();
 
-  fastify.addHook("onRequest", async (request, _reply) => {
+  fastify.decorateRequest("correlationId", "");
+
+  fastify.addHook("onRequest", async (request, reply) => {
+    const correlationIdHeader = request.headers["x-correlation-id"] ?? request.headers["x-request-id"];
+    const correlationId = String(Array.isArray(correlationIdHeader) ? correlationIdHeader[0] : correlationIdHeader || crypto.randomUUID());
+    (request as { correlationId?: string }).correlationId = correlationId;
+    reply.header("x-correlation-id", correlationId);
+
     request.log.info({
+      correlationId,
       lambdaName: (request.raw as { requestContext?: { lambdaName?: string } })?.requestContext?.lambdaName ?? "http-api",
       method: request.method,
       url: request.url,
@@ -120,6 +129,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
 
   fastify.addHook("onResponse", async (request, reply) => {
     request.log.info({
+      correlationId: (request as { correlationId?: string }).correlationId ?? "",
       lambdaName: (request.raw as { requestContext?: { lambdaName?: string } })?.requestContext?.lambdaName ?? "http-api",
       method: request.method,
       url: request.url,

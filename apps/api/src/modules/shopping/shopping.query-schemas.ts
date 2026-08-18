@@ -4,7 +4,7 @@ import { shoppingStatuses } from "./shopping.schema.js";
 export const shoppingParamsSchema = z.object({ id: z.uuid() });
 
 export const shoppingListQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(48).default(12),
+  limit: z.coerce.number().int().min(1).max(240).default(12),
   cursor: z.string().max(2048).optional(),
   category: z.string().optional(),
   status: z.enum(shoppingStatuses as [string, ...string[]]).optional(),
@@ -16,7 +16,7 @@ export const shoppingListQuerySchema = z.object({
 });
 
 export const shoppingListAllQuerySchema = z.object({
-  pageLimit: z.coerce.number().int().min(1).max(48).default(48),
+  pageLimit: z.coerce.number().int().min(1).max(240).default(48),
   maxPages: z.coerce.number().int().min(1).max(20).default(10),
   category: z.string().optional(),
   status: z.enum(shoppingStatuses as [string, ...string[]]).optional(),
@@ -29,7 +29,7 @@ export const shoppingListAllQuerySchema = z.object({
 
 export const shoppingPageCursorQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(48).default(12),
+  limit: z.coerce.number().int().min(1).max(240).default(12),
   category: z.string().optional(),
   status: z.enum(shoppingStatuses as [string, ...string[]]).optional(),
   updatedAtFrom: z.string().trim().min(1).optional(),

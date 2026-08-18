@@ -20,6 +20,7 @@ export const handler = async (event: any, context: unknown) => {
         return null;
       }
     })();
+    const correlationId = String(firstPayload?.correlationId ?? firstPayload?.requestId ?? "");
     const queueHandler = firstPayload?.type === "storefront.order.requested" ? storefrontService : notificationsService;
     const result = await queueHandler.processQueueRecords(event.Records);
     const batchItemFailures = Array.isArray(result?.failedMessageIds)
@@ -27,6 +28,7 @@ export const handler = async (event: any, context: unknown) => {
       : [];
 
     console.log("[lambda-sqs] processed", {
+      correlationId,
       recordCount: event.Records.length,
       processed: result?.processed ?? 0,
       failed: batchItemFailures.length,
@@ -63,7 +65,15 @@ export const handler = async (event: any, context: unknown) => {
     break;
   }
 
+  const correlationId = String(
+    event?.headers?.["x-correlation-id"] ??
+    event?.headers?.["X-Correlation-Id"] ??
+    event?.headers?.["x-request-id"] ??
+    event?.headers?.["X-Request-Id"] ??
+    ""
+  );
   console.log("[lambda-http] incoming", {
+    correlationId,
     path: event?.path,
     rawPath: event?.rawPath,
     httpMethod: event?.httpMethod,
@@ -76,6 +86,7 @@ export const handler = async (event: any, context: unknown) => {
   const response = await proxy(event, context);
 
   console.log("[lambda-http] outgoing", {
+    correlationId: response?.headers?.["x-correlation-id"] ?? correlationId,
     statusCode: response?.statusCode,
     headers: response?.headers
   });

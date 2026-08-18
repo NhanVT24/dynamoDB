@@ -122,41 +122,25 @@ export function toStoreProduct(item: StorefrontApiItem): StoreProduct {
 }
 
 export async function fetchStorefrontProducts(query: Record<string, string> = {}) {
-  const pageLimit = query.limit ?? "48";
-  const aggregatedItems: StorefrontApiItem[] = [];
-  let nextCursor: string | null = null;
-  let hasNextPage = true;
-  let lastPayload: StorefrontListResponse | null = null;
+  const params = new URLSearchParams({ limit: query.limit ?? "240", ...query });
+  const response = await fetch(`${getStorefrontBasePath()}/products?${params.toString()}`, {
+    method: "GET",
+    cache: "no-store"
+  });
 
-  while (hasNextPage) {
-    const params = new URLSearchParams({ limit: pageLimit, ...query });
-    if (nextCursor) {
-      params.set("cursor", nextCursor);
-    }
-
-    const response = await fetch(`${getStorefrontBasePath()}/products?${params.toString()}`, {
-      method: "GET",
-      cache: "no-store"
-    });
-
-    if (!response.ok) {
-      throw new Error("Khong the tai du lieu san pham.");
-    }
-
-    const payload = (await response.json()) as StorefrontListResponse;
-    aggregatedItems.push(...(payload.items ?? []));
-    lastPayload = payload;
-    nextCursor = payload.pageInfo?.nextCursor ?? null;
-    hasNextPage = Boolean(payload.pageInfo?.hasNextPage && nextCursor);
+  if (!response.ok) {
+    throw new Error("Khong the tai du lieu san pham.");
   }
 
+  const payload = (await response.json()) as StorefrontListResponse;
+
   return {
-    items: aggregatedItems.map(toStoreProduct),
+    items: (payload.items ?? []).map(toStoreProduct),
     pageInfo: {
-      nextCursor: lastPayload?.pageInfo?.nextCursor ?? null,
-      hasNextPage: false,
-      limit: aggregatedItems.length,
-      cursor: null
+      nextCursor: payload.pageInfo?.nextCursor ?? null,
+      hasNextPage: Boolean(payload.pageInfo?.hasNextPage),
+      limit: payload.pageInfo?.limit ?? (payload.items ?? []).length,
+      cursor: payload.pageInfo?.cursor ?? null
     }
   };
 }

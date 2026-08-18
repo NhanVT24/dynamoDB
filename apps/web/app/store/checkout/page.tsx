@@ -9,9 +9,11 @@ const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
 
 export default function CheckoutPage() {
-  const { items, subtotal, shipping, total } = useStorefront();
+  const { items, subtotal, shipping, total, theme, openAuthModal } = useStorefront();
+  const isDark = theme === "dark";
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const session = readAuthSession();
 
   async function handleCheckout() {
     if (items.length === 0) {
@@ -24,11 +26,14 @@ export default function CheckoutPage() {
       return;
     }
 
-    setIsSubmitting(true);
-    setError("");
-
     try {
-      const session = readAuthSession();
+      if (!session?.idToken) {
+        openAuthModal("/store/checkout");
+        return;
+      }
+
+      setIsSubmitting(true);
+      setError("");
       const response = await fetch(`${apiBaseUrl}/api/payments/vnpay/create`, {
         method: "POST",
         headers: {
@@ -45,20 +50,23 @@ export default function CheckoutPage() {
         })
       });
 
-      const payload = await response.json().catch(() => null) as { paymentUrl?: string; message?: string } | null;
+      const payload = (await response.json().catch(() => null)) as { paymentUrl?: string; message?: string } | null;
 
       if (!response.ok || !payload?.paymentUrl) {
         throw new Error(payload?.message || "Không thể tạo liên kết thanh toán VNPay.");
       }
 
-      window.localStorage.setItem(pendingCheckoutStorageKey, JSON.stringify({
-        email: session?.email ?? "",
-        items: items.map((item) => ({
-          productId: item.productId,
-          quantity: item.quantity
-        })),
-        createdAt: new Date().toISOString()
-      }));
+      window.localStorage.setItem(
+        pendingCheckoutStorageKey,
+        JSON.stringify({
+          email: session?.email ?? "",
+          items: items.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity
+          })),
+          createdAt: new Date().toISOString()
+        })
+      );
 
       window.location.assign(payload.paymentUrl);
     } catch (checkoutError) {
@@ -70,27 +78,41 @@ export default function CheckoutPage() {
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-6xl gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.25)]">
+        <section
+          className={`rounded-[2rem] border p-6 shadow-[0_20px_60px_-40px_rgba(15,23,42,0.25)] ${
+            isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-950"
+          }`}
+        >
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Checkout</p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Thanh toán với VNPay Sandbox</h1>
-          <p className="mt-4 text-sm leading-7 text-slate-600">
-            Bạn sẽ được chuyển sang cổng thanh toán VNPay để hoàn tất giao dịch demo. Sau khi thanh toán xong,
-            hệ thống sẽ đưa bạn quay lại trang kết quả ngay trong website.
+          <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Thanh toán với VNPay Sandbox</h1>
+          <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+            Bạn sẽ được chuyển sang cổng thanh toán VNPay để hoàn tất giao dịch demo. Sau khi thanh toán xong, hệ thống sẽ đưa bạn quay lại
+            trang kết quả ngay trong website.
           </p>
+          {!session ? (
+            <div className={`mt-6 rounded-[1.5rem] border px-4 py-4 text-sm ${isDark ? "border-amber-500/20 bg-amber-500/10 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+              Bạn có thể giữ giỏ hàng như hiện tại, nhưng cần đăng nhập trước khi thanh toán.
+            </div>
+          ) : null}
 
           <div className="mt-8 space-y-4">
             {items.map((item) => (
-              <article key={item.variantId} className="flex gap-4 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+              <article
+                key={item.variantId}
+                className={`flex gap-4 rounded-[1.5rem] border p-4 ${
+                  isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"
+                }`}
+              >
                 <img src={item.image} alt={item.productName} className="h-20 w-20 rounded-3xl object-cover" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <h2 className="line-clamp-2 text-base font-semibold text-slate-950">{item.productName}</h2>
-                      <p className="mt-1 text-sm text-slate-500">{item.variantName}</p>
+                      <h2 className={`line-clamp-2 text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{item.productName}</h2>
+                      <p className={`mt-1 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{item.variantName}</p>
                     </div>
-                    <strong className="text-sm font-semibold text-slate-950">{formatCurrency(item.price * item.quantity)}</strong>
+                    <strong className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{formatCurrency(item.price * item.quantity)}</strong>
                   </div>
-                  <p className="mt-3 text-sm text-slate-500">Số lượng: {item.quantity}</p>
+                  <p className={`mt-3 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Số lượng: {item.quantity}</p>
                 </div>
               </article>
             ))}
@@ -131,7 +153,7 @@ export default function CheckoutPage() {
             disabled={isSubmitting || items.length === 0}
             className="mt-8 inline-flex w-full items-center justify-center rounded-full bg-white px-5 py-4 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting ? "Đang chuyển sang VNPay..." : "Thanh toán ngay"}
+            {session ? (isSubmitting ? "Đang chuyển sang VNPay..." : "Thanh toán ngay") : "Đăng nhập để thanh toán"}
           </button>
         </aside>
       </div>

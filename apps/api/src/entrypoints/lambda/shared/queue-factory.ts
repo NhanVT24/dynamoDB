@@ -30,9 +30,18 @@ export function createQueueHandler(config: QueueHandlerConfig) {
 
   return async (event: any) => {
     const records = normalizeSqsRecords(event);
+    const firstPayload = (() => {
+      try {
+        return JSON.parse(String(records[0]?.body ?? ""));
+      } catch {
+        return null;
+      }
+    })();
+    const correlationId = String(firstPayload?.correlationId ?? firstPayload?.requestId ?? "");
 
     if (records.length === 0) {
       console.log(`[lambda-sqs:${config.lambdaName}] skipped`, {
+        correlationId,
         reason: "no_sqs_records",
         payloadShape: Array.isArray(event) ? "array" : typeof event
       });
@@ -47,6 +56,7 @@ export function createQueueHandler(config: QueueHandlerConfig) {
         : app.get(NotificationsService);
 
     console.log(`[lambda-sqs:${config.lambdaName}] batch_received`, {
+      correlationId,
       recordCount: records.length,
       payloadShape: Array.isArray(event) ? "array" : "records",
       queueArns: [...new Set(records.map((record: any) => String(record.eventSourceARN ?? ""))).values()]
@@ -58,6 +68,7 @@ export function createQueueHandler(config: QueueHandlerConfig) {
       : [];
 
     console.log(`[lambda-sqs:${config.lambdaName}] processed`, {
+      correlationId,
       recordCount: records.length,
       processed: result?.processed ?? 0,
       failed: batchItemFailures.length,

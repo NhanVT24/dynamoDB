@@ -19,6 +19,7 @@ import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as pipes from "aws-cdk-lib/aws-pipes";
+import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3n from "aws-cdk-lib/aws-s3-notifications";
 import * as sqs from "aws-cdk-lib/aws-sqs";
@@ -1030,17 +1031,41 @@ exports.handler = async (event) => {
       })]
     });
 
-    new events.Rule(this, "WeeklyAdminRevenueReportSchedule", {
-      ruleName: "supermarket-weekly-admin-revenue-report",
-      schedule: events.Schedule.cron({
-        minute: "45",
-        hour: "2",
-        weekDay: "MON"
-      }),
-      targets: [new eventsTargets.SfnStateMachine(weeklyReportMailWorkflow, {
-        deadLetterQueue: eventBridgeTargetDlq,
-        retryAttempts: 2
-      })]
+    const weeklyAdminRevenueReportSchedulerRole = new iam.Role(this, "WeeklyAdminRevenueReportSchedulerRole", {
+      assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+      description: "Allows EventBridge Scheduler to start the weekly admin revenue report workflow"
+    });
+    weeklyAdminRevenueReportSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["states:StartExecution"],
+      resources: [weeklyReportMailWorkflow.stateMachineArn]
+    }));
+    weeklyAdminRevenueReportSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["sqs:SendMessage"],
+      resources: [eventBridgeTargetDlq.queueArn]
+    }));
+
+    new scheduler.CfnSchedule(this, "WeeklyAdminRevenueReportSchedule", {
+      name: "supermarket-weekly-admin-revenue-report",
+      description: "Triggers the weekly admin revenue report workflow every Monday at 02:45 UTC.",
+      groupName: "default",
+      scheduleExpression: "cron(45 2 ? * MON *)",
+      flexibleTimeWindow: {
+        mode: "OFF"
+      },
+      target: {
+        arn: weeklyReportMailWorkflow.stateMachineArn,
+        roleArn: weeklyAdminRevenueReportSchedulerRole.roleArn,
+        deadLetterConfig: {
+          arn: eventBridgeTargetDlq.queueArn
+        },
+        retryPolicy: {
+          maximumEventAgeInSeconds: 3600,
+          maximumRetryAttempts: 2
+        },
+        input: JSON.stringify({
+          source: "scheduler.weekly-admin-revenue-report"
+        })
+      }
     });
 
     const createDlqAlarm = (id: string, queue: sqs.Queue, queueName: string) => {

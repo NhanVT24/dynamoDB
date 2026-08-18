@@ -35,6 +35,7 @@ export const env = z.object({
   EVENTBRIDGE_COMMERCE_ARCHIVE_ARN: z.string().optional(),
   EVENTBRIDGE_PAYMENT_ARCHIVE_ARN: z.string().optional(),
   EVENTBRIDGE_PLATFORM_ARCHIVE_ARN: z.string().optional(),
+  SNS_ADMIN_ALERTS_TOPIC_ARN: z.string().optional(),
   SES_FROM_EMAIL: z.string().email().optional(),
   ADMIN_REPORT_EMAIL: z.string().email().optional(),
   NEXT_PUBLIC_API_URL: z.string().url().optional(),

@@ -9,12 +9,14 @@ import {
   clearAuthSession,
   confirmForgotPassword,
   confirmSignUpWithCognito,
+  consumePostLoginRedirect,
+  authSessionChangedEvent,
   type AuthSession,
   forgotPassword,
   readAuthSession,
   resendConfirmationCode,
   signInWithCognito,
-  signOutFromCognitoHostedUi,
+  signOutLocally,
   signUpWithCognito
 } from "../../auth/lib/cognito-auth";
 
@@ -343,7 +345,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
         >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold">Admin notifications</p>
+              <p className="text-sm font-semibold">Thông báo quản trị</p>
               <p className="text-xs text-slate-500">{pendingCount} chưa đọc</p>
             </div>
             <div className="flex shrink-0 gap-2">
@@ -383,7 +385,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
             <div className="min-w-0 flex-1">
                       <p className={`text-sm font-semibold ${item.isRead ? "text-slate-500" : "text-slate-900"}`}>{item.title}</p>
                       <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                        {isCritical ? "Out of stock" : "Low stock"} {item.createdAt ? `· ${formatNotificationTime(item.createdAt)}` : ""}
+                        {isCritical ? "Hết hàng" : "Sắp hết hàng"} {item.createdAt ? `· ${formatNotificationTime(item.createdAt)}` : ""}
                       </p>
                     </div>
                     {!item.isRead ? <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-rose-500" /> : null}
@@ -454,6 +456,17 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    function syncSession() {
+      setSession(readAuthSession());
+    }
+
+    window.addEventListener(authSessionChangedEvent, syncSession);
+    return () => {
+      window.removeEventListener(authSessionChangedEvent, syncSession);
+    };
+  }, []);
+
+  useEffect(() => {
     if (searchParams.get("auth") === "insufficient-role") {
       setMessage("Tài khoản hiện tại đã đăng nhập nhưng không thuộc nhóm admin, nên không thể vào màn quản trị.");
     }
@@ -462,10 +475,16 @@ export default function Home() {
   useEffect(() => {
     if (!ready || !session) return;
 
+    const postLoginRedirect = consumePostLoginRedirect();
+    if (postLoginRedirect && session.role !== "admin") {
+      router.replace(postLoginRedirect);
+      return;
+    }
+
     if (session.role !== "admin") {
       setMessage(`Tài khoản ${session.email} đang có quyền ${session.role}. Muốn vào admin, hãy đăng nhập bằng user thuộc group admin.`);
     }
-  }, [ready, session]);
+  }, [ready, router, session]);
 
   useEffect(() => {
     if (!ready || !session || session.role === "admin") {
@@ -495,11 +514,8 @@ export default function Home() {
   }
 
   function handleHostedLogout() {
-    try {
-      signOutFromCognitoHostedUi();
-    } catch {
-      handleLogout();
-    }
+    signOutLocally();
+    handleLogout();
   }
 
   function renderMessageTone() {
@@ -536,6 +552,11 @@ export default function Home() {
 
       setSession(nextSession);
       if (nextSession.role !== "admin") {
+        const postLoginRedirect = consumePostLoginRedirect();
+        if (postLoginRedirect) {
+          router.replace(postLoginRedirect);
+          return;
+        }
         router.replace("/store");
         return;
       }
@@ -689,11 +710,18 @@ export default function Home() {
   }
 
   const singleActionMode = authMode === "register" || authMode === "confirm" || authMode === "forgot" || authMode === "reset";
+  const showAdminLoginScreen = !session || session.role !== "admin";
 
   return (
-    <div className="grid gap-4">
+    <div
+      className={`grid gap-4 ${
+        showAdminLoginScreen
+          ? "min-h-[calc(100vh-11rem)] place-items-center rounded-[2rem] border border-cyan-100 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_34%),linear-gradient(180deg,_#f8fbff_0%,_#eef6ff_45%,_#fdfefe_100%)] p-4 shadow-[0_30px_100px_rgba(15,23,42,0.08)]"
+          : ""
+      }`}
+    >
       {!session || session.role !== "admin" ? (
-        <section className="mx-auto w-full max-w-md rounded-[28px] border border-white/70 bg-white p-6 shadow-[0_30px_100px_rgba(15,23,42,0.12)]">
+        <section className="mx-auto w-full max-w-md rounded-[28px] border border-white/80 bg-white/95 p-6 shadow-[0_30px_100px_rgba(15,23,42,0.12)] backdrop-blur">
           <div className="mb-5 text-center">
             <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
               {authMode === "login" && "Đăng nhập"}
@@ -931,7 +959,7 @@ export default function Home() {
                 <p className="text-sm font-semibold text-slate-900">{session.name}</p>
                 <p className="text-xs text-slate-500">{session.email}</p>
                 <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700">
-                  {session.role === "admin" ? "Admin" : session.role === "customer" ? "Customer" : "Viewer"}
+                  {session.role === "admin" ? "Quản trị viên" : session.role === "customer" ? "Khách hàng" : "Người xem"}
                 </p>
               </div>
               <button

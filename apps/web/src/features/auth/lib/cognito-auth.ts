@@ -36,6 +36,13 @@ type CognitoErrorLike = {
 };
 
 const sessionStorageKey = "cognito-auth-session";
+const postLoginRedirectStorageKey = "cognito-post-login-redirect";
+export const authSessionChangedEvent = "cognito-auth-session-changed";
+
+function dispatchAuthSessionChanged() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(authSessionChangedEvent));
+}
 
 function repairMojibake(value: string | undefined | null) {
   const text = String(value ?? "").trim();
@@ -209,10 +216,33 @@ export function readAuthSession() {
 
 export function persistAuthSession(session: AuthSession) {
   window.localStorage.setItem(sessionStorageKey, JSON.stringify(session));
+  dispatchAuthSessionChanged();
 }
 
 export function clearAuthSession() {
   window.localStorage.removeItem(sessionStorageKey);
+  dispatchAuthSessionChanged();
+}
+
+export function signOutLocally() {
+  clearAuthSession();
+}
+
+export function rememberPostLoginRedirect(path: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(postLoginRedirectStorageKey, path);
+}
+
+export function consumePostLoginRedirect() {
+  if (typeof window === "undefined") return null;
+
+  const nextPath = window.localStorage.getItem(postLoginRedirectStorageKey);
+  if (!nextPath) {
+    return null;
+  }
+
+  window.localStorage.removeItem(postLoginRedirectStorageKey);
+  return nextPath;
 }
 
 export function beginGoogleSignIn() {

@@ -6,7 +6,20 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import type { DragEvent, ReactNode } from "react";
 import { storeCategories, storeProducts } from "./store-data";
 import { fetchStorefrontProductById, fetchStorefrontProducts } from "./store-api";
-import { readAuthSession, signOutFromCognitoHostedUi, type AuthSession } from "../lib/cognito-auth";
+import {
+  beginGoogleSignIn,
+  confirmForgotPassword,
+  confirmSignUpWithCognito,
+  authSessionChangedEvent,
+  readAuthSession,
+  rememberPostLoginRedirect,
+  resendConfirmationCode,
+  signInWithCognito,
+  signOutLocally,
+  signUpWithCognito,
+  forgotPassword,
+  type AuthSession
+} from "../lib/cognito-auth";
 import type { CartItem, StoreProduct } from "./store-types";
 import { calculateShipping, calculateSubtotal, formatCurrency, formatShortDate } from "./store-utils";
 
@@ -27,6 +40,9 @@ type StoreContextValue = {
   total: number;
   isDrawerOpen: boolean;
   toggleDrawer: (open?: boolean) => void;
+  isAuthModalOpen: boolean;
+  openAuthModal: (redirectPath?: string) => void;
+  closeAuthModal: () => void;
 };
 
 type StoreNotification = {
@@ -198,6 +214,7 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [items, setItems] = useState<CartItem[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [hasHydratedCart, setHasHydratedCart] = useState(false);
 
   useEffect(() => {
@@ -289,6 +306,17 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
     setIsDrawerOpen((current) => (typeof open === "boolean" ? open : !current));
   }
 
+  function openAuthModal(redirectPath?: string) {
+    if (redirectPath) {
+      rememberPostLoginRedirect(redirectPath);
+    }
+    setIsAuthModalOpen(true);
+  }
+
+  function closeAuthModal() {
+    setIsAuthModalOpen(false);
+  }
+
   const subtotal = useMemo(() => calculateSubtotal(items), [items]);
   const shipping = useMemo(() => calculateShipping(items), [items]);
   const total = subtotal + shipping;
@@ -309,7 +337,10 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
         shipping,
         total,
         isDrawerOpen,
-        toggleDrawer
+        toggleDrawer,
+        isAuthModalOpen,
+        openAuthModal,
+        closeAuthModal
       }}
     >
       {children}
@@ -324,8 +355,9 @@ export function useStorefront() {
 }
 
 function CartDrawer() {
-  const { items, isDrawerOpen, toggleDrawer, updateQuantity, removeItem, subtotal, shipping, total, clearCart, theme } = useStorefront();
+  const { items, isDrawerOpen, toggleDrawer, updateQuantity, removeItem, subtotal, shipping, total, clearCart, theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
+  const session = readAuthSession();
 
   if (!isDrawerOpen) return null;
 
@@ -376,17 +408,528 @@ function CartDrawer() {
           <div className="mt-4 flex justify-between border-t border-white/20 pt-4 text-lg font-semibold"><span>Tổng</span><span>{formatCurrency(total)}</span></div>
           <div className="mt-4 grid gap-3">
             <button onClick={clearCart} className="rounded-full border border-white/20 px-4 py-3 font-semibold">Xóa toàn bộ</button>
-            <Link
-              href="/store/checkout"
-              onClick={() => toggleDrawer(false)}
-              className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600"
-            >
-              Thanh toán sandbox
-            </Link>
+            {session ? (
+              <Link
+                href="/store/checkout"
+                onClick={() => toggleDrawer(false)}
+                className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600"
+              >
+                Thanh toán sandbox
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  toggleDrawer(false);
+                  openAuthModal("/store/checkout");
+                }}
+                className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600"
+              >
+                Đăng nhập để thanh toán
+              </button>
+            )}
           </div>
         </div>
       </aside>
     </>
+  );
+}
+
+function StorefrontAuthModal({
+  session,
+  onSignedIn
+}: {
+  session: AuthSession | null;
+  onSignedIn: (nextSession: AuthSession) => void;
+}) {
+  const router = useRouter();
+  const { isAuthModalOpen, closeAuthModal, theme } = useStorefront();
+  const isDark = theme === "dark";
+  const [mode, setMode] = useState<"login" | "register" | "confirm" | "forgot" | "reset">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [registerName, setRegisterName] = useState("");
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [registerConfirmPassword, setRegisterConfirmPassword] = useState("");
+  const [confirmEmail, setConfirmEmail] = useState("");
+  const [confirmCode, setConfirmCode] = useState("");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [message, setMessage] = useState("Đăng nhập để tiếp tục mua hàng hoặc thanh toán.");
+  const [resendCountdown, setResendCountdown] = useState(0);
+
+  useEffect(() => {
+    if (!isAuthModalOpen) {
+      return;
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        closeAuthModal();
+      }
+    }
+
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [closeAuthModal, isAuthModalOpen]);
+
+  useEffect(() => {
+    if (resendCountdown <= 0) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setResendCountdown((current) => Math.max(0, current - 1));
+    }, 1000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [resendCountdown]);
+
+  if (!isAuthModalOpen || session) {
+    return null;
+  }
+
+  async function handleLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      const nextSession = await signInWithCognito({
+        email,
+        password
+      });
+
+      onSignedIn(nextSession);
+      closeAuthModal();
+
+      if (nextSession.role === "admin") {
+        router.push("/admin");
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không thể đăng nhập lúc này.");
+      if (error instanceof Error && /xác nhận|confirm/i.test(error.message)) {
+        setConfirmEmail(email);
+        setMode("confirm");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleRegister(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      if (registerPassword.length < 8) {
+        throw new Error("Mật khẩu cần ít nhất 8 ký tự.");
+      }
+
+      if (registerPassword !== registerConfirmPassword) {
+        throw new Error("Mật khẩu xác nhận không khớp.");
+      }
+
+      await signUpWithCognito({
+        email: registerEmail,
+        password: registerPassword,
+        name: registerName
+      });
+
+      setConfirmEmail(registerEmail);
+      setEmail(registerEmail);
+      setPassword(registerPassword);
+      setResendCountdown(60);
+      setMode("confirm");
+      setMessage("Tạo tài khoản thành công. Hãy kiểm tra email để lấy mã xác nhận.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không thể tạo tài khoản.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleConfirm(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      await confirmSignUpWithCognito({
+        email: confirmEmail,
+        code: confirmCode
+      });
+
+      setMode("login");
+      setEmail(confirmEmail);
+      setMessage("Xác nhận email thành công. Bạn có thể đăng nhập ngay bây giờ.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không thể xác nhận tài khoản.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleForgotPassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      await forgotPassword(forgotEmail);
+      setResetCode("");
+      setResetPassword("");
+      setResetConfirmPassword("");
+      setMode("reset");
+      setMessage("Đã gửi mã đặt lại mật khẩu qua email của bạn.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không thể bắt đầu đặt lại mật khẩu.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsSubmitting(true);
+
+    try {
+      if (resetPassword.length < 8) {
+        throw new Error("Mật khẩu mới cần ít nhất 8 ký tự.");
+      }
+
+      if (resetPassword !== resetConfirmPassword) {
+        throw new Error("Mật khẩu xác nhận không khớp.");
+      }
+
+      await confirmForgotPassword({
+        email: forgotEmail,
+        code: resetCode,
+        newPassword: resetPassword
+      });
+
+      setMode("login");
+      setEmail(forgotEmail);
+      setPassword("");
+      setMessage("Đặt lại mật khẩu thành công. Hãy đăng nhập bằng mật khẩu mới.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không thể đặt lại mật khẩu.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleResendCode() {
+    if (resendCountdown > 0) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await resendConfirmationCode(confirmEmail);
+      setResendCountdown(60);
+      setMessage("Đã gửi lại mã xác nhận mới.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không thể gửi lại mã xác nhận.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const titleByMode = {
+    login: "Đăng nhập",
+    register: "Tạo tài khoản",
+    confirm: "Xác nhận email",
+    forgot: "Quên mật khẩu",
+    reset: "Đặt lại mật khẩu"
+  } as const;
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center px-4">
+      <button
+        type="button"
+        aria-label="Đóng đăng nhập"
+        onClick={closeAuthModal}
+        className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px]"
+      />
+      <section className={`relative z-[81] w-full max-w-md rounded-[2rem] border p-6 shadow-[0_30px_100px_rgba(15,23,42,0.25)] ${isDark ? "border-white/10 bg-[#101826] text-white" : "border-slate-200 bg-white text-slate-950"}`}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Tài khoản</p>
+            <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{titleByMode[mode]}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={closeAuthModal}
+            className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border text-lg ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
+          >
+            ×
+          </button>
+        </div>
+
+        <p className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${isDark ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-100" : "border-cyan-200 bg-cyan-50 text-cyan-700"}`}>
+          {message}
+        </p>
+
+        {mode === "login" ? (
+          <form className="mt-5 grid gap-4" onSubmit={handleLogin}>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="you@example.com"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Mật khẩu</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Nhập mật khẩu của bạn"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}
+            </button>
+            <button
+              type="button"
+              onClick={() => beginGoogleSignIn()}
+              className={`inline-flex h-12 items-center justify-center rounded-2xl border px-4 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
+            >
+              Đăng nhập với Google
+            </button>
+          </form>
+        ) : null}
+
+        {mode === "register" ? (
+          <form className="mt-5 grid gap-4" onSubmit={handleRegister}>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Họ và tên</span>
+              <input
+                value={registerName}
+                onChange={(event) => setRegisterName(event.target.value)}
+                placeholder="Ví dụ: Nguyễn Văn A"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Email</span>
+              <input
+                type="email"
+                value={registerEmail}
+                onChange={(event) => setRegisterEmail(event.target.value)}
+                placeholder="you@example.com"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Mật khẩu</span>
+              <input
+                type="password"
+                value={registerPassword}
+                onChange={(event) => setRegisterPassword(event.target.value)}
+                placeholder="Ít nhất 8 ký tự"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Xác nhận mật khẩu</span>
+              <input
+                type="password"
+                value={registerConfirmPassword}
+                onChange={(event) => setRegisterConfirmPassword(event.target.value)}
+                placeholder="Nhập lại mật khẩu"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? "Đang tạo tài khoản..." : "Tạo tài khoản"}
+            </button>
+          </form>
+        ) : null}
+
+        {mode === "confirm" ? (
+          <form className="mt-5 grid gap-4" onSubmit={handleConfirm}>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Email</span>
+              <input
+                type="email"
+                value={confirmEmail}
+                onChange={(event) => setConfirmEmail(event.target.value)}
+                placeholder="Email vừa đăng ký"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Mã xác nhận</span>
+              <input
+                value={confirmCode}
+                onChange={(event) => setConfirmCode(event.target.value)}
+                placeholder="Nhập mã 6 số từ email"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? "Đang xác nhận..." : "Xác nhận tài khoản"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleResendCode()}
+              disabled={isSubmitting || resendCountdown > 0}
+              className={`inline-flex h-12 items-center justify-center rounded-2xl border px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
+            >
+              {resendCountdown > 0 ? `Gửi lại mã sau ${resendCountdown}s` : "Gửi lại mã"}
+            </button>
+          </form>
+        ) : null}
+
+        {mode === "forgot" ? (
+          <form className="mt-5 grid gap-4" onSubmit={handleForgotPassword}>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Email</span>
+              <input
+                type="email"
+                value={forgotEmail}
+                onChange={(event) => setForgotEmail(event.target.value)}
+                placeholder="Nhập email của bạn"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? "Đang gửi mã..." : "Gửi mã đặt lại"}
+            </button>
+          </form>
+        ) : null}
+
+        {mode === "reset" ? (
+          <form className="mt-5 grid gap-4" onSubmit={handleResetPassword}>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Email</span>
+              <input
+                type="email"
+                value={forgotEmail}
+                onChange={(event) => setForgotEmail(event.target.value)}
+                placeholder="Email cần đặt lại mật khẩu"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Mã đặt lại</span>
+              <input
+                value={resetCode}
+                onChange={(event) => setResetCode(event.target.value)}
+                placeholder="Nhập mã từ email"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Mật khẩu mới</span>
+              <input
+                type="password"
+                value={resetPassword}
+                onChange={(event) => setResetPassword(event.target.value)}
+                placeholder="Nhập mật khẩu mới"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <label className="grid gap-2">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Xác nhận mật khẩu mới</span>
+              <input
+                type="password"
+                value={resetConfirmPassword}
+                onChange={(event) => setResetConfirmPassword(event.target.value)}
+                placeholder="Nhập lại mật khẩu mới"
+                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSubmitting ? "Đang cập nhật..." : "Cập nhật mật khẩu"}
+            </button>
+          </form>
+        ) : null}
+
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          {mode !== "register" ? (
+            <button
+              type="button"
+              onClick={() => setMode("register")}
+              className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-cyan-400/30 bg-cyan-500/10 text-cyan-100" : "border-cyan-200 bg-cyan-50 text-cyan-700"}`}
+            >
+              Tạo tài khoản
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMode("login")}
+              className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
+            >
+              Về đăng nhập
+            </button>
+          )}
+          {mode !== "forgot" && mode !== "reset" ? (
+            <button
+              type="button"
+              onClick={() => {
+                setForgotEmail(email || registerEmail || confirmEmail);
+                setMode("forgot");
+              }}
+              className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
+            >
+              Quên mật khẩu
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMode("login")}
+              className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
+            >
+              Về đăng nhập
+            </button>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -629,7 +1172,11 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-label="Mở thông báo"
-        className={`relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition-colors ${isDark ? "border-white/20 bg-white text-slate-900 hover:bg-slate-100" : "border-slate-900 bg-white text-slate-900 hover:bg-slate-100"}`}
+        className={`relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition-colors ${
+          isDark
+            ? "border-white/10 bg-white/5 text-white hover:bg-white/10"
+            : "border-slate-900 bg-white text-slate-900 hover:bg-slate-100"
+        }`}
       >
         <svg
           aria-hidden="true"
@@ -786,14 +1333,21 @@ function ProductCard({ product }: { product: StoreProduct }) {
 }
 
 export function StorefrontShell({ children }: { children: ReactNode }) {
-  const { theme, toggleTheme, count, toggleDrawer, addCatalogItem, theme: currentTheme } = useStorefront();
+  const { theme, toggleTheme, count, toggleDrawer, addCatalogItem, theme: currentTheme, openAuthModal } = useStorefront();
   const pathname = usePathname();
   const isDark = theme === "dark";
   const [isCartDropActive, setIsCartDropActive] = useState(false);
-  const [session, setSession] = useState<AuthSession | null>(null);
+  const [session, setSession] = useState<AuthSession | null>(() => readAuthSession());
 
   useEffect(() => {
-    setSession(readAuthSession());
+    function syncSession() {
+      setSession(readAuthSession());
+    }
+
+    window.addEventListener(authSessionChangedEvent, syncSession);
+    return () => {
+      window.removeEventListener(authSessionChangedEvent, syncSession);
+    };
   }, []);
 
   function handleCartDragOver(event: DragEvent<HTMLButtonElement>) {
@@ -816,12 +1370,8 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
 
   function handleStorefrontLogout() {
     clearStorefrontSessionArtifacts();
+    signOutLocally();
     setSession(null);
-    try {
-      signOutFromCognitoHostedUi();
-    } catch {
-      setSession(null);
-    }
   }
 
   return (
@@ -840,17 +1390,18 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
               <Link href="/store" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname === "/store" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{"Trang ch\u1ee7"}</Link>
               <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{"S\u1ea3n ph\u1ea9m"}</Link>
               <Link href="/store/orders" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Lịch sử mua</Link>
+              <Link href="/store/profile" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Hồ sơ</Link>
             </nav>
             <div className="ml-auto flex items-center gap-2">
               <NotificationBell session={session} isDark={isDark} />
               {session ? (
                 <div className="hidden items-center gap-2 lg:flex">
-                  <div className={`rounded-2xl px-4 py-2 text-right ${isDark ? "bg-white/5 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
+                  <Link href="/store/profile" className={`rounded-2xl px-4 py-2 text-right no-underline ${isDark ? "bg-white/5 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
                     <p className="max-w-40 truncate text-sm font-semibold">{session.name}</p>
                     <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${session.role === "admin" ? "text-cyan-500" : "text-orange-500"}`}>
                       {session.role === "admin" ? "Admin" : "Customer"}
                     </p>
-                  </div>
+                  </Link>
                   <button
                     type="button"
                     onClick={handleStorefrontLogout}
@@ -860,12 +1411,13 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
                   </button>
                 </div>
               ) : (
-                <Link
-                  href="/admin"
+                <button
+                  type="button"
+                  onClick={() => openAuthModal(pathname.startsWith("/store/checkout") ? "/store/checkout" : "/store")}
                   className={`hidden h-11 items-center justify-center rounded-2xl border px-4 text-sm font-semibold lg:inline-flex ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
                 >
                   {"\u0110\u0103ng nh\u1eadp"}
-                </Link>
+                </button>
               )}
               <button onClick={toggleTheme} className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${isDark ? "border-white/10 bg-white/5 text-slate-200" : "border-slate-200 bg-white text-slate-700"}`}>{currentTheme === "dark" ? "☀" : "☾"}</button>
               <button
@@ -884,6 +1436,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
         <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 px-4 py-2 text-center text-xs font-medium text-white">Storefront client đang chạy tại route /store, còn khu quản trị nằm ở /admin</div>
       </header>
       <CartDrawer />
+      <StorefrontAuthModal session={session} onSignedIn={setSession} />
       <main>{children}</main>
     </div>
   );
