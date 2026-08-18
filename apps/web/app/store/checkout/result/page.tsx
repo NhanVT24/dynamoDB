@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+
 import { readAuthSession } from "../../../lib/cognito-auth";
-import { useStorefront } from "../../store-client";
 import { formatCurrency } from "../../../store/store-utils";
+import { useStorefront } from "../../store-client";
 
 const localNotificationsStorageKey = "web-storefront-local-notifications";
 const notificationsUpdatedEvent = "storefront-notifications-updated";
@@ -47,16 +48,24 @@ type NotificationApiItem = {
 
 type QueueTrackingState = "idle" | "polling" | "done" | "failed";
 
+type QueuePanel = {
+  tone: string;
+  badge: string;
+  title: string;
+  message: string;
+};
+
 function getPendingOrderRequestKey(txnRef: string) {
   return `${pendingOrderRequestPrefix}${txnRef}`;
 }
 
-export default function CheckoutResultPage() {
+function CheckoutResultPageContent() {
   const searchParams = useSearchParams();
   const { clearCart, theme } = useStorefront();
   const isDark = theme === "dark";
   const verifiedQueryRef = useRef("");
   const finalizingTxnRef = useRef("");
+
   const [result, setResult] = useState<ReturnPayload | null>(null);
   const [error, setError] = useState("");
   const [hasBroadcastSuccess, setHasBroadcastSuccess] = useState(false);
@@ -229,7 +238,7 @@ export default function CheckoutResultPage() {
 
         setRequestId(payload.requestId);
         setQueueState("polling");
-        setQueueMessage(payload.message || "Đơn hàng đã được đưa vào queue, hệ thống sẽ tự kiểm tra trạng thái.");
+        setQueueMessage(payload.message || "Đơn hàng đã được đưa vào queue để xử lý.");
       } catch (finalizeError) {
         setError(finalizeError instanceof Error ? finalizeError.message : "Không thể tạo đơn hàng sau thanh toán.");
       } finally {
@@ -305,40 +314,47 @@ export default function CheckoutResultPage() {
   }, [queueState, requestId, result?.txnRef]);
 
   const isSuccess = result?.transactionStatus === "success" && result.isValidSignature;
+  const shouldShowQueueNotification =
+    Boolean(matchedNotification) &&
+    (queueState !== "done" || matchedNotification?.message !== queueMessage);
 
-  const queuePanel = useMemo(() => {
+  const queuePanel = useMemo<QueuePanel | null>(() => {
     if (!isSuccess || !requestId) {
       return null;
     }
 
     if (queueState === "polling" || isFinalizingOrder) {
       return {
-        tone: isDark ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-200" : "border-cyan-200 bg-cyan-50 text-cyan-700",
-        title: "Đang theo dõi queue",
-        message: queueMessage || "Đơn hàng đã vào queue. Client đang kiểm tra trạng thái mỗi 5 giây."
+        tone: isDark ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-100" : "border-cyan-200 bg-cyan-50 text-cyan-800",
+        badge: "Đang xử lý",
+        title: "Đơn hàng đang được đồng bộ",
+        message: queueMessage || "Yêu cầu đã vào queue. Hệ thống đang theo dõi trạng thái để hoàn tất đơn hàng."
       };
     }
 
     if (queueState === "done") {
       return {
-        tone: isDark ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200" : "border-emerald-200 bg-emerald-50 text-emerald-700",
-        title: "Queue đã xử lý xong",
-        message: queueMessage || "Đơn hàng đã được queue xử lý thành công."
+        tone: isDark ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100" : "border-emerald-200 bg-emerald-50 text-emerald-800",
+        badge: "Hoàn tất",
+        title: "Đơn hàng đã được ghi nhận",
+        message: queueMessage || "Queue đã xử lý xong và hệ thống đã tạo đơn hàng thành công."
       };
     }
 
     if (queueState === "failed") {
       return {
-        tone: isDark ? "border-amber-500/20 bg-amber-500/10 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-700",
-        title: "Queue đã trả về thất bại",
-        message: queueMessage || "Queue đã xử lý nhưng đơn hàng không thành công."
+        tone: isDark ? "border-amber-500/20 bg-amber-500/10 text-amber-100" : "border-amber-200 bg-amber-50 text-amber-800",
+        badge: "Cần kiểm tra",
+        title: "Đơn hàng chưa hoàn tất",
+        message: queueMessage || "Queue đã phản hồi nhưng đơn hàng chưa thể xử lý trọn vẹn."
       };
     }
 
     return {
-      tone: isDark ? "border-white/10 bg-white/5 text-slate-200" : "border-slate-200 bg-slate-50 text-slate-700",
-      title: "Đã tạo yêu cầu",
-      message: queueMessage || "Yêu cầu đã được ghi nhận, chuẩn bị kiểm tra trạng thái queue."
+      tone: isDark ? "border-white/10 bg-white/5 text-slate-100" : "border-slate-200 bg-slate-50 text-slate-800",
+      badge: "Đã tiếp nhận",
+      title: "Hệ thống đang tạo yêu cầu đơn hàng",
+      message: queueMessage || "Yêu cầu đã được ghi nhận. Hệ thống đang chuẩn bị kiểm tra trạng thái queue."
     };
   }, [isDark, isFinalizingOrder, isSuccess, queueMessage, queueState, requestId]);
 
@@ -357,15 +373,25 @@ export default function CheckoutResultPage() {
         </h1>
         <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
           {isSuccess
-            ? "Sau khi VNPay sandbox xác nhận thành công, hệ thống sẽ đẩy yêu cầu tạo đơn vào queue rồi client tự kiểm tra lại trạng thái qua API."
+            ? "Sau khi VNPay sandbox xác nhận thành công, hệ thống sẽ đẩy yêu cầu tạo đơn vào queue rồi tự kiểm tra lại trạng thái để hoàn tất đơn hàng."
             : "Nếu bạn vừa hủy giao dịch hoặc gặp lỗi, bạn có thể quay lại cửa hàng và thử lại bất cứ lúc nào."}
         </p>
 
         {queuePanel ? (
-          <div className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${queuePanel.tone}`}>
-            <p className="font-semibold">{queuePanel.title}</p>
-            <p className="mt-1">{queuePanel.message}</p>
-            <p className="mt-2 text-xs opacity-80">Request ID: {requestId}</p>
+          <div className={`mt-7 rounded-[1.75rem] border p-5 shadow-[0_18px_50px_-38px_rgba(15,23,42,0.45)] ${queuePanel.tone}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <span className="inline-flex rounded-full border border-current/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em]">
+                  {queuePanel.badge}
+                </span>
+                <p className="mt-3 text-lg font-semibold">{queuePanel.title}</p>
+              </div>
+              <div className={`min-w-[12rem] rounded-2xl px-3 py-2 text-xs ${isDark ? "bg-slate-950/30 text-slate-200" : "bg-white/80 text-slate-600"}`}>
+                <p className="font-semibold">Request ID</p>
+                <p className="mt-1 break-all opacity-90">{requestId}</p>
+              </div>
+            </div>
+            <p className="mt-4 text-sm leading-7 opacity-95">{queuePanel.message}</p>
           </div>
         ) : null}
 
@@ -386,7 +412,7 @@ export default function CheckoutResultPage() {
         ) : null}
 
         {result ? (
-          <div className={`mt-8 grid gap-4 rounded-[1.5rem] p-5 sm:grid-cols-2 ${isDark ? "bg-white/5" : "bg-slate-50"}`}>
+          <div className={`mt-8 grid gap-4 rounded-[1.75rem] border p-5 sm:grid-cols-2 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50/80"}`}>
             <div>
               <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Mã giao dịch cửa hàng</p>
               <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{result.txnRef || "--"}</p>
@@ -406,8 +432,8 @@ export default function CheckoutResultPage() {
           </div>
         ) : null}
 
-        {matchedNotification ? (
-          <div className={`mt-6 rounded-[1.5rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
+        {shouldShowQueueNotification && matchedNotification ? (
+          <div className={`mt-6 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50/75"}`}>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Thông báo từ queue</p>
             <h2 className={`mt-3 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{matchedNotification.title}</h2>
             <p className={`mt-2 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{matchedNotification.message}</p>
@@ -429,5 +455,13 @@ export default function CheckoutResultPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function CheckoutResultPage() {
+  return (
+    <Suspense fallback={null}>
+      <CheckoutResultPageContent />
+    </Suspense>
   );
 }

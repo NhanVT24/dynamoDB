@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
+import { publishAdminAlert } from "../../integrations/sns/publisher.js";
 import { sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
 import { getOrderById, markOrderAsDone } from "../storefront/storefront.repository.js";
 import {
@@ -24,6 +25,31 @@ function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T):
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
+
+  private async publishAdminAlertSafely(input: {
+    subject: string;
+    message: string;
+    attributes?: Record<string, string | number | boolean | undefined>;
+    logContext: string;
+  }) {
+    if (!env.SNS_ADMIN_ALERTS_TOPIC_ARN) {
+      this.logger.warn(`[sns-admin-alert] skipped reason=missing_topic ${input.logContext}`);
+      return { queued: false };
+    }
+
+    try {
+      const published = await publishAdminAlert({
+        subject: input.subject,
+        message: input.message,
+        attributes: input.attributes
+      });
+      this.logger.log(`[sns-admin-alert] published topic=${published.topicArn} messageId=${published.messageId} ${input.logContext}`);
+      return { queued: true, messageId: published.messageId };
+    } catch (error) {
+      this.logger.warn(`[sns-admin-alert] failed error=${error instanceof Error ? error.message : "unknown"} ${input.logContext}`);
+      return { queued: false };
+    }
+  }
 
   async createPendingNotification(input: {
     email: string;
@@ -576,6 +602,27 @@ export class NotificationsService {
       }
     });
 
+    await this.publishAdminAlertSafely({
+      subject: `Cảnh báo thanh toán thất bại ${payload.txnRef}`,
+      message: [
+        "Thanh toán thất bại đã được ghi nhận.",
+        `TxnRef: ${payload.txnRef}`,
+        `Khách hàng: ${email}`,
+        `Số tiền: ${amount}`,
+        `Lý do: ${failureReason}`,
+        `ResponseCode: ${payload.responseCode ?? ""}`,
+        `OrderId: ${orderId || "N/A"}`
+      ].join("\n"),
+      attributes: {
+        alertType: "payment.failed",
+        txnRef: payload.txnRef,
+        orderId,
+        responseCode: payload.responseCode ?? "",
+        customerEmail: email
+      },
+      logContext: `alertType=payment.failed txnRef=${payload.txnRef} orderId=${orderId}`
+    });
+
     this.logger.log(`[queue-payment] failed_completed txnRef=${payload.txnRef} orderId=${orderId}`);
     return {
       type: "payment.failed",
@@ -668,6 +715,29 @@ export class NotificationsService {
         source,
         changedBy
       }
+    });
+
+    await this.publishAdminAlertSafely({
+      subject: level === "out_of_stock" ? `Hết hàng: ${payload.productName}` : `Sắp hết hàng: ${payload.productName}`,
+      message: [
+        "Cảnh báo tồn kho dành cho admin.",
+        `Sản phẩm: ${payload.productName}`,
+        `ProductId: ${payload.productId}`,
+        `SKU: ${payload.sku ?? "N/A"}`,
+        `Mức cảnh báo: ${level}`,
+        `Tồn kho hiện tại: ${stock}`,
+        `ồn kho trước đó: ${Number(payload.previousStock ?? 0)}`,
+        `Nguồn thay đổi: ${source || "unknown"}`,
+        `Người thay đổi: ${changedBy || "unknown"}`
+      ].join("\n"),
+      attributes: {
+        alertType: "inventory.stock.alert",
+        alertLevel: level,
+        productId: payload.productId,
+        sku: payload.sku ?? "",
+        stock
+      },
+      logContext: `alertType=inventory.stock.alert productId=${payload.productId} level=${level}`
     });
 
     return {

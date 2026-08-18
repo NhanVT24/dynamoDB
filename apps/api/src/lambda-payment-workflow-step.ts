@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { createNestApp } from "./core/app/create-app.js";
+import { createStandaloneContext } from "./core/app/create-standalone-context.js";
 import { VnpayService } from "./modules/vnpay/vnpay.service.js";
 
 type WorkflowInput = {
@@ -13,7 +13,7 @@ type WorkflowInput = {
   };
 };
 
-const appPromise = createNestApp();
+const appContextPromise = createStandaloneContext();
 
 export const handler = async (event: WorkflowInput) => {
   const payload = event.detail ?? {};
@@ -26,8 +26,8 @@ export const handler = async (event: WorkflowInput) => {
     throw new Error("Missing workflow payment payload.");
   }
 
-  const app = await appPromise;
-  const vnpayService = app.get(VnpayService);
+  const appContext = await appContextPromise;
+  const vnpayService = appContext.get(VnpayService);
   return vnpayService.createWorkflowPaymentUrl({
     email,
     items,

@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { createNestApp } from "./core/app/create-app.js";
+import { createStandaloneContext } from "./core/app/create-standalone-context.js";
 import { StorefrontService } from "./modules/storefront/storefront.service.js";
 
 type WorkflowInput = {
@@ -10,7 +10,7 @@ type WorkflowInput = {
   };
 };
 
-const appPromise = createNestApp();
+const appContextPromise = createStandaloneContext();
 
 export const handler = async (event: WorkflowInput) => {
   const payload = event.detail ?? {};
@@ -22,8 +22,8 @@ export const handler = async (event: WorkflowInput) => {
     throw new Error("Missing workflow order payload.");
   }
 
-  const app = await appPromise;
-  const storefrontService = app.get(StorefrontService);
+  const appContext = await appContextPromise;
+  const storefrontService = appContext.get(StorefrontService);
   return storefrontService.finalizeWorkflowOrder({
     email,
     items,

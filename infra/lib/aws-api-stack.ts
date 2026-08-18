@@ -22,6 +22,8 @@ import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3n from "aws-cdk-lib/aws-s3-notifications";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as sfn from "aws-cdk-lib/aws-stepfunctions";
 import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
@@ -540,6 +542,12 @@ exports.handler = async (event) => {
     });
 
     const sharedLambdaCode = lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip"));
+    const adminAlertsTopic = new sns.Topic(this, "AdminAlertsTopic", {
+      topicName: "supermarket-admin-alerts",
+      displayName: "Supermarket Admin Alerts"
+    });
+    adminAlertsTopic.addSubscription(new subscriptions.EmailSubscription(adminReportEmail.valueAsString));
+
     const sharedEnvironment = {
       DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString,
       S3_BUCKET_NAME: productImagesBucket.bucketName,
@@ -562,6 +570,7 @@ exports.handler = async (event) => {
       EVENTBRIDGE_COMMERCE_ARCHIVE_ARN: commerceArchive.attrArn,
       EVENTBRIDGE_PAYMENT_ARCHIVE_ARN: paymentArchive.attrArn,
       EVENTBRIDGE_PLATFORM_ARCHIVE_ARN: platformArchive.attrArn,
+      SNS_ADMIN_ALERTS_TOPIC_ARN: adminAlertsTopic.topicArn,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
       ADMIN_REPORT_EMAIL: adminReportEmail.valueAsString,
       VNPAY_TMN_CODE: vnpayTmnCodeValue,
@@ -627,6 +636,10 @@ exports.handler = async (event) => {
           platformArchive.attrArn,
           `arn:aws:events:${this.region}:${this.account}:replay/*`
         ]
+      }));
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["sns:Publish"],
+        resources: [adminAlertsTopic.topicArn]
       }));
 
       productImagesBucket.grantReadWrite(fn);
@@ -1250,6 +1263,10 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "PaymentEventsDlqUrl", {
       value: paymentEventsDlq.queueUrl
+    });
+
+    new CfnOutput(this, "AdminAlertsTopicArn", {
+      value: adminAlertsTopic.topicArn
     });
 
     new CfnOutput(this, "UserPoolId", {

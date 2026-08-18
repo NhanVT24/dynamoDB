@@ -44,7 +44,8 @@
     "zod": "^4.0.5"
   },
   "overrides": {
-    "@aws-sdk/core": "3.977.6"
+    "@aws-sdk/core": "3.977.6",
+    "@aws-sdk/credential-provider-node": "3.972.78"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

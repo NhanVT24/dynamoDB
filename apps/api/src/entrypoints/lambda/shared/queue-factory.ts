@@ -1,4 +1,4 @@
-import { createNestApp } from "../../../core/app/create-app.js";
+import { createStandaloneContext } from "../../../core/app/create-standalone-context.js";
 import { NotificationsService } from "../../../modules/notifications/notifications.service.js";
 import { StorefrontService } from "../../../modules/storefront/storefront.service.js";
 import { UploadsService } from "../../../modules/uploads/uploads.service.js";
@@ -26,7 +26,7 @@ function normalizeSqsRecords(event: any): SqsRecord[] {
 }
 
 export function createQueueHandler(config: QueueHandlerConfig) {
-  const appPromise = createNestApp();
+  const appContextPromise = createStandaloneContext();
 
   return async (event: any) => {
     const records = normalizeSqsRecords(event);
@@ -48,12 +48,12 @@ export function createQueueHandler(config: QueueHandlerConfig) {
       return { batchItemFailures: [] };
     }
 
-    const app = await appPromise;
+    const appContext = await appContextPromise;
     const queueHandler = config.worker === "storefront"
-      ? app.get(StorefrontService)
+      ? appContext.get(StorefrontService)
       : config.worker === "uploads"
-        ? app.get(UploadsService)
-        : app.get(NotificationsService);
+        ? appContext.get(UploadsService)
+        : appContext.get(NotificationsService);
 
     console.log(`[lambda-sqs:${config.lambdaName}] batch_received`, {
       correlationId,
