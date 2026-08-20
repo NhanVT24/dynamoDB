@@ -220,6 +220,26 @@ export class AwsApiStack extends Stack {
       retentionPeriod: Duration.days(14)
     });
 
+    const checkoutGateDlq = new sqs.Queue(this, "CheckoutGateDlq", {
+      queueName: "supermarket-checkout-gate-dlq.fifo",
+      fifo: true,
+      contentBasedDeduplication: true,
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14)
+    });
+
+    const checkoutGateQueue = new sqs.Queue(this, "CheckoutGateQueue", {
+      queueName: "supermarket-checkout-gate.fifo",
+      fifo: true,
+      contentBasedDeduplication: true,
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(4),
+      deadLetterQueue: {
+        queue: checkoutGateDlq,
+        maxReceiveCount: 3
+      }
+    });
+
     const storefrontOrdersQueue = new sqs.Queue(this, "StorefrontOrdersQueue", {
       queueName: "supermarket-storefront-orders",
       visibilityTimeout: Duration.seconds(30),
@@ -687,10 +707,24 @@ exports.handler = async (event) => {
       20,
       512
     );
+    const checkoutGateWorkerFunction = createApplicationLambda(
+      "SupermarketCheckoutGateWorkerFunction",
+      "supermarket-checkout-gate-worker-aws",
+      "src/lambda-checkout-gate-worker.handler",
+      20,
+      512
+    );
     const notificationWorkerFunction = createApplicationLambda(
       "SupermarketNotificationWorkerFunction",
       "supermarket-notification-worker-aws",
       "src/lambda-notification-worker.handler",
+      20,
+      512
+    );
+    const paymentWorkerFunction = createApplicationLambda(
+      "SupermarketPaymentWorkerFunction",
+      "supermarket-payment-worker-aws",
+      "src/lambda-payment-worker.handler",
       20,
       512
     );
@@ -856,6 +890,11 @@ exports.handler = async (event) => {
       storefrontOrdersQueue,
       orderWorkerFunction.functionArn
     );
+    const checkoutGatePipeRole = createPipeRole(
+      "CheckoutGatePipeRole",
+      checkoutGateQueue,
+      checkoutGateWorkerFunction.functionArn
+    );
     const notificationPipeRole = createPipeRole(
       "NotificationsPipeRole",
       notificationsQueue,
@@ -864,7 +903,7 @@ exports.handler = async (event) => {
     const paymentPipeRole = createPipeRole(
       "PaymentEventsPipeRole",
       paymentEventsQueue,
-      notificationWorkerFunction.functionArn
+      paymentWorkerFunction.functionArn
     );
     const imageUploadsPipeRole = new iam.Role(this, "ImageUploadsPipeRole", {
       assumedBy: new iam.ServicePrincipal("pipes.amazonaws.com")
@@ -899,6 +938,23 @@ exports.handler = async (event) => {
       }
     });
 
+    new pipes.CfnPipe(this, "CheckoutGatePipe", {
+      name: "supermarket-checkout-gate-fifo-pipe",
+      roleArn: checkoutGatePipeRole.roleArn,
+      source: checkoutGateQueue.queueArn,
+      target: checkoutGateWorkerFunction.functionArn,
+      sourceParameters: {
+        sqsQueueParameters: {
+          batchSize: 10
+        }
+      },
+      targetParameters: {
+        lambdaFunctionParameters: {
+          invocationType: "REQUEST_RESPONSE"
+        }
+      }
+    });
+
     new pipes.CfnPipe(this, "NotificationsPipe", {
       name: "supermarket-notifications-pipe",
       roleArn: notificationPipeRole.roleArn,
@@ -920,7 +976,7 @@ exports.handler = async (event) => {
       name: "supermarket-payment-events-pipe",
       roleArn: paymentPipeRole.roleArn,
       source: paymentEventsQueue.queueArn,
-      target: notificationWorkerFunction.functionArn,
+      target: paymentWorkerFunction.functionArn,
       sourceParameters: {
         sqsQueueParameters: {
           batchSize: 10
@@ -965,6 +1021,19 @@ exports.handler = async (event) => {
       targets: [new eventsTargets.SfnStateMachine(orderPaymentWorkflow, {
         deadLetterQueue: eventBridgeTargetDlq,
         retryAttempts: 2
+      })]
+    });
+
+    new events.Rule(this, "CommerceCheckoutGateRule", {
+      eventBus: commerceEventBus,
+      ruleName: "supermarket-commerce-checkout-gate-rule",
+      eventPattern: {
+        source: ["supermarket.commerce"],
+        detailType: ["storefront.checkout.gate.requested"]
+      },
+      targets: [new eventsTargets.SqsQueue(checkoutGateQueue, {
+        deadLetterQueue: eventBridgeTargetDlq,
+        messageGroupId: "storefront-checkout-gate"
       })]
     });
 
@@ -1097,6 +1166,7 @@ exports.handler = async (event) => {
     };
 
     createDlqAlarm("NotificationsDlqAlarm", notificationsDlq, "supermarket-notifications-dlq");
+    createDlqAlarm("CheckoutGateDlqAlarm", checkoutGateDlq, "supermarket-checkout-gate-dlq");
     createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
     createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");
@@ -1151,6 +1221,10 @@ exports.handler = async (event) => {
     storefrontOrdersMeResource.addMethod("GET", httpIntegration, {
       authorizationType: apigateway.AuthorizationType.NONE
     });
+    const storefrontProxyResource = storefrontResource.addResource("{proxy+}");
+    storefrontProxyResource.addMethod("ANY", httpIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
 
     const notificationsResource = apiResource.addResource("notifications");
     notificationsResource.addMethod("ANY", httpIntegration, {
@@ -1201,8 +1275,16 @@ exports.handler = async (event) => {
       value: orderWorkerFunction.functionName
     });
 
+    new CfnOutput(this, "CheckoutGateWorkerFunctionName", {
+      value: checkoutGateWorkerFunction.functionName
+    });
+
     new CfnOutput(this, "NotificationWorkerFunctionName", {
       value: notificationWorkerFunction.functionName
+    });
+
+    new CfnOutput(this, "PaymentWorkerFunctionName", {
+      value: paymentWorkerFunction.functionName
     });
 
     new CfnOutput(this, "AuditEventWorkerFunctionName", {
@@ -1251,6 +1333,10 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "StorefrontOrdersQueueUrl", {
       value: storefrontOrdersQueue.queueUrl
+    });
+
+    new CfnOutput(this, "CheckoutGateQueueUrl", {
+      value: checkoutGateQueue.queueUrl
     });
 
     new CfnOutput(this, "StorefrontOrdersDlqUrl", {

@@ -39,6 +39,11 @@ const sessionStorageKey = "cognito-auth-session";
 const postLoginRedirectStorageKey = "cognito-post-login-redirect";
 export const authSessionChangedEvent = "cognito-auth-session-changed";
 
+function clearPostLoginRedirect() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(postLoginRedirectStorageKey);
+}
+
 function dispatchAuthSessionChanged() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(authSessionChangedEvent));
@@ -225,6 +230,7 @@ export function clearAuthSession() {
 }
 
 export function signOutLocally() {
+  clearPostLoginRedirect();
   clearAuthSession();
 }
 
@@ -291,12 +297,27 @@ export async function exchangeAuthorizationCodeForSession(code: string) {
 }
 
 export function signOutFromCognitoHostedUi() {
+  clearPostLoginRedirect();
   clearAuthSession();
 
   const url = new URL(`${getCognitoDomain()}/logout`);
   url.searchParams.set("client_id", getCognitoClientId());
   url.searchParams.set("logout_uri", typeof window === "undefined" ? "http://localhost:3000/" : `${window.location.origin}/`);
   window.location.assign(url.toString());
+}
+
+export function resolvePostLoginRoute(session: Pick<AuthSession, "role">, redirectPath?: string | null) {
+  const normalizedRedirect = String(redirectPath ?? "").trim();
+
+  if (session.role === "admin") {
+    return normalizedRedirect.startsWith("/admin") ? normalizedRedirect : "/admin";
+  }
+
+  if (normalizedRedirect && !normalizedRedirect.startsWith("/admin")) {
+    return normalizedRedirect;
+  }
+
+  return "/store";
 }
 
 function buildSession(authenticationResult: {

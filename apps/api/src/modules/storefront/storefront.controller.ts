@@ -3,7 +3,7 @@ import type { FastifyRequest } from "fastify";
 import { shoppingParamsSchema } from "../shopping/shopping.query-schemas.js";
 import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
 import { StorefrontService } from "./storefront.service.js";
-import { createStorefrontOrderSchema } from "./storefront.schema.js";
+import { createStorefrontOrderSchema, prepareStorefrontCheckoutSchema } from "./storefront.schema.js";
 
 @Controller("api/storefront")
 export class StorefrontController {
@@ -36,6 +36,28 @@ export class StorefrontController {
     const input = createStorefrontOrderSchema.parse(rawBody);
     this.logger.log(`[storefront-controller] create_order_validated email=${principal?.email ?? "unknown"} itemCount=${input.items.length}`);
     return this.storefrontService.createOrder(principal.email, input);
+  }
+
+  @Post("checkout/prepare")
+  @HttpCode(HttpStatus.ACCEPTED)
+  prepareCheckout(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
+      throw new ForbiddenException("Chỉ tài khoản customer hoặc admin mới được bắt đầu checkout.");
+    }
+
+    const input = prepareStorefrontCheckoutSchema.parse(rawBody);
+    return this.storefrontService.prepareCheckout(principal.email, input);
+  }
+
+  @Get("checkout/prepare/:requestId")
+  getCheckoutStatus(@Req() request: FastifyRequest, @Param("requestId") requestId: string) {
+    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
+      throw new ForbiddenException("Bạn cần đăng nhập để xem trạng thái checkout.");
+    }
+
+    return this.storefrontService.getCheckoutGateStatus(principal.email, requestId);
   }
 
   @Get("orders/me")

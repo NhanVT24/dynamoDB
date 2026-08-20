@@ -1,4 +1,8 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  logQueueBusinessEvent,
+  logQueueWarn
+} from "../../common/logging/queue-logger.js";
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { publishAdminAlert } from "../../integrations/sns/publisher.js";
@@ -25,6 +29,14 @@ function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T):
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
+
+  private resolveQueueContext(queueName?: string, fallbackEventType?: string) {
+    if (queueName) {
+      return queueName;
+    }
+
+    return fallbackEventType?.startsWith("payment.") ? "paymentEvents" : "notifications";
+  }
 
   private async publishAdminAlertSafely(input: {
     subject: string;
@@ -322,12 +334,13 @@ export class NotificationsService {
     return { success: true, deletedCount: notifications.items.length };
   }
 
-  async processQueueRecords(records: Array<{ body?: string; messageId?: string }>) {
-    this.logger.log(`[queue-notification] batch_received size=${records.length}`);
-
+  async processQueueRecords(
+    records: Array<{ body?: string; messageId?: string }>,
+    options?: { queueName?: string; workerName?: string }
+  ) {
     const settled = await Promise.allSettled(records.map(async (record) => ({
       messageId: String(record.messageId ?? ""),
-      item: await this.processQueueRecord(record.body)
+      item: await this.processQueueRecord(record.body, options?.queueName)
     })));
 
     const processedItems = settled
@@ -338,8 +351,6 @@ export class NotificationsService {
     const failedMessageIds = settled
       .flatMap((result, index) => result.status === "rejected" ? [String(records[index]?.messageId ?? "")] : [])
       .filter(Boolean);
-
-    this.logger.log(`[queue-notification] batch_processed processed=${processedItems.length} failed=${failedMessageIds.length} items=${JSON.stringify(processedItems)}`);
 
     return {
       processed: processedItems.length,
@@ -374,9 +385,12 @@ export class NotificationsService {
     return { queued: true, eventId: published.eventId };
   }
 
-  private async processQueueRecord(body: string | undefined) {
+  private async processQueueRecord(body: string | undefined, queueName?: string) {
     if (!body) {
-      this.logger.warn("[queue-notification] record_empty");
+      logQueueWarn(this.logger, {
+        queue: this.resolveQueueContext(queueName),
+        status: "record_empty"
+      });
       return null;
     }
 
@@ -408,32 +422,34 @@ export class NotificationsService {
     };
 
     if (payload.type === "payment.completed") {
-      this.logger.log(`[queue-payment] received type=payment.completed txnRef=${payload.txnRef ?? ""} orderId=${payload.orderId ?? ""}`);
       return this.processPaymentCompletedEvent(payload);
     }
 
     if (payload.type === "payment.failed") {
-      this.logger.log(`[queue-payment] received type=payment.failed txnRef=${payload.txnRef ?? ""} orderId=${payload.orderId ?? ""}`);
       return this.processPaymentFailedEvent(payload);
     }
 
     if (payload.type === "inventory.stock.alert") {
-      this.logger.log(`[queue-admin-alert] received type=inventory.stock.alert productId=${payload.productId ?? ""} level=${payload.alertLevel ?? ""}`);
       return this.processInventoryStockAlert(payload);
     }
 
     if (payload.type !== "notification.pending" || !payload.notificationId) {
-      this.logger.warn(`[queue-notification] ignored payload=${body}`);
+      logQueueWarn(this.logger, {
+        queue: this.resolveQueueContext(queueName),
+        status: "ignored_payload"
+      });
       return null;
     }
-
-    this.logger.log(`[queue-notification] received type=notification.pending notificationId=${payload.notificationId} channel=${String((payload as { channel?: string }).channel ?? "")}`);
-    this.logger.log(`[queue-notification] processing notificationId=${payload.notificationId} orderId=${String(payload.metadata?.orderId ?? "")}`);
     await markNotificationAsSent(payload.notificationId);
 
     const orderId = String(payload.metadata?.orderId ?? "").trim();
     if (!orderId) {
-      this.logger.log(`[queue-notification] completed notificationId=${payload.notificationId} orderCompleted=false`);
+      logQueueBusinessEvent(this.logger, {
+        queue: this.resolveQueueContext(queueName, "notification.pending"),
+        eventType: "notification.pending",
+        status: "processed",
+        notificationId: payload.notificationId
+      });
       return {
         type: "notification.pending",
         notificationId: payload.notificationId,
@@ -443,7 +459,13 @@ export class NotificationsService {
     }
 
     await this.completeOrderIfReady(orderId);
-    this.logger.log(`[queue-notification] completed notificationId=${payload.notificationId} orderId=${orderId} orderCompleted=true`);
+    logQueueBusinessEvent(this.logger, {
+      queue: this.resolveQueueContext(queueName, "notification.pending"),
+      eventType: "notification.pending",
+      status: "processed",
+      notificationId: payload.notificationId,
+      orderId
+    });
     return {
       type: "notification.pending",
       notificationId: payload.notificationId,
@@ -466,15 +488,18 @@ export class NotificationsService {
     failureReason?: string;
   }) {
     if (!payload.email || !payload.txnRef) {
-      this.logger.warn(`[queue-payment] ignored txnRef=${payload.txnRef ?? ""}`);
+      logQueueWarn(this.logger, {
+        queue: "paymentEvents",
+        eventType: "payment.completed",
+        status: "ignored_payload",
+        txnRef: payload.txnRef ?? ""
+      });
       return null;
     }
 
     const email = payload.email.trim().toLowerCase();
     const orderId = payload.orderId?.trim() || "";
     const amount = Number(payload.amount ?? 0);
-
-    this.logger.log(`[queue-payment] success_processing txnRef=${payload.txnRef} orderId=${orderId}`);
 
     if (payload.forceFail) {
       this.logger.error(`[queue-payment] success_force_fail txnRef=${payload.txnRef}`);
@@ -511,7 +536,13 @@ export class NotificationsService {
       }
     });
 
-    this.logger.log(`[queue-payment] success_completed txnRef=${payload.txnRef} orderId=${orderId}`);
+    logQueueBusinessEvent(this.logger, {
+      queue: "paymentEvents",
+      eventType: "payment.completed",
+      status: "processed",
+      txnRef: payload.txnRef,
+      orderId
+    });
     return {
       type: "payment.completed",
       txnRef: payload.txnRef,
@@ -535,7 +566,12 @@ export class NotificationsService {
     forceFail?: boolean;
   }) {
     if (!payload.email || !payload.txnRef) {
-      this.logger.warn(`[queue-payment] failed_ignored txnRef=${payload.txnRef ?? ""}`);
+      logQueueWarn(this.logger, {
+        queue: "paymentEvents",
+        eventType: "payment.failed",
+        status: "ignored_payload",
+        txnRef: payload.txnRef ?? ""
+      });
       return null;
     }
 
@@ -543,8 +579,6 @@ export class NotificationsService {
     const orderId = payload.orderId?.trim() || "";
     const amount = Number(payload.amount ?? 0);
     const failureReason = String(payload.failureReason ?? "payment_failed");
-
-    this.logger.log(`[queue-payment] failed_processing txnRef=${payload.txnRef} orderId=${orderId} responseCode=${payload.responseCode ?? ""}`);
 
     if (payload.forceFail) {
       this.logger.error(`[queue-payment] failed_force_fail txnRef=${payload.txnRef}`);
@@ -623,7 +657,13 @@ export class NotificationsService {
       logContext: `alertType=payment.failed txnRef=${payload.txnRef} orderId=${orderId}`
     });
 
-    this.logger.log(`[queue-payment] failed_completed txnRef=${payload.txnRef} orderId=${orderId}`);
+    logQueueBusinessEvent(this.logger, {
+      queue: "paymentEvents",
+      eventType: "payment.failed",
+      status: "processed",
+      txnRef: payload.txnRef,
+      orderId
+    });
     return {
       type: "payment.failed",
       txnRef: payload.txnRef,

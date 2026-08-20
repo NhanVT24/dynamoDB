@@ -6,7 +6,16 @@ export const storefrontOrderItemSchema = z.object({
 });
 
 export const createStorefrontOrderSchema = z.object({
+  requestId: z.string().uuid().optional(),
   items: z.array(storefrontOrderItemSchema).min(1).max(20)
 });
 
 export type CreateStorefrontOrderInput = z.infer<typeof createStorefrontOrderSchema>;
+
+export const prepareStorefrontCheckoutSchema = z.object({
+  items: z.array(storefrontOrderItemSchema).min(1).max(20),
+  locale: z.enum(["vn", "en"]).default("vn"),
+  bankCode: z.string().trim().min(2).max(20).optional()
+});
+
+export type PrepareStorefrontCheckoutInput = z.infer<typeof prepareStorefrontCheckoutSchema>;

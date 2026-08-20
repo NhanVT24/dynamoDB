@@ -11,6 +11,7 @@ import {
   confirmSignUpWithCognito,
   consumePostLoginRedirect,
   authSessionChangedEvent,
+  resolvePostLoginRoute,
   type AuthSession,
   forgotPassword,
   readAuthSession,
@@ -476,8 +477,9 @@ export default function Home() {
     if (!ready || !session) return;
 
     const postLoginRedirect = consumePostLoginRedirect();
-    if (postLoginRedirect && session.role !== "admin") {
-      router.replace(postLoginRedirect);
+    const nextRoute = resolvePostLoginRoute(session, postLoginRedirect);
+    if (nextRoute !== "/admin") {
+      router.replace(nextRoute);
       return;
     }
 
@@ -511,6 +513,7 @@ export default function Home() {
     setSession(null);
     setMessage("Đã đăng xuất.");
     setAuthMode("login");
+    router.replace("/");
   }
 
   function handleHostedLogout() {
@@ -551,13 +554,9 @@ export default function Home() {
       });
 
       setSession(nextSession);
-      if (nextSession.role !== "admin") {
-        const postLoginRedirect = consumePostLoginRedirect();
-        if (postLoginRedirect) {
-          router.replace(postLoginRedirect);
-          return;
-        }
-        router.replace("/store");
+      const nextRoute = resolvePostLoginRoute(nextSession, consumePostLoginRedirect());
+      if (nextRoute !== "/admin") {
+        router.replace(nextRoute);
         return;
       }
       setMessage(

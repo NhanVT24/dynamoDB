@@ -2,6 +2,10 @@ import { Injectable, InternalServerErrorException, Logger } from "@nestjs/common
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
+import {
+  logQueueBusinessEvent,
+  logQueueWarn
+} from "../../common/logging/queue-logger.js";
 import { env } from "../../config/env.js";
 import type { CreateUploadPresignInput } from "./uploads.schema.js";
 
@@ -67,9 +71,10 @@ export class UploadsService {
     };
   }
 
-  async processQueueRecords(records: Array<{ body?: string; messageId?: string }>) {
-    this.logger.log(`[queue-image] batch_received size=${records.length}`);
-
+  async processQueueRecords(
+    records: Array<{ body?: string; messageId?: string }>,
+    options?: { queueName?: string; workerName?: string }
+  ) {
     const settled = await Promise.allSettled(records.map(async (record) => ({
       messageId: String(record.messageId ?? ""),
       item: await this.processQueueRecord(record.body)
@@ -84,8 +89,6 @@ export class UploadsService {
       .flatMap((result, index) => result.status === "rejected" ? [String(records[index]?.messageId ?? "")] : [])
       .filter(Boolean);
 
-    this.logger.log(`[queue-image] batch_processed processed=${processedItems.length} failed=${failedMessageIds.length} items=${JSON.stringify(processedItems)}`);
-
     return {
       processed: processedItems.length,
       failedMessageIds,
@@ -95,7 +98,10 @@ export class UploadsService {
 
   private async processQueueRecord(body: string | undefined) {
     if (!body) {
-      this.logger.warn("[queue-image] record_empty");
+      logQueueWarn(this.logger, {
+        queue: "imageUploads",
+        status: "record_empty"
+      });
       return null;
     }
 
@@ -112,7 +118,10 @@ export class UploadsService {
 
     const records = Array.isArray(payload.Records) ? payload.Records : [];
     if (records.length === 0) {
-      this.logger.warn(`[queue-image] ignored body=${body}`);
+      logQueueWarn(this.logger, {
+        queue: "imageUploads",
+        status: "ignored_payload"
+      });
       return null;
     }
 
@@ -123,7 +132,16 @@ export class UploadsService {
       const scope = objectKey.split("/")[0] ?? "";
       const fileUrl = bucket && objectKey ? buildPublicUrl(bucket, objectKey) : "";
 
-      this.logger.log(`[queue-image] uploaded bucket=${bucket} key=${objectKey} event=${String(record.eventName ?? "")} scope=${scope}`);
+      logQueueBusinessEvent(this.logger, {
+        queue: "imageUploads",
+        eventType: String(record.eventName ?? "s3.object.created"),
+        status: "processed",
+        details: {
+          bucket,
+          key: objectKey,
+          scope
+        }
+      });
 
       return {
         bucket,

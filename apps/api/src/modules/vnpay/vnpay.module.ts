@@ -7,6 +7,7 @@ import { VnpayService } from "./vnpay.service.js";
 @Module({
   imports: [ConfigModule, NotificationsModule],
   controllers: [VnpayController],
-  providers: [VnpayService]
+  providers: [VnpayService],
+  exports: [VnpayService]
 })
 export class VnpayModule {}

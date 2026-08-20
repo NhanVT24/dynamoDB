@@ -506,10 +506,7 @@ function StorefrontAuthModal({
 
       onSignedIn(nextSession);
       closeAuthModal();
-
-      if (nextSession.role === "admin") {
-        router.push("/admin");
-      }
+      router.push(nextSession.role === "admin" ? "/admin" : "/store");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Không thể đăng nhập lúc này.");
       if (error instanceof Error && /xác nhận|confirm/i.test(error.message)) {

@@ -2,7 +2,11 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { consumePostLoginRedirect, exchangeAuthorizationCodeForSession } from "../../../src/features/auth/lib/cognito-auth";
+import {
+  consumePostLoginRedirect,
+  exchangeAuthorizationCodeForSession,
+  resolvePostLoginRoute
+} from "../../../src/features/auth/lib/cognito-auth";
 
 function AuthCallbackContent() {
   const router = useRouter();
@@ -26,18 +30,7 @@ function AuthCallbackContent() {
 
     exchangeAuthorizationCodeForSession(code)
       .then((session) => {
-        const postLoginRedirect = consumePostLoginRedirect();
-        if (postLoginRedirect && session.role !== "admin") {
-          router.replace(postLoginRedirect);
-          return;
-        }
-
-        if (session.role === "admin") {
-          router.replace("/admin");
-          return;
-        }
-
-        router.replace("/store");
+        router.replace(resolvePostLoginRoute(session, consumePostLoginRedirect()));
       })
       .catch((reason: unknown) => {
         setMessage(reason instanceof Error ? reason.message : "Không thể hoàn tất đăng nhập Google.");

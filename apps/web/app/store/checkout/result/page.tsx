@@ -187,7 +187,7 @@ function CheckoutResultPageContent() {
         return;
       }
 
-      let pendingCheckout: { items?: Array<{ productId: string; quantity: number }> } | null = null;
+      let pendingCheckout: { requestId?: string; items?: Array<{ productId: string; quantity: number }> } | null = null;
       try {
         pendingCheckout = JSON.parse(rawPendingCheckout) as { items?: Array<{ productId: string; quantity: number }> };
       } catch {
@@ -221,6 +221,7 @@ function CheckoutResultPageContent() {
             Authorization: `Bearer ${session.idToken}`
           },
           body: JSON.stringify({
+            requestId: String(pendingCheckout.requestId ?? "").trim() || undefined,
             items: pendingCheckout.items
           })
         });

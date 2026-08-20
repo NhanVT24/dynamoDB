@@ -29,6 +29,16 @@ export type StorefrontOrderQueuePayload = {
   createdAt: string;
 };
 
+export type CheckoutGateQueuePayload = {
+  type: "storefront.checkout.gate.requested";
+  requestId: string;
+  email: string;
+  items: Array<{ productId: string; quantity: number }>;
+  locale?: "vn" | "en";
+  bankCode?: string;
+  createdAt: string;
+};
+
 export type InventoryStockChange = {
   productId: string;
   productName: string;
@@ -64,6 +74,26 @@ export type StorefrontOrderCreationResult = {
   stockChanges: InventoryStockChange[];
 };
 
+export type CheckoutGateStatus = "pending" | "allowed" | "blocked";
+
+export type CheckoutGateRequestRecord = {
+  PK: string;
+  SK: string;
+  entityType: "CHECKOUT_GATE";
+  requestId: string;
+  customerEmail: string;
+  status: CheckoutGateStatus;
+  items: Array<{ productId: string; quantity: number }>;
+  createdAt: string;
+  updatedAt: string;
+  message?: string;
+  failureCode?: string;
+  paymentUrl?: string;
+  locale?: "vn" | "en";
+  bankCode?: string;
+  lockedUntil?: string;
+};
+
 function toDynamoItem(item: Record<string, unknown>) {
   return marshall(item, { removeUndefinedValues: true });
 }
@@ -76,6 +106,13 @@ function buildProductLockKey(productId: string) {
   return {
     PK: `PRODUCT_LOCK#${productId}`,
     SK: "RESERVATION"
+  };
+}
+
+function buildCheckoutGateKey(requestId: string) {
+  return {
+    PK: `CHECKOUT_GATE#${requestId}`,
+    SK: "DETAIL"
   };
 }
 
@@ -242,6 +279,93 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
     order: orderRecord,
     stockChanges
   };
+}
+
+export async function createCheckoutGateRequest(input: {
+  requestId: string;
+  email: string;
+  items: Array<{ productId: string; quantity: number }>;
+  locale?: "vn" | "en";
+  bankCode?: string;
+}) {
+  const now = new Date().toISOString();
+  const record: CheckoutGateRequestRecord = {
+    ...buildCheckoutGateKey(input.requestId),
+    entityType: "CHECKOUT_GATE",
+    requestId: input.requestId,
+    customerEmail: input.email,
+    status: "pending",
+    items: input.items,
+    locale: input.locale,
+    bankCode: input.bankCode,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await rawDb.send(new PutItemCommand({
+    TableName,
+    Item: toDynamoItem(record),
+    ConditionExpression: "attribute_not_exists(PK)"
+  }));
+
+  return record;
+}
+
+export async function getCheckoutGateRequestById(requestId: string) {
+  const result = await rawDb.send(new GetItemCommand({
+    TableName,
+    Key: toDynamoItem(buildCheckoutGateKey(requestId))
+  }));
+
+  return result.Item ? (unmarshall(result.Item) as CheckoutGateRequestRecord) : null;
+}
+
+export async function updateCheckoutGateRequestStatus(input: {
+  requestId: string;
+  expectedStatus?: CheckoutGateStatus;
+  status: Exclude<CheckoutGateStatus, "pending">;
+  message: string;
+  failureCode?: string;
+  paymentUrl?: string;
+  lockedUntil?: string;
+}) {
+  const now = new Date().toISOString();
+  const names: Record<string, string> = {
+    "#status": "status"
+  };
+  const values: Record<string, unknown> = {
+    ":status": input.status,
+    ":message": input.message,
+    ":updatedAt": now,
+    ":empty": ""
+  };
+  const segments = [
+    "#status = :status",
+    "message = :message",
+    "updatedAt = :updatedAt",
+    "failureCode = :failureCode",
+    "paymentUrl = :paymentUrl",
+    "lockedUntil = :lockedUntil"
+  ];
+
+  values[":failureCode"] = input.failureCode ?? "";
+  values[":paymentUrl"] = input.paymentUrl ?? "";
+  values[":lockedUntil"] = input.lockedUntil ?? "";
+
+  let conditionExpression = "attribute_exists(PK)";
+  if (input.expectedStatus) {
+    values[":expectedStatus"] = input.expectedStatus;
+    conditionExpression += " AND #status = :expectedStatus";
+  }
+
+  await rawDb.send(new UpdateItemCommand({
+    TableName,
+    Key: toDynamoItem(buildCheckoutGateKey(input.requestId)),
+    ConditionExpression: conditionExpression,
+    UpdateExpression: `SET ${segments.join(", ")}`,
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: toDynamoItem(values)
+  }));
 }
 
 export async function acquireProductSelectionLock(input: { productId: string; email: string; requestId: string; holdSeconds: number }) {

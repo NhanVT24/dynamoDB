@@ -1,21 +1,33 @@
 import crypto from "node:crypto";
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { TtlCache } from "../../common/cache/ttl-cache.js";
+import {
+  logQueueBusinessEvent,
+  logQueueWarn
+} from "../../common/logging/queue-logger.js";
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { sendOrderConfirmationEmail, sendOrderFailureEmail } from "../../integrations/ses/order-mailer.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
+import { VnpayService } from "../vnpay/vnpay.service.js";
 import {
+  acquireProductSelectionLock,
+  createCheckoutGateRequest,
   createStorefrontOrder,
+  getCheckoutGateRequestById,
   getActiveProductSelectionLock,
   getStorefrontProductById,
+  releaseProductSelectionLock,
   type InventoryStockChange,
   listOrdersByCustomer,
   listStorefrontProducts,
+  type CheckoutGateQueuePayload,
   type StorefrontOrderQueuePayload
+  ,
+  updateCheckoutGateRequestStatus
 } from "./storefront.repository.js";
-import type { CreateStorefrontOrderInput } from "./storefront.schema.js";
+import type { CreateStorefrontOrderInput, PrepareStorefrontCheckoutInput } from "./storefront.schema.js";
 
 type ProductRecord = Record<string, any>;
 type PublicProductListResponse = {
@@ -170,7 +182,10 @@ function isInsufficientStockError(error: unknown) {
 export class StorefrontService {
   private readonly logger = new Logger(StorefrontService.name);
 
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly vnpayService: VnpayService
+  ) {}
 
   async listProducts(rawQuery: Record<string, unknown>) {
     const query = shoppingListQuerySchema.parse(rawQuery);
@@ -228,6 +243,64 @@ export class StorefrontService {
     return shaped;
   }
 
+  async prepareCheckout(email: string, input: PrepareStorefrontCheckoutInput) {
+    if (!env.EVENTBRIDGE_COMMERCE_BUS_NAME) {
+      throw new Error("Hàng đợi duyệt checkout chưa được cấu hình.");
+    }
+
+    await this.precheckProducts(email, input.items);
+
+    const requestId = crypto.randomUUID();
+    await createCheckoutGateRequest({
+      requestId,
+      email,
+      items: input.items,
+      locale: input.locale,
+      bankCode: input.bankCode
+    });
+
+    const payload: CheckoutGateQueuePayload = {
+      type: "storefront.checkout.gate.requested",
+      requestId,
+      email,
+      items: input.items,
+      locale: input.locale,
+      bankCode: input.bankCode,
+      createdAt: new Date().toISOString()
+    };
+
+    await publishEventBridgeEvent({
+      busName: env.EVENTBRIDGE_COMMERCE_BUS_NAME,
+      source: "supermarket.commerce",
+      detailType: "storefront.checkout.gate.requested",
+      detail: payload as unknown as Record<string, unknown>
+    });
+
+    return {
+      success: true,
+      queued: true,
+      requestId,
+      status: "pending",
+      message: "Yêu cầu checkout đã vào hàng đợi kiểm tra tồn kho."
+    };
+  }
+
+  async getCheckoutGateStatus(email: string, requestId: string) {
+    const gate = await getCheckoutGateRequestById(requestId);
+    if (!gate || gate.customerEmail !== email) {
+      throw new NotFoundException("Không tìm thấy yêu cầu checkout.");
+    }
+
+    return {
+      requestId: gate.requestId,
+      status: gate.status,
+      message: gate.message || "",
+      failureCode: gate.failureCode || "",
+      paymentUrl: gate.paymentUrl || "",
+      lockedUntil: gate.lockedUntil || ""
+    };
+  }
+
   async createOrder(email: string, input: CreateStorefrontOrderInput) {
     if (!env.EVENTBRIDGE_COMMERCE_BUS_NAME) {
       this.logger.warn(`[eventbridge-commerce] disabled customer=${email}`);
@@ -245,7 +318,7 @@ export class StorefrontService {
     }
     this.logger.log(`[eventbridge-commerce] create_order_precheck_done customer=${email} itemCount=${input.items.length}`);
 
-    const requestId = crypto.randomUUID();
+    const requestId = input.requestId?.trim() || crypto.randomUUID();
     const payload: StorefrontOrderQueuePayload = {
       type: "storefront.order.requested",
       requestId,
@@ -279,9 +352,10 @@ export class StorefrontService {
     };
   }
 
-  async processQueueRecords(records: Array<{ body?: string; messageId?: string }>) {
-    this.logger.log(`[queue-order] batch_received size=${records.length}`);
-
+  async processQueueRecords(
+    records: Array<{ body?: string; messageId?: string }>,
+    options?: { queueName?: string; workerName?: string }
+  ) {
     const settled = await Promise.allSettled(records.map(async (record) => ({
       messageId: String(record.messageId ?? ""),
       item: await this.processQueueRecord(record.body)
@@ -296,7 +370,56 @@ export class StorefrontService {
       .flatMap((result, index) => result.status === "rejected" ? [String(records[index]?.messageId ?? "")] : [])
       .filter(Boolean);
 
-    this.logger.log(`[queue-order] batch_processed processed=${processedItems.length} failed=${failedMessageIds.length} items=${JSON.stringify(processedItems)}`);
+    return {
+      processed: processedItems.length,
+      failedMessageIds,
+      items: processedItems
+    };
+  }
+
+  async processCheckoutGateRecords(
+    records: Array<{ body?: string; messageId?: string }>,
+    _options?: { queueName?: string; workerName?: string }
+  ) {
+    const settled = await Promise.allSettled(records.map(async (record) => ({
+      messageId: String(record.messageId ?? ""),
+      item: await this.processCheckoutGateRecord(record.body)
+    })));
+
+    const processedItems = settled
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => (result as PromiseFulfilledResult<{ messageId: string; item: unknown }>).value.item)
+      .filter(Boolean);
+
+    const failedMessageIds = settled
+      .flatMap((result, index) => result.status === "rejected" ? [String(records[index]?.messageId ?? "")] : [])
+      .filter(Boolean);
+
+    settled.forEach((result, index) => {
+      if (result.status !== "rejected") {
+        return;
+      }
+
+      const messageId = String(records[index]?.messageId ?? "");
+      const reason = result.reason instanceof Error
+        ? {
+            name: result.reason.name,
+            message: result.reason.message,
+            stack: result.reason.stack
+          }
+        : {
+            message: String(result.reason ?? "unknown")
+          };
+
+      this.logger.error(JSON.stringify({
+        scope: "queue",
+        kind: "error",
+        queue: "checkoutGate",
+        status: "record_failed",
+        messageId,
+        reason
+      }));
+    });
 
     return {
       processed: processedItems.length,
@@ -319,18 +442,131 @@ export class StorefrontService {
 
   private async processQueueRecord(body: string | undefined) {
     if (!body) {
-      this.logger.warn("[queue-order] record_empty");
+      logQueueWarn(this.logger, {
+        queue: "storefrontOrders",
+        status: "record_empty"
+      });
       return null;
     }
 
     const payload = unwrapEventBridgeDetail(JSON.parse(body) as Record<string, unknown>) as Partial<StorefrontOrderQueuePayload>;
     if (payload.type !== "storefront.order.requested" || !payload.email || !Array.isArray(payload.items) || payload.items.length === 0) {
-      this.logger.warn(`[queue-order] ignored payload=${body}`);
+      logQueueWarn(this.logger, {
+        queue: "storefrontOrders",
+        eventType: "storefront.order.requested",
+        status: "ignored_payload"
+      });
+      return null;
+    }
+    return this.finalizeQueuedOrder(payload.email, payload.items, payload.requestId);
+  }
+
+  private async processCheckoutGateRecord(body: string | undefined) {
+    if (!body) {
+      logQueueWarn(this.logger, {
+        queue: "checkoutGate",
+        status: "record_empty"
+      });
       return null;
     }
 
-    this.logger.log(`[queue-order] processing requestId=${payload.requestId ?? ""} customer=${payload.email} itemCount=${payload.items.length}`);
-    return this.finalizeQueuedOrder(payload.email, payload.items, payload.requestId);
+    const payload = unwrapEventBridgeDetail(JSON.parse(body) as Record<string, unknown>) as Partial<CheckoutGateQueuePayload>;
+    if (payload.type !== "storefront.checkout.gate.requested" || !payload.email || !payload.requestId || !Array.isArray(payload.items) || payload.items.length === 0) {
+      logQueueWarn(this.logger, {
+        queue: "checkoutGate",
+        eventType: "storefront.checkout.gate.requested",
+        status: "ignored_payload"
+      });
+      return null;
+    }
+
+    return this.resolveCheckoutGate(payload as CheckoutGateQueuePayload);
+  }
+
+  private async resolveCheckoutGate(payload: CheckoutGateQueuePayload) {
+    const acquiredLocks: Array<{ productId: string }> = [];
+
+    try {
+      for (const item of payload.items) {
+        const product = await getStorefrontProductById(item.productId);
+        if (!product) {
+          throw new Error(`Không tìm thấy sản phẩm ${item.productId}.`);
+        }
+
+        if (Number(product.stock ?? 0) < item.quantity) {
+          throw new Error(`Sản phẩm ${product.name} hiện không đủ số lượng.`);
+        }
+
+        await acquireProductSelectionLock({
+          productId: item.productId,
+          email: payload.email,
+          requestId: payload.requestId,
+          holdSeconds: 5 * 60
+        });
+        acquiredLocks.push({ productId: item.productId });
+      }
+
+      const firstProduct = await getStorefrontProductById(payload.items[0]?.productId ?? "");
+      const payment = await this.vnpayService.createWorkflowPaymentUrl({
+        email: payload.email,
+        items: payload.items,
+        orderId: payload.requestId,
+        orderDescription: firstProduct
+          ? `Thanh toán giữ hàng ${firstProduct.name} - ${payload.requestId}`
+          : `Thanh toán giữ hàng ${payload.requestId}`,
+        bankCode: payload.bankCode,
+        locale: payload.locale
+      });
+
+      await updateCheckoutGateRequestStatus({
+        requestId: payload.requestId,
+        expectedStatus: "pending",
+        status: "allowed",
+        message: "Giỏ hàng đã được giữ tạm. Bạn có thể tiếp tục thanh toán.",
+        paymentUrl: payment.paymentUrl,
+        lockedUntil: payment.expiresAt
+      });
+
+      logQueueBusinessEvent(this.logger, {
+        queue: "checkoutGate",
+        eventType: "storefront.checkout.gate.requested",
+        status: "allowed",
+        requestId: payload.requestId
+      });
+
+      return {
+        requestId: payload.requestId,
+        status: "allowed"
+      };
+    } catch (error) {
+      for (const lock of acquiredLocks) {
+        try {
+          await releaseProductSelectionLock(lock.productId, payload.requestId);
+        } catch {}
+      }
+
+      const message = error instanceof Error ? error.message : "Không thể giữ chỗ sản phẩm lúc này.";
+      await updateCheckoutGateRequestStatus({
+        requestId: payload.requestId,
+        expectedStatus: "pending",
+        status: "blocked",
+        message,
+        failureCode: "inventory_gate_blocked"
+      });
+
+      logQueueBusinessEvent(this.logger, {
+        queue: "checkoutGate",
+        eventType: "storefront.checkout.gate.requested",
+        status: "blocked",
+        requestId: payload.requestId
+      });
+
+      return {
+        requestId: payload.requestId,
+        status: "blocked",
+        message
+      };
+    }
   }
 
   private async finalizeQueuedOrder(
@@ -414,7 +650,13 @@ export class StorefrontService {
           createdAt: order.createdAt
         }
       });
-      this.logger.log(`[queue-notification] order_success_enqueued orderId=${order.id} requestId=${requestId ?? ""} notificationChannels=system audit=true`);
+      logQueueBusinessEvent(this.logger, {
+        queue: "storefrontOrders",
+        eventType: "storefront.order.requested",
+        status: "processed",
+        requestId: requestId ?? "",
+        orderId: order.id
+      });
       return {
         type: "storefront.order.succeeded",
         outcome: "success",
@@ -508,6 +750,12 @@ export class StorefrontService {
       }
 
       throw error;
+    } finally {
+      if (requestId) {
+        await Promise.allSettled(items.map(async (item) => {
+          await releaseProductSelectionLock(item.productId, requestId);
+        }));
+      }
     }
   }
 
