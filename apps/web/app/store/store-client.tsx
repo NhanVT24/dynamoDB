@@ -366,15 +366,15 @@ function CartDrawer({ session }: { session: AuthSession | null }) {
       <aside className={`fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col border-l p-6 ${isDark ? "border-white/10 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Giỏ hàng</p>
-            <h3 className="mt-2 text-2xl font-semibold">Mua sắm nhanh</h3>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Cart</p>
+            <h3 className="mt-2 text-2xl font-semibold">Quick shopping</h3>
           </div>
-          <button className="rounded-2xl border px-3 py-2" onClick={() => toggleDrawer(false)}>Đóng</button>
+          <button className="rounded-2xl border px-3 py-2" onClick={() => toggleDrawer(false)}>Close</button>
         </div>
         <div className="mt-6 flex-1 space-y-4 overflow-y-auto pr-2">
           {items.length === 0 ? (
             <div className={`rounded-[1.5rem] border border-dashed p-6 text-sm ${isDark ? "border-white/10 bg-white/5 text-slate-300" : "border-slate-300 bg-slate-50 text-slate-600"}`}>
-              Giỏ hàng đang trống.
+              Your cart is empty.
             </div>
           ) : items.map((item) => (
             <article key={item.variantId} className={`rounded-[1.5rem] border p-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
@@ -386,7 +386,7 @@ function CartDrawer({ session }: { session: AuthSession | null }) {
                       <h4 className="line-clamp-2 font-semibold">{item.productName}</h4>
                       <p className={`mt-1 text-sm ${isDark ? "text-slate-300" : "text-slate-500"}`}>{item.variantName}</p>
                     </div>
-                    <button onClick={() => removeItem(item.variantId)} className="text-sm text-rose-500">Xóa</button>
+                    <button onClick={() => removeItem(item.variantId)} className="text-sm text-rose-500">Remove</button>
                   </div>
                   <div className="mt-3 flex items-center justify-between">
                     <div className="inline-flex items-center gap-2 rounded-full border px-2 py-1">
@@ -402,18 +402,18 @@ function CartDrawer({ session }: { session: AuthSession | null }) {
           ))}
         </div>
         <div className="mt-6 rounded-[1.75rem] bg-gradient-to-r from-orange-500 to-red-500 p-5 text-white">
-          <div className="flex justify-between text-sm"><span>Tạm tính</span><span>{formatCurrency(subtotal)}</span></div>
-          <div className="mt-2 flex justify-between text-sm"><span>Vận chuyển</span><span>{shipping === 0 ? "Miễn phí" : formatCurrency(shipping)}</span></div>
-          <div className="mt-4 flex justify-between border-t border-white/20 pt-4 text-lg font-semibold"><span>Tổng</span><span>{formatCurrency(total)}</span></div>
+          <div className="flex justify-between text-sm"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+          <div className="mt-2 flex justify-between text-sm"><span>Shipping</span><span>{shipping === 0 ? "Free" : formatCurrency(shipping)}</span></div>
+          <div className="mt-4 flex justify-between border-t border-white/20 pt-4 text-lg font-semibold"><span>Total</span><span>{formatCurrency(total)}</span></div>
           <div className="mt-4 grid gap-3">
-            <button onClick={clearCart} className="rounded-full border border-white/20 px-4 py-3 font-semibold">Xóa toàn bộ</button>
+            <button onClick={clearCart} className="rounded-full border border-white/20 px-4 py-3 font-semibold">Clear cart</button>
             {session ? (
               <Link
                 href="/store/checkout"
                 onClick={() => toggleDrawer(false)}
                 className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600"
               >
-                Thanh toán sandbox
+                Sandbox checkout
               </Link>
             ) : (
               <button
@@ -424,7 +424,7 @@ function CartDrawer({ session }: { session: AuthSession | null }) {
                 }}
                 className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600"
               >
-                Đăng nhập để thanh toán
+                Sign in to checkout
               </button>
             )}
           </div>
@@ -458,7 +458,7 @@ function StorefrontAuthModal({
   const [resetPassword, setResetPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [message, setMessage] = useState("Đăng nhập để tiếp tục mua hàng hoặc thanh toán.");
+  const [message, setMessage] = useState("Sign in to continue shopping or start checkout.");
   const [resendCountdown, setResendCountdown] = useState(0);
 
   useEffect(() => {
@@ -508,7 +508,7 @@ function StorefrontAuthModal({
       closeAuthModal();
       router.push(nextSession.role === "admin" ? "/admin" : "/store");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể đăng nhập lúc này.");
+      setMessage(error instanceof Error ? error.message : "We could not sign you in right now.");
       if (error instanceof Error && /xác nhận|confirm/i.test(error.message)) {
         setConfirmEmail(email);
         setMode("confirm");
@@ -524,11 +524,11 @@ function StorefrontAuthModal({
 
     try {
       if (registerPassword.length < 8) {
-        throw new Error("Mật khẩu cần ít nhất 8 ký tự.");
+        throw new Error("The password must contain at least 8 characters.");
       }
 
       if (registerPassword !== registerConfirmPassword) {
-        throw new Error("Mật khẩu xác nhận không khớp.");
+        throw new Error("The confirmation password does not match.");
       }
 
       await signUpWithCognito({
@@ -542,9 +542,9 @@ function StorefrontAuthModal({
       setPassword(registerPassword);
       setResendCountdown(60);
       setMode("confirm");
-      setMessage("Tạo tài khoản thành công. Hãy kiểm tra email để lấy mã xác nhận.");
+      setMessage("Your account was created successfully. Please check your email for the confirmation code.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể tạo tài khoản.");
+      setMessage(error instanceof Error ? error.message : "We could not create the account.");
     } finally {
       setIsSubmitting(false);
     }
@@ -562,9 +562,9 @@ function StorefrontAuthModal({
 
       setMode("login");
       setEmail(confirmEmail);
-      setMessage("Xác nhận email thành công. Bạn có thể đăng nhập ngay bây giờ.");
+      setMessage("Your email has been confirmed. You can sign in now.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể xác nhận tài khoản.");
+      setMessage(error instanceof Error ? error.message : "We could not confirm the account.");
     } finally {
       setIsSubmitting(false);
     }
@@ -580,9 +580,9 @@ function StorefrontAuthModal({
       setResetPassword("");
       setResetConfirmPassword("");
       setMode("reset");
-      setMessage("Đã gửi mã đặt lại mật khẩu qua email của bạn.");
+      setMessage("A password reset code was sent to your email.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể bắt đầu đặt lại mật khẩu.");
+      setMessage(error instanceof Error ? error.message : "We could not start the password reset flow.");
     } finally {
       setIsSubmitting(false);
     }
@@ -594,11 +594,11 @@ function StorefrontAuthModal({
 
     try {
       if (resetPassword.length < 8) {
-        throw new Error("Mật khẩu mới cần ít nhất 8 ký tự.");
+        throw new Error("The new password must contain at least 8 characters.");
       }
 
       if (resetPassword !== resetConfirmPassword) {
-        throw new Error("Mật khẩu xác nhận không khớp.");
+        throw new Error("The confirmation password does not match.");
       }
 
       await confirmForgotPassword({
@@ -610,9 +610,9 @@ function StorefrontAuthModal({
       setMode("login");
       setEmail(forgotEmail);
       setPassword("");
-      setMessage("Đặt lại mật khẩu thành công. Hãy đăng nhập bằng mật khẩu mới.");
+      setMessage("Your password was reset successfully. Please sign in with the new password.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể đặt lại mật khẩu.");
+      setMessage(error instanceof Error ? error.message : "We could not reset the password.");
     } finally {
       setIsSubmitting(false);
     }
@@ -628,34 +628,34 @@ function StorefrontAuthModal({
     try {
       await resendConfirmationCode(confirmEmail);
       setResendCountdown(60);
-      setMessage("Đã gửi lại mã xác nhận mới.");
+      setMessage("A new confirmation code has been sent.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể gửi lại mã xác nhận.");
+      setMessage(error instanceof Error ? error.message : "We could not resend the confirmation code.");
     } finally {
       setIsSubmitting(false);
     }
   }
 
   const titleByMode = {
-    login: "Đăng nhập",
-    register: "Tạo tài khoản",
-    confirm: "Xác nhận email",
-    forgot: "Quên mật khẩu",
-    reset: "Đặt lại mật khẩu"
+    login: "Sign in",
+    register: "Create account",
+    confirm: "Confirm email",
+    forgot: "Forgot password",
+    reset: "Reset password"
   } as const;
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center px-4">
       <button
         type="button"
-        aria-label="Đóng đăng nhập"
+        aria-label="Close sign-in dialog"
         onClick={closeAuthModal}
         className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px]"
       />
       <section className={`relative z-[81] w-full max-w-md rounded-[2rem] border p-6 shadow-[0_30px_100px_rgba(15,23,42,0.25)] ${isDark ? "border-white/10 bg-[#101826] text-white" : "border-slate-200 bg-white text-slate-950"}`}>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Tài khoản</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Account</p>
             <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{titleByMode[mode]}</h2>
           </div>
           <button
@@ -685,12 +685,12 @@ function StorefrontAuthModal({
               />
             </label>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Mật khẩu</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Password</span>
               <input
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="Nhập mật khẩu của bạn"
+                placeholder="Enter your password"
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
@@ -700,14 +700,14 @@ function StorefrontAuthModal({
               disabled={isSubmitting}
               className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}
+              {isSubmitting ? "Signing in..." : "Sign in"}
             </button>
             <button
               type="button"
               onClick={() => beginGoogleSignIn()}
               className={`inline-flex h-12 items-center justify-center rounded-2xl border px-4 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
             >
-              Đăng nhập với Google
+              Sign in with Google
             </button>
           </form>
         ) : null}
@@ -735,7 +735,7 @@ function StorefrontAuthModal({
               />
             </label>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Mật khẩu</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Password</span>
               <input
                 type="password"
                 value={registerPassword}
@@ -746,7 +746,7 @@ function StorefrontAuthModal({
               />
             </label>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Xác nhận mật khẩu</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Confirm password</span>
               <input
                 type="password"
                 value={registerConfirmPassword}
@@ -761,7 +761,7 @@ function StorefrontAuthModal({
               disabled={isSubmitting}
               className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Đang tạo tài khoản..." : "Tạo tài khoản"}
+            {isSubmitting ? "Creating account..." : "Create account"}
             </button>
           </form>
         ) : null}
@@ -774,7 +774,7 @@ function StorefrontAuthModal({
                 type="email"
                 value={confirmEmail}
                 onChange={(event) => setConfirmEmail(event.target.value)}
-                placeholder="Email vừa đăng ký"
+                placeholder="Email you just registered"
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
@@ -794,7 +794,7 @@ function StorefrontAuthModal({
               disabled={isSubmitting}
               className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Đang xác nhận..." : "Xác nhận tài khoản"}
+              {isSubmitting ? "Confirming..." : "Confirm account"}
             </button>
             <button
               type="button"
@@ -825,7 +825,7 @@ function StorefrontAuthModal({
               disabled={isSubmitting}
               className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Đang gửi mã..." : "Gửi mã đặt lại"}
+              {isSubmitting ? "Sending code..." : "Send reset code"}
             </button>
           </form>
         ) : null}
@@ -838,13 +838,13 @@ function StorefrontAuthModal({
                 type="email"
                 value={forgotEmail}
                 onChange={(event) => setForgotEmail(event.target.value)}
-                placeholder="Email cần đặt lại mật khẩu"
+                placeholder="Email for password reset"
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
             </label>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Mã đặt lại</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Reset code</span>
               <input
                 value={resetCode}
                 onChange={(event) => setResetCode(event.target.value)}
@@ -854,7 +854,7 @@ function StorefrontAuthModal({
               />
             </label>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Mật khẩu mới</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>New password</span>
               <input
                 type="password"
                 value={resetPassword}
@@ -865,7 +865,7 @@ function StorefrontAuthModal({
               />
             </label>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Xác nhận mật khẩu mới</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Confirm new password</span>
               <input
                 type="password"
                 value={resetConfirmPassword}
@@ -880,7 +880,7 @@ function StorefrontAuthModal({
               disabled={isSubmitting}
               className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Đang cập nhật..." : "Cập nhật mật khẩu"}
+              {isSubmitting ? "Updating..." : "Update password"}
             </button>
           </form>
         ) : null}
@@ -892,7 +892,7 @@ function StorefrontAuthModal({
               onClick={() => setMode("register")}
               className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-cyan-400/30 bg-cyan-500/10 text-cyan-100" : "border-cyan-200 bg-cyan-50 text-cyan-700"}`}
             >
-              Tạo tài khoản
+              Create account
             </button>
           ) : (
             <button
@@ -900,7 +900,7 @@ function StorefrontAuthModal({
               onClick={() => setMode("login")}
               className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
             >
-              Về đăng nhập
+              Back to sign in
             </button>
           )}
           {mode !== "forgot" && mode !== "reset" ? (
@@ -912,7 +912,7 @@ function StorefrontAuthModal({
               }}
               className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
             >
-              Quên mật khẩu
+              Forgot password
             </button>
           ) : (
             <button
@@ -920,7 +920,7 @@ function StorefrontAuthModal({
               onClick={() => setMode("login")}
               className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
             >
-              Về đăng nhập
+              Back to sign in
             </button>
           )}
         </div>
@@ -1047,7 +1047,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       });
 
       if (!response.ok) {
-        throw new Error("Không thể đánh dấu thông báo đã đọc.");
+        throw new Error("We could not mark the notification as read.");
       }
 
       setNotifications((current) =>
@@ -1079,7 +1079,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       });
 
       if (!response.ok) {
-        throw new Error("Không thể xóa thông báo.");
+        throw new Error("We could not delete the notification.");
       }
 
       setNotifications((current) => current.filter((entry) => entry.id !== item.id));
@@ -1108,7 +1108,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
         });
 
         if (!response.ok) {
-          throw new Error("Không thể xóa toàn bộ thông báo.");
+          throw new Error("We could not delete all notifications.");
         }
       } catch {
         return;
@@ -1148,7 +1148,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
           });
 
           if (!response.ok) {
-            throw new Error("Không thể đánh dấu tất cả thông báo là đã đọc.");
+            throw new Error("We could not mark all notifications as read.");
           }
         }));
       } catch {
@@ -1196,8 +1196,8 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       {open ? (
         <div className={`absolute right-0 mt-3 w-[26rem] max-w-[calc(100vw-1.5rem)] rounded-[1.5rem] border p-4 shadow-2xl ${isDark ? "border-white/10 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold">Thông báo</p>
-            <span className="text-xs text-orange-500">{pendingCount} chưa đọc</span>
+            <p className="text-sm font-semibold">Notifications</p>
+            <span className="text-xs text-orange-500">{pendingCount} unread</span>
           </div>
           {notifications.length > 0 ? (
             <div className="mt-3 flex flex-wrap justify-end gap-2">
@@ -1206,21 +1206,21 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
                 onClick={() => void handleDeleteAllNotifications()}
                 className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-rose-500/15 text-rose-200 hover:bg-rose-500/25 hover:text-white" : "bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"}`}
               >
-                Xóa tất cả
+                Delete all
               </button>
               <button
                 type="button"
                 onClick={() => void handleMarkAllAsRead()}
                 className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-white/10 text-slate-200 hover:bg-white/15 hover:text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900"}`}
               >
-                Đánh dấu tất cả đã đọc
+                Mark all as read
               </button>
             </div>
           ) : null}
           <div className="mt-3 max-h-[26rem] space-y-3 overflow-y-auto pr-1">
             {notifications.length === 0 ? (
               <div className={`rounded-2xl border border-dashed p-4 text-sm ${isDark ? "border-white/10 text-slate-300" : "border-slate-200 text-slate-500"}`}>
-                Chưa có thông báo nào.
+                No notifications yet.
               </div>
             ) : notifications.map((item) => (
               <div key={item.id} className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-100 bg-slate-50"}`}>
@@ -1235,7 +1235,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
                       onClick={() => void handleDismissNotification(item)}
                       className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-white/10 text-slate-200 hover:bg-white/15 hover:text-white" : "bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
                     >
-                      Đánh dấu đã đọc
+                      Mark as read
                     </button>
                   ) : null}
                   <button
@@ -1243,7 +1243,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
                     onClick={() => void handleDeleteNotification(item)}
                     className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-rose-500/15 text-rose-200 hover:bg-rose-500/25 hover:text-white" : "bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"}`}
                   >
-                    Xóa
+                    Delete
                   </button>
                 </div>
               </div>
@@ -1300,7 +1300,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
             disabled={isUnavailable}
             className="pointer-events-auto mt-5 inline-flex min-w-[9rem] items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400"
           >
-            {product.isLocked ? "Đang được giữ" : isUnavailable ? "Hết hàng" : "Thêm vào giỏ"}
+            {product.isLocked ? "Reserved" : isUnavailable ? "Out of stock" : "Add to cart"}
           </button>
         </div>
       </div>
@@ -1314,14 +1314,14 @@ function ProductCard({ product }: { product: StoreProduct }) {
         <p className={`mt-2 line-clamp-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{product.description}</p>
         <div className="mt-3 flex items-center gap-2 text-sm">
           <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-600">★ {product.rating}</span>
-          <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>Đã bán {product.soldCount}</span>
+          <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>Sold {product.soldCount}</span>
         </div>
         <div className="mt-4">
           <div className="text-[13px] text-slate-400 line-through">{formatCurrency(product.originalPrice)}</div>
           <strong className="text-2xl font-bold text-orange-500">{formatCurrency(product.price)}</strong>
         </div>
         {product.isLocked ? (
-          <p className="mt-3 text-sm font-medium text-amber-600">Sản phẩm này đang được giữ tạm thời, vui lòng thử lại sau.</p>
+          <p className="mt-3 text-sm font-medium text-amber-600">This product is temporarily reserved. Please try again later.</p>
         ) : null}
       </div>
     </article>
@@ -1381,14 +1381,14 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
               <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-orange-500 via-red-500 to-pink-500 text-sm font-bold tracking-[0.28em] text-white">NX</div>
               <div className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-orange-500">NovaX Market</p>
-                <p className={`truncate text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Storefront client tích hợp trong web app</p>
+                <p className={`truncate text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Storefront client integrated into the web app</p>
               </div>
             </Link>
             <nav className={`hidden items-center gap-2 rounded-full p-1 lg:flex ${isDark ? "bg-white/5" : "bg-slate-100"}`}>
-              <Link href="/store" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname === "/store" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{"Trang ch\u1ee7"}</Link>
-              <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{"S\u1ea3n ph\u1ea9m"}</Link>
-              <Link href="/store/orders" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Lịch sử mua</Link>
-              <Link href="/store/profile" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Hồ sơ</Link>
+              <Link href="/store" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname === "/store" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Home</Link>
+              <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Products</Link>
+              <Link href="/store/orders" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Orders</Link>
+              <Link href="/store/profile" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Profile</Link>
             </nav>
             <div className="ml-auto flex items-center gap-2">
               <NotificationBell session={session} isDark={isDark} />
@@ -1405,7 +1405,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
                     onClick={handleStorefrontLogout}
                     className={`inline-flex h-11 items-center justify-center rounded-2xl border px-4 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
                   >
-                    {"\u0110\u0103ng xu\u1ea5t"}
+                    Sign out
                   </button>
                 </div>
               ) : (
@@ -1414,7 +1414,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
                   onClick={() => openAuthModal(pathname.startsWith("/store/checkout") ? "/store/checkout" : "/store")}
                   className={`hidden h-11 items-center justify-center rounded-2xl border px-4 text-sm font-semibold lg:inline-flex ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
                 >
-                  {"\u0110\u0103ng nh\u1eadp"}
+                  Sign in
                 </button>
               )}
               <button onClick={toggleTheme} className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${isDark ? "border-white/10 bg-white/5 text-slate-200" : "border-slate-200 bg-white text-slate-700"}`}>{currentTheme === "dark" ? "☀" : "☾"}</button>
@@ -1431,7 +1431,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
             </div>
           </div>
         </div>
-        <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 px-4 py-2 text-center text-xs font-medium text-white">Storefront client đang chạy tại route /store, còn khu quản trị nằm ở /admin</div>
+        <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 px-4 py-2 text-center text-xs font-medium text-white">The storefront client runs on /store, while the admin area lives on /admin.</div>
       </header>
       <CartDrawer session={session} />
       <StorefrontAuthModal session={session} onSignedIn={setSession} />
@@ -1576,15 +1576,15 @@ export function HomeSections() {
         <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[1.3fr_0.7fr]">
           <div className="overflow-hidden rounded-[2rem] bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 p-[1px]">
             <div className={`rounded-[calc(2rem-1px)] px-6 py-8 sm:px-8 lg:px-10 ${isDark ? "bg-[#101826]" : "bg-white"}`}>
-              <div className="inline-flex rounded-full bg-orange-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-orange-600">Deal công nghệ hôm nay</div>
-              <h1 className={`mt-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl ${isDark ? "text-white" : "text-slate-950"}`}>Storefront client đã nối vào dự án hiện tại để test mua hàng trực tiếp.</h1>
-              <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>Luồng này chạy ngay trong Next app ở route /store, còn admin ở route /admin và có sẵn dark mode, kéo thả vào giỏ và listing riêng.</p>
+              <div className="inline-flex rounded-full bg-orange-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-orange-600">Today&apos;s tech deals</div>
+              <h1 className={`mt-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl ${isDark ? "text-white" : "text-slate-950"}`}>The storefront client is wired into this project so you can test purchases directly.</h1>
+              <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>This flow runs inside the Next app at /store, while admin stays at /admin, with dark mode, drag-and-drop cart support, and a dedicated product listing.</p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">Mua ngay</Link>
-                <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 text-white" : "border-slate-200 text-slate-800"}`}>Xem catalog</Link>
+                <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">Shop now</Link>
+                <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 text-white" : "border-slate-200 text-slate-800"}`}>Browse catalog</Link>
               </div>
               <div className="mt-8 grid gap-4 sm:grid-cols-3">
-                {["24+ Sản phẩm mock", "6 Danh mục chính", "8 Sản phẩm mỗi trang"].map((item) => (
+                {["24+ mock products", "6 main categories", "8 products per page"].map((item) => (
                   <div key={item} className={`rounded-[1.5rem] border p-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>{item}</div>
                 ))}
               </div>
@@ -1592,15 +1592,15 @@ export function HomeSections() {
           </div>
           <div className="grid gap-4">
             <div className={`rounded-[2rem] border p-6 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Đã kết nối</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Connected</p>
               <h3 className={`mt-4 text-2xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>/store, /store/products, /store/products/[slug]</h3>
             </div>
             <div className={`rounded-[2rem] border p-6 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Hỗ trợ</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Highlights</p>
               <div className={`mt-4 space-y-3 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>
                 <p>Dark mode</p>
-                <p>Pagination 8 sản phẩm</p>
-                <p>Kéo sản phẩm vào icon giỏ hàng</p>
+                <p>Pagination with 8 products per page</p>
+                <p>Drag products onto the cart icon</p>
               </div>
             </div>
           </div>
@@ -1609,7 +1609,7 @@ export function HomeSections() {
 
       <section className="px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <SectionTitle title="Danh mục nổi bật" description="Các nhóm sản phẩm chính để đi vào listing nhanh hơn." />
+          <SectionTitle title="Featured categories" description="Jump into the main shopping groups faster." />
           <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {storeCategories.map((category) => (
               <Link key={category.id} href={`/store/products?category=${encodeURIComponent(category.label)}`} className={`group relative overflow-hidden rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
@@ -1627,7 +1627,7 @@ export function HomeSections() {
         </div>
       </section>
 
-      <ProductShowcase title="Bán chạy" products={bestSellerProducts} />
+      <ProductShowcase title="Best sellers" products={bestSellerProducts} />
       <ProductShowcase title="Flash Pick" products={flashSaleProducts} />
       <ProductShowcase title="Newest" products={newArrivals} />
     </>
@@ -1653,7 +1653,7 @@ export function ProductShowcase({ title, products }: { title: string; products: 
     <section className="px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <div className="flex items-end justify-between gap-4">
-          <SectionTitle title={title} description="Các sản phẩm được nối trực tiếp vào route storefront trong dự án web." />
+          <SectionTitle title={title} description="Products connected directly to the storefront route in this web project." />
           <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-300 bg-white text-slate-950"}`}>Xem toàn bộ</Link>
         </div>
         <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
@@ -1709,7 +1709,7 @@ export function ProductsPageClient({
   return (
     <section className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <SectionTitle title="Danh sách sản phẩm theo hướng sàn thương mại điện tử" description="Trang sản phẩm đã được nối thẳng vào dự án Next hiện tại và mặc định hiển thị 8 sản phẩm mỗi trang." />
+        <SectionTitle title="Marketplace-style product listing" description="This product page is wired directly into the current Next.js project and shows 8 products per page by default." />
         <div className={`mt-8 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
           <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr_1fr]">
             <label className="flex flex-col gap-2">
@@ -1717,7 +1717,7 @@ export function ProductsPageClient({
               <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="Nhập tên, thương hiệu hoặc mô tả..." className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-slate-900 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`} />
             </label>
             <div className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Danh mục</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Category</span>
               <div className={`h-12 rounded-2xl border px-4 text-sm leading-[46px] ${isDark ? "border-white/10 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-950"}`}>{activeCategory}</div>
             </div>
             <div className="flex flex-col gap-2">
@@ -1728,19 +1728,19 @@ export function ProductsPageClient({
         </div>
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
           <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>Hiển thị <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{paginatedProducts.length}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{filteredProducts.length}</span> sản phẩm</p>
-          <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>Trang <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{safePage}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{totalPages}</span></p>
+          <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>Page <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{safePage}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{totalPages}</span></p>
         </div>
         <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {paginatedProducts.map((product) => <ProductCard key={product.id} product={product} />)}
         </div>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage <= 1 ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>Trang trước</button>
+            <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage <= 1 ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>Previous page</button>
             {paginationTokens.map((token, index) => token === "ellipsis" ? (
               <span key={`ellipsis-${index}`} className={`px-2 text-sm font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>...</span>
             ) : (
               <button key={token} type="button" onClick={() => setPage(token)} className={`h-11 min-w-11 rounded-full px-4 text-sm font-semibold ${token === safePage ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200" : "bg-white text-slate-700 shadow-sm"}`}>{token}</button>
             ))}
-            <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage >= totalPages ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>Trang sau</button>
+            <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage >= totalPages ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>Next page</button>
           </div>
       </div>
     </section>
@@ -1846,8 +1846,8 @@ export function ProductDetailClient({ slug }: { slug: string }) {
     return (
       <section className="px-4 py-20 sm:px-6 lg:px-8">
         <div className={`mx-auto max-w-3xl rounded-[2rem] border p-10 text-center ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
-          <p className="text-sm uppercase tracking-[0.3em] text-orange-500">Không tìm thấy</p>
-          <h1 className={`mt-4 text-3xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>Sản phẩm không tồn tại trong storefront</h1>
+          <p className="text-sm uppercase tracking-[0.3em] text-orange-500">Not found</p>
+          <h1 className={`mt-4 text-3xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>This product does not exist in the storefront</h1>
           <Link href="/store/products" className="mt-6 inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">Quay lại danh sách</Link>
         </div>
       </section>
@@ -1859,7 +1859,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
   return (
     <section className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <SectionTitle title={product.name} description="Trang chi tiết sản phẩm đã được nối trực tiếp vào web app hiện tại." />
+        <SectionTitle title={product.name} description="This product detail page is connected directly to the current web app." />
         <div className="mt-8 grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
           <div className={`overflow-hidden rounded-[2rem] border p-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white shadow-[0_28px_80px_-56px_rgba(15,23,42,0.35)]"}`}>
             <img src={product.imageUrl} alt={product.name} className="h-[28rem] w-full rounded-[1.75rem] object-cover sm:h-[36rem]" />
@@ -1876,8 +1876,8 @@ export function ProductDetailClient({ slug }: { slug: string }) {
               <span className="pb-1 text-lg text-slate-400 line-through">{formatCurrency(product.originalPrice)}</span>
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
-              <InfoTile isDark={isDark} label="Đánh giá" value={`${product.rating} / 5`} />
-              <InfoTile isDark={isDark} label="Đã bán" value={`${product.soldCount}+`} />
+              <InfoTile isDark={isDark} label="Rating" value={`${product.rating} / 5`} />
+              <InfoTile isDark={isDark} label="Sold" value={`${product.soldCount}+`} />
               <InfoTile isDark={isDark} label="Cập nhật" value={formatShortDate(product.updatedAt)} />
             </div>
             <div className="mt-8 flex flex-wrap items-center gap-4">
@@ -1886,10 +1886,10 @@ export function ProductDetailClient({ slug }: { slug: string }) {
                 <span className="min-w-12 text-center font-semibold">{quantity}</span>
                 <button type="button" onClick={() => setQuantity((current) => Math.min(product.stock || 1, current + 1))} className="rounded-full p-3">+</button>
               </div>
-              <button type="button" onClick={() => addCatalogItem(product, quantity)} disabled={!canAdd} className="inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400">{product.isLocked ? "Đang được giữ" : canAdd ? "Thêm vào giỏ hàng" : "Hết hàng"}</button>
+              <button type="button" onClick={() => addCatalogItem(product, quantity)} disabled={!canAdd} className="inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400">{product.isLocked ? "Reserved" : canAdd ? "Add to cart" : "Out of stock"}</button>
             </div>
             {product.isLocked ? (
-              <p className="text-sm font-medium text-amber-600">Sản phẩm này đang được giữ tạm thời nên bạn chưa thể chọn ngay lúc này.</p>
+              <p className="text-sm font-medium text-amber-600">This product is temporarily reserved, so it cannot be selected right now.</p>
             ) : null}
           </div>
         </div>

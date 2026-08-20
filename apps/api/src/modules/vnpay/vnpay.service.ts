@@ -8,7 +8,10 @@ import {
 import { env } from "../../config/env.js";
 import { RuntimeConfigService } from "../../config/runtime-config.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
-import { getStorefrontProductById } from "../storefront/storefront.repository.js";
+import {
+  getStorefrontProductById,
+  releaseCheckoutGateReservation
+} from "../storefront/storefront.repository.js";
 import {
   createPaymentSession,
   getPaymentSessionByTxnRef,
@@ -78,6 +81,10 @@ function isConditionalCheckFailedError(error: unknown) {
 
   const candidate = error as { name?: string; code?: string } | null;
   return candidate?.name === "ConditionalCheckFailedException" || candidate?.code === "ConditionalCheckFailedException";
+}
+
+function extractCheckoutGateRequestId(orderInfo: string) {
+  return orderInfo.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0];
 }
 
 @Injectable()
@@ -347,7 +354,7 @@ export class VnpayService {
     }
 
     const resolvedOrderInfo = session.orderInfo || result.orderInfo;
-    const orderIdMatch = resolvedOrderInfo.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+    const requestId = extractCheckoutGateRequestId(resolvedOrderInfo);
 
     try {
       await updatePaymentSessionStatus({
@@ -370,15 +377,15 @@ export class VnpayService {
       throw error;
     }
 
-    await this.publishPaymentCompletedEventSafely({
-      email: session.email,
-      txnRef: result.txnRef,
-      amount: result.amount || session.amount,
-      orderInfo: resolvedOrderInfo,
-      orderId: orderIdMatch?.[0],
-      responseCode: result.responseCode,
-      transactionNo: result.transactionNo,
-      bankCode: result.bankCode,
+      await this.publishPaymentCompletedEventSafely({
+        email: session.email,
+        txnRef: result.txnRef,
+        amount: result.amount || session.amount,
+        orderInfo: resolvedOrderInfo,
+        orderId: requestId,
+        responseCode: result.responseCode,
+        transactionNo: result.transactionNo,
+        bankCode: result.bankCode,
       payDate: result.payDate
     }, source);
 
@@ -419,13 +426,21 @@ export class VnpayService {
     }
 
     const resolvedOrderInfo = session.orderInfo || result.orderInfo;
-    const orderIdMatch = resolvedOrderInfo.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+    const requestId = extractCheckoutGateRequestId(resolvedOrderInfo);
+    if (requestId) {
+      await releaseCheckoutGateReservation({
+        requestId,
+        message: PAYMENT_TIMEOUT_MESSAGE,
+        failureCode: "payment_expired"
+      });
+    }
+
     await this.enqueueFailedPaymentNotification({
       email: session.email,
       txnRef: result.txnRef,
       amount: result.amount || session.amount,
       orderInfo: resolvedOrderInfo,
-      orderId: orderIdMatch?.[0],
+      orderId: requestId,
       responseCode: result.responseCode || "TIMEOUT",
       transactionNo: result.transactionNo,
       bankCode: result.bankCode,
@@ -459,14 +474,21 @@ export class VnpayService {
 
     if (session.email) {
       const resolvedOrderInfo = session.orderInfo || result.orderInfo;
-      const orderIdMatch = resolvedOrderInfo.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+      const requestId = extractCheckoutGateRequestId(resolvedOrderInfo);
+      if (requestId) {
+        await releaseCheckoutGateReservation({
+          requestId,
+          message: failureReason,
+          failureCode: result.responseCode === "24" ? "payment_cancelled" : "payment_failed"
+        });
+      }
 
       await this.enqueueFailedPaymentNotification({
         email: session.email,
         txnRef: result.txnRef,
         amount: result.amount || session.amount,
         orderInfo: resolvedOrderInfo,
-        orderId: orderIdMatch?.[0],
+        orderId: requestId,
         responseCode: result.responseCode,
         transactionNo: result.transactionNo,
         bankCode: result.bankCode,

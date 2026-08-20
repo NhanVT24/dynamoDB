@@ -75,7 +75,7 @@ function getCategorySpecs(category: string, brand: string, attributes?: Record<s
   const baseSpecs = [
     `${brand} Edition`,
     category,
-    "Bao hanh chinh hang"
+    "Official warranty"
   ];
 
   const attributeSpecs = Object.entries(attributes ?? {})
@@ -86,9 +86,9 @@ function getCategorySpecs(category: string, brand: string, attributes?: Record<s
 }
 
 export function toStoreProduct(item: StorefrontApiItem): StoreProduct {
-  const category = item.category ?? "Dien tu";
+  const category = item.category ?? "Electronics";
   const brand = item.brand?.trim() || "NovaX";
-  const name = item.name?.trim() || "San pham";
+  const name = item.name?.trim() || "Product";
   const price = Number(item.price ?? 0);
   const originalPrice = Number(item.originalPrice ?? Math.max(price, price + Math.round(price * 0.12)));
   const stock = Number(item.stock ?? 0);
@@ -110,13 +110,13 @@ export function toStoreProduct(item: StorefrontApiItem): StoreProduct {
     rating: Number(item.rating ?? 4.8),
     soldCount: Number(item.soldCount ?? 0),
     featured: Boolean(item.featured ?? true),
-    description: item.description?.trim() || "San pham dang duoc cap nhat mo ta chi tiet.",
+    description: item.description?.trim() || "This product is being updated with a full description.",
     imageUrl: item.imageUrl?.trim() || getCategoryImage(category),
-    location: item.location?.trim() || "Viet Nam",
+    location: item.location?.trim() || "Vietnam",
     updatedAt: item.updatedAt ?? item.createdAt ?? new Date().toISOString(),
     isLocked: Boolean(item.isLocked),
     lockedUntil: item.lockedUntil,
-    badge: status === "out_of_stock" ? "Het hang" : item.isLocked ? "Dang duoc giu" : stock <= 10 ? "Sap het" : "Moi cap nhat",
+    badge: status === "out_of_stock" ? "Out of stock" : item.isLocked ? "Reserved" : stock <= 10 ? "Low stock" : "Recently updated",
     specs: getCategorySpecs(category, brand, item.attributes)
   };
 }
@@ -129,7 +129,7 @@ export async function fetchStorefrontProducts(query: Record<string, string> = {}
   });
 
   if (!response.ok) {
-    throw new Error("Khong the tai du lieu san pham.");
+    throw new Error("We could not load product data.");
   }
 
   const payload = (await response.json()) as StorefrontListResponse;
@@ -152,7 +152,7 @@ export async function fetchStorefrontProductById(id: string) {
   });
 
   if (!response.ok) {
-    throw new Error("Khong the tai chi tiet san pham.");
+    throw new Error("We could not load product details.");
   }
 
   const payload = (await response.json()) as StorefrontApiItem;
@@ -162,7 +162,7 @@ export async function fetchStorefrontProductById(id: string) {
 export async function fetchMyOrders() {
   const session = readAuthSession();
   if (!session?.idToken) {
-    throw new Error("Ban can dang nhap de xem lich su mua hang.");
+    throw new Error("You need to sign in to view your order history.");
   }
 
   const response = await fetch(`${getStorefrontBasePath()}/orders/me`, {
@@ -175,7 +175,7 @@ export async function fetchMyOrders() {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { message?: string } | null;
-    throw new Error(payload?.message || "Khong the tai lich su mua hang.");
+    throw new Error(payload?.message || "We could not load your order history.");
   }
 
   const payload = (await response.json().catch(() => [])) as StorefrontOrderApiItem[];

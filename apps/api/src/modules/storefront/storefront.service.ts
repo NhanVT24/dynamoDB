@@ -88,6 +88,25 @@ type StorefrontQueueResult =
       failureReason: string;
     };
 
+function normalizeOrderItems(items: Array<{ productId?: string; quantity: number }>) {
+  const merged = new Map<string, number>();
+
+  for (const item of items) {
+    const productId = String(item.productId ?? "").trim().replace(/^PRODUCT#/i, "");
+    const quantity = Number(item.quantity ?? 0);
+    if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+      continue;
+    }
+
+    merged.set(productId, (merged.get(productId) ?? 0) + quantity);
+  }
+
+  return [...merged.entries()].map(([productId, quantity]): { productId: string; quantity: number } => ({
+    productId,
+    quantity
+  }));
+}
+
 function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T): T {
   const detail = payload.detail;
   return detail && typeof detail === "object" && !Array.isArray(detail)
@@ -178,6 +197,14 @@ function isInsufficientStockError(error: unknown) {
   return error instanceof Error && error.message.startsWith("Insufficient stock for ");
 }
 
+function shouldProcessCommerceQueuesInline() {
+  if (env.STOREFRONT_SYNC_QUEUE_PROCESSING) {
+    return true;
+  }
+
+  return Boolean(env.DYNAMODB_ENDPOINT) && process.env.NODE_ENV !== "production";
+}
+
 @Injectable()
 export class StorefrontService {
   private readonly logger = new Logger(StorefrontService.name);
@@ -248,13 +275,14 @@ export class StorefrontService {
       throw new Error("Hàng đợi duyệt checkout chưa được cấu hình.");
     }
 
-    await this.precheckProducts(email, input.items);
+    const normalizedItems = normalizeOrderItems(input.items);
+    await this.precheckProducts(email, normalizedItems);
 
     const requestId = crypto.randomUUID();
     await createCheckoutGateRequest({
       requestId,
       email,
-      items: input.items,
+      items: normalizedItems,
       locale: input.locale,
       bankCode: input.bankCode
     });
@@ -263,18 +291,23 @@ export class StorefrontService {
       type: "storefront.checkout.gate.requested",
       requestId,
       email,
-      items: input.items,
+      items: normalizedItems,
       locale: input.locale,
       bankCode: input.bankCode,
       createdAt: new Date().toISOString()
     };
 
-    await publishEventBridgeEvent({
-      busName: env.EVENTBRIDGE_COMMERCE_BUS_NAME,
-      source: "supermarket.commerce",
-      detailType: "storefront.checkout.gate.requested",
-      detail: payload as unknown as Record<string, unknown>
-    });
+    if (shouldProcessCommerceQueuesInline()) {
+      this.logger.log(`[eventbridge-commerce] inline_checkout_gate requestId=${requestId} customer=${email} itemCount=${normalizedItems.length}`);
+      await this.resolveCheckoutGate(payload);
+    } else {
+      await publishEventBridgeEvent({
+        busName: env.EVENTBRIDGE_COMMERCE_BUS_NAME,
+        source: "supermarket.commerce",
+        detailType: "storefront.checkout.gate.requested",
+        detail: payload as unknown as Record<string, unknown>
+      });
+    }
 
     return {
       success: true,
@@ -307,43 +340,50 @@ export class StorefrontService {
       throw new Error("Hàng đợi xử lý đơn hàng chưa được cấu hình.");
     }
 
-    this.logger.log(`[eventbridge-commerce] create_order_begin customer=${email} itemCount=${input.items.length} productIds=${input.items.map((item) => item.productId).join(",")}`);
+    const normalizedItems = normalizeOrderItems(input.items);
+    this.logger.log(`[eventbridge-commerce] create_order_begin customer=${email} itemCount=${normalizedItems.length} productIds=${normalizedItems.map((item) => item.productId).join(",")}`);
     try {
-      await this.precheckProducts(email, input.items);
+      await this.precheckProducts(email, normalizedItems);
     } catch (error) {
       this.logger.error(
-        `[eventbridge-commerce] create_order_error stage=precheck customer=${email} itemCount=${input.items.length} message=${error instanceof Error ? error.message : "unknown_error"}`
+        `[eventbridge-commerce] create_order_error stage=precheck customer=${email} itemCount=${normalizedItems.length} message=${error instanceof Error ? error.message : "unknown_error"}`
       );
       throw error;
     }
-    this.logger.log(`[eventbridge-commerce] create_order_precheck_done customer=${email} itemCount=${input.items.length}`);
+    this.logger.log(`[eventbridge-commerce] create_order_precheck_done customer=${email} itemCount=${normalizedItems.length}`);
 
     const requestId = input.requestId?.trim() || crypto.randomUUID();
     const payload: StorefrontOrderQueuePayload = {
       type: "storefront.order.requested",
       requestId,
       email,
-      items: input.items,
+      items: normalizedItems,
       createdAt: new Date().toISOString()
     };
 
     this.logger.log(`[eventbridge-commerce] create_order_publish_begin requestId=${requestId} customer=${email} detailType=storefront.order.requested`);
-    let published: Awaited<ReturnType<typeof publishEventBridgeEvent>>;
-    try {
-      published = await publishEventBridgeEvent({
-        busName: env.EVENTBRIDGE_COMMERCE_BUS_NAME,
-        source: "supermarket.commerce",
-        detailType: "storefront.order.requested",
-        detail: payload as unknown as Record<string, unknown>
-      });
-    } catch (error) {
-      this.logger.error(
-        `[eventbridge-commerce] create_order_error stage=publish customer=${email} requestId=${requestId} message=${error instanceof Error ? error.message : "unknown_error"}`
-      );
-      throw error;
+    if (shouldProcessCommerceQueuesInline()) {
+      this.logger.log(`[eventbridge-commerce] inline_order_processing requestId=${requestId} customer=${email} itemCount=${normalizedItems.length}`);
+      await this.finalizeQueuedOrder(email, normalizedItems, requestId);
+    } else {
+      let published: Awaited<ReturnType<typeof publishEventBridgeEvent>>;
+      try {
+        published = await publishEventBridgeEvent({
+          busName: env.EVENTBRIDGE_COMMERCE_BUS_NAME,
+          source: "supermarket.commerce",
+          detailType: "storefront.order.requested",
+          detail: payload as unknown as Record<string, unknown>
+        });
+      } catch (error) {
+        this.logger.error(
+          `[eventbridge-commerce] create_order_error stage=publish customer=${email} requestId=${requestId} message=${error instanceof Error ? error.message : "unknown_error"}`
+        );
+        throw error;
+      }
+
+      this.logger.log(`[eventbridge-commerce] create_order_publish_done requestId=${requestId} customer=${email} itemCount=${normalizedItems.length} bus=${published.eventBusName} eventId=${published.eventId}`);
     }
 
-    this.logger.log(`[eventbridge-commerce] create_order_publish_done requestId=${requestId} customer=${email} itemCount=${input.items.length} bus=${published.eventBusName} eventId=${published.eventId}`);
     return {
       success: true,
       queued: true,
@@ -484,10 +524,11 @@ export class StorefrontService {
   }
 
   private async resolveCheckoutGate(payload: CheckoutGateQueuePayload) {
+    const normalizedItems = normalizeOrderItems(payload.items);
     const acquiredLocks: Array<{ productId: string }> = [];
 
     try {
-      for (const item of payload.items) {
+      for (const item of normalizedItems) {
         const product = await getStorefrontProductById(item.productId);
         if (!product) {
           throw new Error(`Không tìm thấy sản phẩm ${item.productId}.`);
@@ -506,10 +547,10 @@ export class StorefrontService {
         acquiredLocks.push({ productId: item.productId });
       }
 
-      const firstProduct = await getStorefrontProductById(payload.items[0]?.productId ?? "");
+      const firstProduct = await getStorefrontProductById(normalizedItems[0]?.productId ?? "");
       const payment = await this.vnpayService.createWorkflowPaymentUrl({
         email: payload.email,
-        items: payload.items,
+        items: normalizedItems,
         orderId: payload.requestId,
         orderDescription: firstProduct
           ? `Thanh toán giữ hàng ${firstProduct.name} - ${payload.requestId}`
@@ -574,9 +615,10 @@ export class StorefrontService {
     items: CreateStorefrontOrderInput["items"],
     requestId?: string
   ): Promise<StorefrontQueueResult> {
+    const normalizedItems = normalizeOrderItems(items);
     try {
-      const { order, stockChanges } = await createStorefrontOrder({ email, items });
-      this.invalidateProductCaches(items.map((item) => item.productId));
+      const { order, stockChanges } = await createStorefrontOrder({ email, items: normalizedItems });
+      this.invalidateProductCaches(normalizedItems.map((item) => item.productId));
       this.logger.log(`[dynamo-order] created orderId=${order.id} requestId=${requestId ?? ""} customer=${email} status=${order.status} totalAmount=${order.totalAmount} itemCount=${order.items.length}`);
       await this.publishInventoryAlertsFromOrder(stockChanges, email);
 
@@ -680,7 +722,7 @@ export class StorefrontService {
               toEmail: email,
               requestId,
               failureReason,
-              items: await Promise.all(items.map(async (item) => {
+              items: await Promise.all(normalizedItems.map(async (item) => {
                 const product = await getStorefrontProductById(item.productId);
                 return {
                   productId: item.productId,
@@ -704,7 +746,7 @@ export class StorefrontService {
           message: failureReason,
           metadata: {
             requestId: requestId ?? "",
-            itemCount: items.length,
+            itemCount: normalizedItems.length,
             failureCode: "insufficient_stock",
             failureReason
           }
@@ -716,7 +758,7 @@ export class StorefrontService {
           resourceId: requestId ?? "",
           metadata: {
             status: "failed",
-            itemCount: items.length,
+            itemCount: normalizedItems.length,
             requestId: requestId ?? "",
             failureCode: "insufficient_stock",
             failureReason
@@ -729,7 +771,7 @@ export class StorefrontService {
             type: "storefront.order.failed",
             requestId: requestId ?? "",
             customer: email,
-            itemCount: items.length,
+            itemCount: normalizedItems.length,
             failureReason,
             failureCode: "insufficient_stock",
             createdAt: new Date().toISOString()
@@ -744,7 +786,7 @@ export class StorefrontService {
           customer: email,
           status: "failed",
           totalAmount: 0,
-          itemCount: items.length,
+          itemCount: normalizedItems.length,
           failureReason
         };
       }
@@ -752,7 +794,7 @@ export class StorefrontService {
       throw error;
     } finally {
       if (requestId) {
-        await Promise.allSettled(items.map(async (item) => {
+        await Promise.allSettled(normalizedItems.map(async (item) => {
           await releaseProductSelectionLock(item.productId, requestId);
         }));
       }

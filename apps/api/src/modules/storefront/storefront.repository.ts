@@ -116,6 +116,25 @@ function buildCheckoutGateKey(requestId: string) {
   };
 }
 
+function normalizeOrderItems(items: Array<{ productId?: string; quantity: number }>) {
+  const merged = new Map<string, number>();
+
+  for (const item of items) {
+    const productId = String(item.productId ?? "").trim().replace(/^PRODUCT#/i, "");
+    const quantity = Number(item.quantity ?? 0);
+    if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+      continue;
+    }
+
+    merged.set(productId, (merged.get(productId) ?? 0) + quantity);
+  }
+
+  return [...merged.entries()].map(([productId, quantity]): { productId: string; quantity: number } => ({
+    productId,
+    quantity
+  }));
+}
+
 export async function listStorefrontProducts(query: Record<string, any>) {
   return listShoppingItems(query.limit, query.cursor, {
     category: query.category,
@@ -133,13 +152,14 @@ export async function getStorefrontProductById(id: string) {
 }
 
 export async function createStorefrontOrder(input: CreateOrderPayload): Promise<StorefrontOrderCreationResult> {
+  const normalizedItems = normalizeOrderItems(input.items);
   const lines: OrderLine[] = [];
   let totalAmount = 0;
   const now = new Date().toISOString();
   const orderId = crypto.randomUUID();
   const productSnapshots = new Map<string, Record<string, any>>();
 
-  for (const item of input.items) {
+  for (const item of normalizedItems) {
     const product = await getShoppingItem(item.productId);
     if (!product) {
       throw new Error(`Product ${item.productId} not found`);
@@ -173,7 +193,7 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
     createdAt: now,
     updatedAt: now
   };
-  const stockChanges: InventoryStockChange[] = input.items.map((item) => {
+  const stockChanges: InventoryStockChange[] = normalizedItems.map((item) => {
     const product = productSnapshots.get(item.productId);
     if (!product) {
       throw new Error(`Product ${item.productId} not found`);
@@ -198,7 +218,7 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
   try {
     await rawDb.send(new TransactWriteItemsCommand({
       TransactItems: [
-        ...input.items.map((item) => {
+        ...normalizedItems.map((item) => {
           const product = productSnapshots.get(item.productId);
           if (!product) {
             throw new Error(`Product ${item.productId} not found`);
@@ -256,7 +276,7 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
   } catch (error) {
     const candidate = error as { name?: string };
     if (candidate?.name === "TransactionCanceledException") {
-      for (const item of input.items) {
+      for (const item of normalizedItems) {
         const latestProduct = await getShoppingItem(item.productId);
         if (!latestProduct) {
           throw new Error(`Product ${item.productId} not found`);
@@ -320,6 +340,32 @@ export async function getCheckoutGateRequestById(requestId: string) {
   return result.Item ? (unmarshall(result.Item) as CheckoutGateRequestRecord) : null;
 }
 
+export async function releaseCheckoutGateReservation(input: {
+  requestId: string;
+  message: string;
+  failureCode?: string;
+}) {
+  const gate = await getCheckoutGateRequestById(input.requestId);
+  if (!gate) {
+    return false;
+  }
+
+  await Promise.allSettled(
+    (gate.items ?? []).map(async (item) => {
+      await releaseProductSelectionLock(String(item.productId ?? ""), input.requestId);
+    })
+  );
+
+  await updateCheckoutGateRequestStatus({
+    requestId: input.requestId,
+    status: "blocked",
+    message: input.message,
+    failureCode: input.failureCode ?? "payment_not_completed"
+  });
+
+  return true;
+}
+
 export async function updateCheckoutGateRequestStatus(input: {
   requestId: string;
   expectedStatus?: CheckoutGateStatus;
@@ -336,8 +382,7 @@ export async function updateCheckoutGateRequestStatus(input: {
   const values: Record<string, unknown> = {
     ":status": input.status,
     ":message": input.message,
-    ":updatedAt": now,
-    ":empty": ""
+    ":updatedAt": now
   };
   const segments = [
     "#status = :status",

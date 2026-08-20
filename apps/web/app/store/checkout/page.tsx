@@ -7,6 +7,8 @@ import { formatCurrency } from "../store-utils";
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
+const checkoutGatePollIntervalMs = 2000;
+const checkoutGateMaxPollAttempts = 15;
 
 type PrepareCheckoutResponse = {
   requestId?: string;
@@ -39,8 +41,10 @@ export default function CheckoutPage() {
     }
 
     let cancelled = false;
+    let attempts = 0;
 
     async function pollGateStatus() {
+      attempts += 1;
       try {
         const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare/${gateRequestId}`, {
           headers: {
@@ -76,10 +80,17 @@ export default function CheckoutPage() {
         if (payload.status === "blocked") {
           setGateStatus("blocked");
           setIsSubmitting(false);
+          return;
+        }
+
+        if (attempts >= checkoutGateMaxPollAttempts) {
+          setGateStatus("blocked");
+          setError("The checkout queue is taking too long. Please check the checkout-gate worker on AWS and try again.");
+          setIsSubmitting(false);
         }
       } catch (pollError) {
         if (!cancelled) {
-          setError(pollError instanceof Error ? pollError.message : "Khong the kiem tra hang doi checkout luc nay.");
+          setError(pollError instanceof Error ? pollError.message : "We could not check the checkout queue right now.");
           setIsSubmitting(false);
         }
       }
@@ -88,7 +99,7 @@ export default function CheckoutPage() {
     void pollGateStatus();
     const intervalId = window.setInterval(() => {
       void pollGateStatus();
-    }, 2000);
+    }, checkoutGatePollIntervalMs);
 
     return () => {
       cancelled = true;
@@ -98,12 +109,12 @@ export default function CheckoutPage() {
 
   async function handleCheckout() {
     if (items.length === 0) {
-      setError("Gio hang dang trong, ban hay chon them san pham truoc khi thanh toan.");
+      setError("Your cart is empty. Please add at least one product before checkout.");
       return;
     }
 
     if (!apiBaseUrl) {
-      setError("Thieu NEXT_PUBLIC_API_URL de khoi tao thanh toan.");
+      setError("NEXT_PUBLIC_API_URL is missing, so checkout cannot start.");
       return;
     }
 
@@ -115,8 +126,9 @@ export default function CheckoutPage() {
 
       setIsSubmitting(true);
       setError("");
-      setGateStatus("pending");
-      setGateMessage("Yeu cau dang vao hang doi kiem tra ton kho va tranh chap san pham.");
+      setGateRequestId("");
+      setGateStatus("idle");
+      setGateMessage("Preparing your checkout request and sending it to the product gate queue.");
       const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare`, {
         method: "POST",
         headers: {
@@ -135,13 +147,15 @@ export default function CheckoutPage() {
       const payload = (await response.json().catch(() => null)) as PrepareCheckoutResponse | null;
 
       if (!response.ok || !payload?.requestId) {
-        throw new Error(payload?.message || "Khong the dua yeu cau checkout vao hang doi.");
+        throw new Error(payload?.message || "We could not send this checkout request to the queue.");
       }
 
       setGateRequestId(payload.requestId);
+      setGateStatus("pending");
+      setGateMessage(payload.message || "Your request is waiting in the queue for inventory verification.");
     } catch (checkoutError) {
       setGateStatus("blocked");
-      setError(checkoutError instanceof Error ? checkoutError.message : "Khong the bat dau kiem tra checkout.");
+      setError(checkoutError instanceof Error ? checkoutError.message : "We could not start checkout verification.");
       setIsSubmitting(false);
     }
   }
@@ -155,13 +169,13 @@ export default function CheckoutPage() {
           }`}
         >
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Checkout</p>
-          <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Thanh toan voi VNPay Sandbox</h1>
+          <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Checkout with VNPay Sandbox</h1>
           <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-            He thong se dua yeu cau vao queue kiem tra tranh chap san pham truoc. Chi khi duoc giu cho thanh cong, ban moi duoc chuyen sang VNPay.
+            Your request is sent to the product gate queue first. You are redirected to VNPay only after the inventory hold is confirmed.
           </p>
           {!session ? (
             <div className={`mt-6 rounded-[1.5rem] border px-4 py-4 text-sm ${isDark ? "border-amber-500/20 bg-amber-500/10 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
-              Ban can dang nhap truoc khi thanh toan.
+              You need to sign in before checkout.
             </div>
           ) : null}
 
@@ -182,7 +196,7 @@ export default function CheckoutPage() {
                     </div>
                     <strong className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{formatCurrency(item.price * item.quantity)}</strong>
                   </div>
-                  <p className={`mt-3 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>So luong: {item.quantity}</p>
+                  <p className={`mt-3 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Quantity: {item.quantity}</p>
                 </div>
               </article>
             ))}
@@ -190,30 +204,30 @@ export default function CheckoutPage() {
         </section>
 
         <aside className="rounded-[2rem] bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.5)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-300">Tom tat don hang</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-300">Order summary</p>
           <div className="mt-6 space-y-3 text-sm">
             <div className="flex items-center justify-between">
-              <span>Tam tinh</span>
+              <span>Subtotal</span>
               <span>{formatCurrency(subtotal)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Phi van chuyen</span>
-              <span>{shipping === 0 ? "Mien phi" : formatCurrency(shipping)}</span>
+              <span>Shipping</span>
+              <span>{shipping === 0 ? "Free" : formatCurrency(shipping)}</span>
             </div>
             <div className="flex items-center justify-between border-t border-white/15 pt-4 text-lg font-semibold">
-              <span>Tong thanh toan</span>
+              <span>Total</span>
               <span>{formatCurrency(total)}</span>
             </div>
           </div>
 
           <div className="mt-8 rounded-[1.5rem] bg-white/8 p-4 text-sm leading-7 text-slate-200">
-            <p>Queue gate se xu ly cac checkout cung san pham theo thu tu den truoc.</p>
-            <p className="mt-2">Neu san pham dang bi request khac giu cho, ban se thay thong bao chan ngay tai day.</p>
+            <p>The checkout gate processes conflicting product requests in arrival order.</p>
+            <p className="mt-2">If another request is already holding the product, you will see the block message here immediately.</p>
           </div>
 
-          {gateStatus === "pending" ? (
+          {isSubmitting ? (
             <div className="mt-6 rounded-2xl border border-cyan-300/30 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
-              {gateMessage || "Dang cho queue xet quyen thanh toan cho gio hang nay."}
+              {gateMessage || "Your request is being prepared for queue-based inventory verification."}
             </div>
           ) : null}
 
@@ -226,10 +240,10 @@ export default function CheckoutPage() {
           <button
             type="button"
             onClick={handleCheckout}
-            disabled={isSubmitting || items.length === 0 || gateStatus === "pending"}
+            disabled={isSubmitting || items.length === 0}
             className="mt-8 inline-flex w-full items-center justify-center rounded-full bg-white px-5 py-4 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {session ? (gateStatus === "pending" ? "Dang cho queue..." : "Thanh toan ngay") : "Dang nhap de thanh toan"}
+            {session ? (isSubmitting ? "Checking inventory queue..." : "Pay now") : "Sign in to pay"}
           </button>
         </aside>
       </div>

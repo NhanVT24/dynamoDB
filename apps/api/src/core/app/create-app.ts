@@ -5,15 +5,17 @@ import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fa
 import { isAdminRequest } from "../../common/auth/cognito-groups.js";
 import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
 import { AppExceptionFilter } from "../../common/filters/app-exception.filter.js";
+import { createNestLogger } from "../../common/logging/nest-logger.js";
 import { env } from "../../config/env.js";
 import { AppModule } from "./app.module.js";
 
 export async function createNestApp(): Promise<NestFastifyApplication> {
   const adapter = new FastifyAdapter({ logger: true });
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
-    bufferLogs: true
+    bufferLogs: true,
+    logger: createNestLogger()
   });
-  app.useLogger(["log", "error", "warn", "debug", "verbose"]);
+  app.useLogger(createNestLogger());
   app.flushLogs();
 
   app.enableCors({

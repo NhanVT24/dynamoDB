@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { shoppingStatuses } from "./shopping.schema.js";
 
-export const shoppingParamsSchema = z.object({ id: z.uuid() });
+const productIdSchema = z.string().trim().transform((value) => value.replace(/^PRODUCT#/i, "")).pipe(z.uuid());
+
+export const shoppingParamsSchema = z.object({ id: productIdSchema });
 
 export const shoppingListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(240).default(12),

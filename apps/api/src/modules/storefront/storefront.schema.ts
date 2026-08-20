@@ -1,7 +1,9 @@
 import { z } from "zod";
 
+const storefrontProductIdSchema = z.string().trim().transform((value) => value.replace(/^PRODUCT#/i, "")).pipe(z.uuid());
+
 export const storefrontOrderItemSchema = z.object({
-  productId: z.uuid(),
+  productId: storefrontProductIdSchema,
   quantity: z.coerce.number().int().min(1).max(50)
 });
 

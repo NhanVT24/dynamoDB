@@ -14,6 +14,8 @@ const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
 const cartStorageKey = "web-storefront-cart";
 const processedPaymentPrefix = "web-storefront-payment-processed-";
 const pendingOrderRequestPrefix = "web-storefront-order-request-";
+const queuePollIntervalMs = 5000;
+const queueMaxPollAttempts = 18;
 
 type ReturnPayload = {
   isValidSignature: boolean;
@@ -79,7 +81,7 @@ function CheckoutResultPageContent() {
     async function verifyPayment() {
       const query = searchParams.toString();
       if (!query) {
-        setError("Không nhận được dữ liệu phản hồi từ VNPay.");
+        setError("No response data was received from VNPay.");
         return;
       }
 
@@ -97,13 +99,13 @@ function CheckoutResultPageContent() {
         const payload = (await response.json().catch(() => null)) as ReturnPayload | { message?: string } | null;
 
         if (!response.ok || !payload || !("txnRef" in payload)) {
-          throw new Error(payload?.message || "Không thể xác minh kết quả thanh toán.");
+          throw new Error(payload?.message || "We could not verify the payment result.");
         }
 
         setResult(payload);
       } catch (verificationError) {
         verifiedQueryRef.current = "";
-        setError(verificationError instanceof Error ? verificationError.message : "Không thể xác minh kết quả thanh toán.");
+        setError(verificationError instanceof Error ? verificationError.message : "We could not verify the payment result.");
       }
     }
 
@@ -141,8 +143,8 @@ function CheckoutResultPageContent() {
       if (!existed) {
         current.unshift({
           id: notificationId,
-          title: "Thanh toán thành công",
-          message: `Giao dịch ${result.txnRef} đã được xác nhận với số tiền ${formatCurrency(result.amount)}.`,
+          title: "Payment successful",
+          message: `Transaction ${result.txnRef} was confirmed for ${formatCurrency(result.amount)}.`,
           status: "sent",
           isRead: false,
           channel: "system",
@@ -189,7 +191,7 @@ function CheckoutResultPageContent() {
 
       let pendingCheckout: { requestId?: string; items?: Array<{ productId: string; quantity: number }> } | null = null;
       try {
-        pendingCheckout = JSON.parse(rawPendingCheckout) as { items?: Array<{ productId: string; quantity: number }> };
+        pendingCheckout = JSON.parse(rawPendingCheckout) as { requestId?: string; items?: Array<{ productId: string; quantity: number }> };
       } catch {
         window.localStorage.removeItem(pendingCheckoutStorageKey);
         return;
@@ -204,7 +206,7 @@ function CheckoutResultPageContent() {
 
       const session = readAuthSession();
       if (!session?.idToken) {
-        setError("Thanh toán đã thành công nhưng chưa thể tạo đơn hàng vì phiên đăng nhập không còn. Hãy đăng nhập lại để kiểm tra.");
+        setError("The payment succeeded, but the order could not be created because your session expired. Please sign in again and review your order history.");
         return;
       }
 
@@ -228,7 +230,7 @@ function CheckoutResultPageContent() {
 
         const payload = (await response.json().catch(() => null)) as FinalizeOrderPayload | null;
         if (!response.ok || !payload?.requestId) {
-          throw new Error(payload?.message || "Không thể tạo đơn hàng sau khi thanh toán thành công.");
+          throw new Error(payload?.message || "We could not create the order after payment succeeded.");
         }
 
         window.sessionStorage.setItem(processedKey, "1");
@@ -239,9 +241,9 @@ function CheckoutResultPageContent() {
 
         setRequestId(payload.requestId);
         setQueueState("polling");
-        setQueueMessage(payload.message || "Đơn hàng đã được đưa vào queue để xử lý.");
+        setQueueMessage(payload.message || "The order has been placed in the processing queue.");
       } catch (finalizeError) {
-        setError(finalizeError instanceof Error ? finalizeError.message : "Không thể tạo đơn hàng sau thanh toán.");
+        setError(finalizeError instanceof Error ? finalizeError.message : "We could not create the order after payment.");
       } finally {
         finalizingTxnRef.current = "";
         setIsFinalizingOrder(false);
@@ -262,8 +264,10 @@ function CheckoutResultPageContent() {
     }
 
     let cancelled = false;
+    let attempts = 0;
 
     async function pollQueueResult() {
+      attempts += 1;
       try {
         const response = await fetch("/api/lambda-proxy/api/notifications/me", {
           headers: {
@@ -273,7 +277,7 @@ function CheckoutResultPageContent() {
         });
 
         if (!response.ok) {
-          throw new Error("Không thể kiểm tra trạng thái xử lý đơn hàng.");
+          throw new Error("We could not check the order processing status.");
         }
 
         const payload = (await response.json()) as { items?: NotificationApiItem[] };
@@ -298,15 +302,20 @@ function CheckoutResultPageContent() {
         window.sessionStorage.removeItem(getPendingOrderRequestKey(result.txnRef));
       } catch (pollError) {
         if (!cancelled) {
-          setQueueMessage(pollError instanceof Error ? pollError.message : "Không thể kiểm tra trạng thái queue lúc này.");
+          setQueueMessage(pollError instanceof Error ? pollError.message : "We could not check the queue status right now.");
         }
+      }
+
+      if (!cancelled && attempts >= queueMaxPollAttempts) {
+        setQueueState("failed");
+        setQueueMessage("Order processing is taking too long. Please check the worker and DLQ on AWS.");
       }
     }
 
     void pollQueueResult();
     const intervalId = window.setInterval(() => {
       void pollQueueResult();
-    }, 5000);
+    }, queuePollIntervalMs);
 
     return () => {
       cancelled = true;
@@ -327,35 +336,35 @@ function CheckoutResultPageContent() {
     if (queueState === "polling" || isFinalizingOrder) {
       return {
         tone: isDark ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-100" : "border-cyan-200 bg-cyan-50 text-cyan-800",
-        badge: "Đang xử lý",
-        title: "Đơn hàng đang được đồng bộ",
-        message: queueMessage || "Yêu cầu đã vào queue. Hệ thống đang theo dõi trạng thái để hoàn tất đơn hàng."
+        badge: "Processing",
+        title: "Your order is being synchronized",
+        message: queueMessage || "Your request is already in the queue. The system is tracking its status to complete the order."
       };
     }
 
     if (queueState === "done") {
       return {
         tone: isDark ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100" : "border-emerald-200 bg-emerald-50 text-emerald-800",
-        badge: "Hoàn tất",
-        title: "Đơn hàng đã được ghi nhận",
-        message: queueMessage || "Queue đã xử lý xong và hệ thống đã tạo đơn hàng thành công."
+        badge: "Completed",
+        title: "Your order has been recorded",
+        message: queueMessage || "The queue finished processing and the order was created successfully."
       };
     }
 
     if (queueState === "failed") {
       return {
         tone: isDark ? "border-amber-500/20 bg-amber-500/10 text-amber-100" : "border-amber-200 bg-amber-50 text-amber-800",
-        badge: "Cần kiểm tra",
-        title: "Đơn hàng chưa hoàn tất",
-        message: queueMessage || "Queue đã phản hồi nhưng đơn hàng chưa thể xử lý trọn vẹn."
+        badge: "Needs review",
+        title: "Your order is not fully completed yet",
+        message: queueMessage || "The queue responded, but the order could not be completed fully."
       };
     }
 
     return {
       tone: isDark ? "border-white/10 bg-white/5 text-slate-100" : "border-slate-200 bg-slate-50 text-slate-800",
-      badge: "Đã tiếp nhận",
-      title: "Hệ thống đang tạo yêu cầu đơn hàng",
-      message: queueMessage || "Yêu cầu đã được ghi nhận. Hệ thống đang chuẩn bị kiểm tra trạng thái queue."
+      badge: "Received",
+      title: "The system is preparing your order request",
+      message: queueMessage || "Your request has been received. The system is preparing to check the queue status."
     };
   }, [isDark, isFinalizingOrder, isSuccess, queueMessage, queueState, requestId]);
 
@@ -367,15 +376,15 @@ function CheckoutResultPageContent() {
         }`}
       >
         <p className={`text-xs font-semibold uppercase tracking-[0.28em] ${isSuccess ? "text-emerald-500" : "text-orange-500"}`}>
-          {isSuccess ? "Thanh toán thành công" : "Kết quả giao dịch"}
+          {isSuccess ? "Payment successful" : "Transaction result"}
         </p>
         <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>
-          {result ? result.message : error || "Đang xác minh thanh toán..."}
+          {result ? result.message : error || "Verifying payment..."}
         </h1>
         <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
           {isSuccess
-            ? "Sau khi VNPay sandbox xác nhận thành công, hệ thống sẽ đẩy yêu cầu tạo đơn vào queue rồi tự kiểm tra lại trạng thái để hoàn tất đơn hàng."
-            : "Nếu bạn vừa hủy giao dịch hoặc gặp lỗi, bạn có thể quay lại cửa hàng và thử lại bất cứ lúc nào."}
+            ? "After VNPay sandbox confirms success, the system pushes the order request into the queue and keeps checking the status until the order is completed."
+            : "If you just cancelled the payment or hit an error, you can return to the store and try again at any time."}
         </p>
 
         {queuePanel ? (
@@ -415,19 +424,19 @@ function CheckoutResultPageContent() {
         {result ? (
           <div className={`mt-8 grid gap-4 rounded-[1.75rem] border p-5 sm:grid-cols-2 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50/80"}`}>
             <div>
-              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Mã giao dịch cửa hàng</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Store transaction reference</p>
               <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{result.txnRef || "--"}</p>
             </div>
             <div>
-              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Số tiền</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Amount</p>
               <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{formatCurrency(result.amount)}</p>
             </div>
             <div>
-              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Ngân hàng</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Bank</p>
               <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{result.bankCode || "--"}</p>
             </div>
             <div>
-              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Mã phản hồi</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Response code</p>
               <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{result.responseCode || "--"}</p>
             </div>
           </div>
@@ -435,7 +444,7 @@ function CheckoutResultPageContent() {
 
         {shouldShowQueueNotification && matchedNotification ? (
           <div className={`mt-6 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50/75"}`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Thông báo từ queue</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Queue notification</p>
             <h2 className={`mt-3 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{matchedNotification.title}</h2>
             <p className={`mt-2 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{matchedNotification.message}</p>
           </div>
@@ -443,7 +452,7 @@ function CheckoutResultPageContent() {
 
         <div className="mt-8 flex flex-wrap gap-3">
           <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-            Tiếp tục mua sắm
+            Continue shopping
           </Link>
           <Link
             href="/store/orders"
@@ -451,7 +460,7 @@ function CheckoutResultPageContent() {
               isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
             }`}
           >
-            Xem lịch sử mua hàng
+            View order history
           </Link>
         </div>
       </div>
