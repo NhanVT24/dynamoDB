@@ -354,10 +354,9 @@ export function useStorefront() {
   return context;
 }
 
-function CartDrawer() {
+function CartDrawer({ session }: { session: AuthSession | null }) {
   const { items, isDrawerOpen, toggleDrawer, updateQuantity, removeItem, subtotal, shipping, total, clearCart, theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
-  const session = readAuthSession();
 
   if (!isDrawerOpen) return null;
 
@@ -1337,9 +1336,11 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isDark = theme === "dark";
   const [isCartDropActive, setIsCartDropActive] = useState(false);
-  const [session, setSession] = useState<AuthSession | null>(() => readAuthSession());
+  const [session, setSession] = useState<AuthSession | null>(null);
 
   useEffect(() => {
+    setSession(readAuthSession());
+
     function syncSession() {
       setSession(readAuthSession());
     }
@@ -1435,7 +1436,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
         </div>
         <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 px-4 py-2 text-center text-xs font-medium text-white">Storefront client đang chạy tại route /store, còn khu quản trị nằm ở /admin</div>
       </header>
-      <CartDrawer />
+      <CartDrawer session={session} />
       <StorefrontAuthModal session={session} onSignedIn={setSession} />
       <main>{children}</main>
     </div>
