@@ -1749,17 +1749,20 @@ export function ProductsPageClient({
 
 export function ProductDetailClient({ slug }: { slug: string }) {
   const { theme, addCatalogItem } = useStorefront();
+  const router = useRouter();
   const isDark = theme === "dark";
   const [quantity, setQuantity] = useState(1);
   const [product, setProduct] = useState<StoreProduct | null>(null);
   const [relatedProducts, setRelatedProducts] = useState<StoreProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadProducts() {
       try {
+        setLoadFailed(false);
         const listing = await fetchStorefrontProducts({ category: "all", limit: "12" });
         const matchedFromListing = listing.items.find((item) => item.slug === slug) ?? null;
         const productId = matchedFromListing?.id
@@ -1780,11 +1783,19 @@ export function ProductDetailClient({ slug }: { slug: string }) {
 
         if (!cancelled) {
           setProduct(detail);
+          if (detail.slug !== slug) {
+            router.replace(`/store/products/${detail.slug}`);
+          }
           setRelatedProducts(
             listing.items.filter((item) => item.id !== detail.id && item.category === detail.category).slice(0, 4)
           );
         }
       } catch {
+        if (!cancelled) {
+          setProduct(null);
+          setRelatedProducts([]);
+          setLoadFailed(true);
+        }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -1836,6 +1847,36 @@ export function ProductDetailClient({ slug }: { slug: string }) {
                 <div className={`h-14 w-48 rounded-full ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (loadFailed || !product) {
+    return (
+      <section className="px-4 py-10 sm:px-6 lg:px-8">
+        <div className={`mx-auto max-w-3xl rounded-[2rem] border p-8 text-center ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-950 shadow-[0_28px_80px_-56px_rgba(15,23,42,0.35)]"}`}>
+          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-orange-500">Product unavailable</p>
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight">Sản phẩm này không còn khả dụng</h1>
+          <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+            Liên kết bạn vừa mở có thể đang trỏ tới một phiên bản sản phẩm cũ hoặc sản phẩm đã bị thay đổi sau khi dữ liệu được cập nhật.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.replace("/store/products")}
+              className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white"
+            >
+              about list of products
+            </button>
+            <button
+              type="button"
+              onClick={() => router.replace("/store")}
+              className={`inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-semibold ${isDark ? "bg-white/10 text-white" : "bg-slate-100 text-slate-900"}`}
+            >
+              storefront home
+            </button>
           </div>
         </div>
       </section>
