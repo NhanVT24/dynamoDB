@@ -1858,9 +1858,10 @@ export function ProductDetailClient({ slug }: { slug: string }) {
       <section className="px-4 py-10 sm:px-6 lg:px-8">
         <div className={`mx-auto max-w-3xl rounded-[2rem] border p-8 text-center ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-950 shadow-[0_28px_80px_-56px_rgba(15,23,42,0.35)]"}`}>
           <p className="text-sm font-semibold uppercase tracking-[0.22em] text-orange-500">Product unavailable</p>
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight">Sản phẩm này không còn khả dụng</h1>
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight">Product not found or has been updated
+          </h1>
           <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-            Liên kết bạn vừa mở có thể đang trỏ tới một phiên bản sản phẩm cũ hoặc sản phẩm đã bị thay đổi sau khi dữ liệu được cập nhật.
+            The link you just opened might be pointing to an old version of the product or the product has been changed after the data was updated.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <button
