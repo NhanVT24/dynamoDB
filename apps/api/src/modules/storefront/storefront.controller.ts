@@ -3,7 +3,7 @@ import type { FastifyRequest } from "fastify";
 import { shoppingParamsSchema } from "../shopping/shopping.query-schemas.js";
 import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
 import { StorefrontService } from "./storefront.service.js";
-import { createStorefrontOrderSchema, prepareStorefrontCheckoutSchema } from "./storefront.schema.js";
+import { cancelStorefrontCheckoutSchema, createCheckoutPaymentSessionSchema, createStorefrontOrderSchema, prepareStorefrontCheckoutSchema } from "./storefront.schema.js";
 
 @Controller("api/storefront")
 export class StorefrontController {
@@ -58,6 +58,30 @@ export class StorefrontController {
     }
 
     return this.storefrontService.getCheckoutGateStatus(principal.email, requestId);
+  }
+
+  @Post("checkout/payment-session")
+  @HttpCode(HttpStatus.OK)
+  createCheckoutPaymentSession(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
+      throw new ForbiddenException("only customer or admin can create checkout payment session.");
+    }
+
+    const input = createCheckoutPaymentSessionSchema.parse(rawBody);
+    return this.storefrontService.createCheckoutPaymentSession(principal.email, input.requestId, request.ip);
+  }
+
+  @Post("checkout/cancel")
+  @HttpCode(HttpStatus.OK)
+  cancelCheckout(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
+      throw new ForbiddenException("Chỉ tài khoản customer hoặc admin mới được hủy lượt checkout.");
+    }
+
+    const input = cancelStorefrontCheckoutSchema.parse(rawBody);
+    return this.storefrontService.cancelCheckout(principal.email, input.requestId);
   }
 
   @Get("orders/me")

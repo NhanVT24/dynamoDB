@@ -71,6 +71,8 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const isNotificationDeleteAllMutation = method === "DELETE" && /^\/api\/notifications(?:\?|$)/.test(url);
     const isStorefrontOrderMutation = method === "POST" && url === "/api/storefront/orders";
     const isStorefrontCheckoutPrepareMutation = method === "POST" && url === "/api/storefront/checkout/prepare";
+    const isStorefrontCheckoutPaymentSessionMutation = method === "POST" && url === "/api/storefront/checkout/payment-session";
+    const isStorefrontCheckoutCancelMutation = method === "POST" && url === "/api/storefront/checkout/cancel";
     const isVnpayFailureTestMutation = method === "POST" && url === "/api/payments/vnpay/test/fail";
     const isPublicVnpayRequest =
       url === "/api/payments/vnpay" ||
@@ -103,6 +105,32 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       reply.status(403).send({
         statusCode: 403,
         message: "Chỉ tài khoản customer hoặc admin mới được bắt đầu checkout."
+      });
+      return;
+    }
+
+    if (isStorefrontCheckoutPaymentSessionMutation) {
+      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      if (principal && (principal.role === "customer" || principal.role === "admin")) {
+        return;
+      }
+
+      reply.status(403).send({
+        statusCode: 403,
+        message: "only customer or admin can create checkout payment session."
+      });
+      return;
+    }
+
+    if (isStorefrontCheckoutCancelMutation) {
+      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      if (principal && (principal.role === "customer" || principal.role === "admin")) {
+        return;
+      }
+
+      reply.status(403).send({
+        statusCode: 403,
+        message: "Chỉ tài khoản customer hoặc admin mới được hủy lượt checkout."
       });
       return;
     }

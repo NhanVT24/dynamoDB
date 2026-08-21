@@ -21,3 +21,15 @@ export const prepareStorefrontCheckoutSchema = z.object({
 });
 
 export type PrepareStorefrontCheckoutInput = z.infer<typeof prepareStorefrontCheckoutSchema>;
+
+export const createCheckoutPaymentSessionSchema = z.object({
+  requestId: z.string().uuid()
+});
+
+export type CreateCheckoutPaymentSessionInput = z.infer<typeof createCheckoutPaymentSessionSchema>;
+
+export const cancelStorefrontCheckoutSchema = z.object({
+  requestId: z.string().uuid()
+});
+
+export type CancelStorefrontCheckoutInput = z.infer<typeof cancelStorefrontCheckoutSchema>;

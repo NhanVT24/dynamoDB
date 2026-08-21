@@ -193,28 +193,6 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
     createdAt: now,
     updatedAt: now
   };
-  const stockChanges: InventoryStockChange[] = normalizedItems.map((item) => {
-    const product = productSnapshots.get(item.productId);
-    if (!product) {
-      throw new Error(`Product ${item.productId} not found`);
-    }
-
-    const previousStock = Number(product.stock ?? 0);
-    const stock = previousStock - item.quantity;
-    const previousStatus = String(product.status ?? "");
-    const status = stock <= 0 ? "out_of_stock" : stock <= 10 ? "low_stock" : "active";
-
-    return {
-      productId: item.productId,
-      productName: String(product.name ?? ""),
-      sku: product.sku ? String(product.sku) : undefined,
-      previousStock,
-      stock,
-      previousStatus,
-      status
-    };
-  });
-
   try {
     await rawDb.send(new TransactWriteItemsCommand({
       TransactItems: [
@@ -224,42 +202,27 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
             throw new Error(`Product ${item.productId} not found`);
           }
 
-          const currentStock = Number(product.stock ?? 0);
-          const nextStock = currentStock - item.quantity;
-          const currentSoldCount = Number(product.soldCount ?? 0);
-          const nextSoldCount = currentSoldCount + item.quantity;
-          const nextStatus = nextStock <= 0 ? "out_of_stock" : nextStock <= 10 ? "low_stock" : "active";
-          const currentVersion = Math.max(1, Number(product.version ?? 1));
-
           return {
             Update: {
               TableName,
               Key: toDynamoItem(keys.product(item.productId)),
               UpdateExpression: [
-                "SET #stock = :stock",
-                "#soldCount = :soldCount",
-                "#status = :status",
-                "#searchName = :searchName",
+                "SET #stock = #stock - :quantity",
+                "#soldCount = if_not_exists(#soldCount, :zero) + :quantity",
                 "updatedAt = :updatedAt",
-                "#version = :nextVersion"
+                "#version = if_not_exists(#version, :zero) + :one"
               ].join(", "),
-              ConditionExpression: "attribute_exists(PK) AND #version = :expectedVersion AND #stock >= :quantity",
+              ConditionExpression: "#stock >= :quantity",
               ExpressionAttributeNames: {
                 "#stock": "stock",
                 "#soldCount": "soldCount",
-                "#status": "status",
-                "#searchName": "searchName",
                 "#version": "version"
               },
               ExpressionAttributeValues: toDynamoItem({
-                ":stock": nextStock,
-                ":soldCount": nextSoldCount,
-                ":status": nextStatus,
-                ":searchName": String(product.searchName ?? ""),
                 ":updatedAt": now,
-                ":expectedVersion": currentVersion,
-                ":nextVersion": currentVersion + 1,
-                ":quantity": item.quantity
+                ":quantity": item.quantity,
+                ":zero": 0,
+                ":one": 1
               })
             }
           };
@@ -293,6 +256,44 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
     }
 
     throw error;
+  }
+
+  const stockChanges: InventoryStockChange[] = [];
+  for (const item of normalizedItems) {
+    const previousProduct = productSnapshots.get(item.productId);
+    const latestProduct = await getShoppingItem(item.productId);
+    if (!previousProduct || !latestProduct) {
+      throw new Error(`Product ${item.productId} not found`);
+    }
+
+    const stock = Number(latestProduct.stock ?? 0);
+    const status = stock <= 0 ? "out_of_stock" : stock <= 10 ? "low_stock" : "active";
+    const previousStatus = String(previousProduct.status ?? "");
+
+    stockChanges.push({
+      productId: item.productId,
+      productName: String(previousProduct.name ?? latestProduct.name ?? ""),
+      sku: previousProduct.sku ? String(previousProduct.sku) : latestProduct.sku ? String(latestProduct.sku) : undefined,
+      previousStock: Number(previousProduct.stock ?? 0),
+      stock,
+      previousStatus,
+      status
+    });
+
+    if (String(latestProduct.status ?? "") !== status) {
+      await rawDb.send(new UpdateItemCommand({
+        TableName,
+        Key: toDynamoItem(keys.product(item.productId)),
+        UpdateExpression: "SET #status = :status, updatedAt = :updatedAt",
+        ExpressionAttributeNames: {
+          "#status": "status"
+        },
+        ExpressionAttributeValues: toDynamoItem({
+          ":status": status,
+          ":updatedAt": new Date().toISOString()
+        })
+      }));
+    }
   }
 
   return {

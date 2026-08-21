@@ -576,6 +576,7 @@ exports.handler = async (event) => {
       SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
       SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
       SQS_STOREFRONT_ORDERS_QUEUE_URL: storefrontOrdersQueue.queueUrl,
+      SQS_CHECKOUT_GATE_QUEUE_URL: checkoutGateQueue.queueUrl,
       SQS_IMAGE_UPLOADS_QUEUE_URL: imageUploadsQueue.queueUrl,
       SQS_NOTIFICATIONS_DLQ_URL: notificationsDlq.queueUrl,
       SQS_STOREFRONT_ORDERS_DLQ_URL: storefrontOrdersDlq.queueUrl,
@@ -666,6 +667,7 @@ exports.handler = async (event) => {
       notificationsQueue.grantSendMessages(fn);
       auditQueue.grantSendMessages(fn);
       storefrontOrdersQueue.grantSendMessages(fn);
+      checkoutGateQueue.grantSendMessages(fn);
       paymentEventsQueue.grantSendMessages(fn);
       imageUploadsQueue.grantSendMessages(fn);
     };

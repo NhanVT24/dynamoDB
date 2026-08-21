@@ -1,12 +1,15 @@
 import crypto from "node:crypto";
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { TtlCache } from "../../common/cache/ttl-cache.js";
 import {
   logQueueBusinessEvent,
+  logQueueError,
   logQueueWarn
 } from "../../common/logging/queue-logger.js";
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
+import { sqsClient } from "../../integrations/sqs/client.js";
 import { sendOrderConfirmationEmail, sendOrderFailureEmail } from "../../integrations/ses/order-mailer.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
@@ -18,6 +21,7 @@ import {
   getCheckoutGateRequestById,
   getActiveProductSelectionLock,
   getStorefrontProductById,
+  releaseCheckoutGateReservation,
   releaseProductSelectionLock,
   type InventoryStockChange,
   listOrdersByCustomer,
@@ -197,6 +201,19 @@ function isInsufficientStockError(error: unknown) {
   return error instanceof Error && error.message.startsWith("Insufficient stock for ");
 }
 
+function buildCheckoutGateMessageGroupId(items: Array<{ productId: string; quantity: number }>) {
+  if (items.length === 1) {
+    return `product:${items[0]?.productId ?? "unknown"}`;
+  }
+
+  const normalizedProductIds = items
+    .map((item) => String(item.productId ?? "").trim())
+    .filter(Boolean)
+    .sort();
+  const digest = crypto.createHash("sha1").update(normalizedProductIds.join("|")).digest("hex").slice(0, 16);
+  return `cart:${digest}`;
+}
+
 function shouldProcessCommerceQueuesInline() {
   if (env.STOREFRONT_SYNC_QUEUE_PROCESSING) {
     return true;
@@ -271,8 +288,8 @@ export class StorefrontService {
   }
 
   async prepareCheckout(email: string, input: PrepareStorefrontCheckoutInput) {
-    if (!env.EVENTBRIDGE_COMMERCE_BUS_NAME) {
-      throw new Error("Hàng đợi duyệt checkout chưa được cấu hình.");
+    if (!env.SQS_CHECKOUT_GATE_QUEUE_URL) {
+      throw new Error("Queue processing is not enabled. Cannot prepare checkout at this time.");
     }
 
     const normalizedItems = normalizeOrderItems(input.items);
@@ -301,12 +318,36 @@ export class StorefrontService {
       this.logger.log(`[eventbridge-commerce] inline_checkout_gate requestId=${requestId} customer=${email} itemCount=${normalizedItems.length}`);
       await this.resolveCheckoutGate(payload);
     } else {
-      await publishEventBridgeEvent({
-        busName: env.EVENTBRIDGE_COMMERCE_BUS_NAME,
-        source: "supermarket.commerce",
-        detailType: "storefront.checkout.gate.requested",
-        detail: payload as unknown as Record<string, unknown>
-      });
+      const activeLocks = await Promise.all(normalizedItems.map(async (item) => ({
+        productId: item.productId,
+        lock: await getActiveProductSelectionLock(item.productId)
+      })));
+      const isContendedSingleItem = normalizedItems.length === 1
+        && activeLocks.some((entry) => entry.lock && entry.lock.requestId !== requestId);
+      if (isContendedSingleItem) {
+        const conflictingEntry = activeLocks.find((entry) => entry.lock && entry.lock.requestId !== requestId);
+        logQueueBusinessEvent(this.logger, {
+          queue: "checkoutGate",
+          eventType: "storefront.checkout.gate.requested",
+          status: "fast_rejected",
+          requestId,
+          productId: normalizedItems[0]?.productId,
+          message: "Product is already held by another checkout request.",
+          details: {
+            requestedItemCount: normalizedItems.length,
+            conflictingRequestId: conflictingEntry?.lock?.requestId ?? "",
+            conflictingLockedUntil: conflictingEntry?.lock?.lockedUntil ?? ""
+          }
+        });
+        throw new ConflictException("Product is being held for another request. Please try again in a few seconds.");
+      }
+
+      await sqsClient.send(new SendMessageCommand({
+        QueueUrl: env.SQS_CHECKOUT_GATE_QUEUE_URL,
+        MessageBody: JSON.stringify(payload),
+        MessageGroupId: buildCheckoutGateMessageGroupId(normalizedItems),
+        MessageDeduplicationId: requestId
+      }));
     }
 
     return {
@@ -314,14 +355,14 @@ export class StorefrontService {
       queued: true,
       requestId,
       status: "pending",
-      message: "Yêu cầu checkout đã vào hàng đợi kiểm tra tồn kho."
+      message: "check out request has been queued for processing. you will receive an update once the request is processed."
     };
   }
 
   async getCheckoutGateStatus(email: string, requestId: string) {
     const gate = await getCheckoutGateRequestById(requestId);
     if (!gate || gate.customerEmail !== email) {
-      throw new NotFoundException("Không tìm thấy yêu cầu checkout.");
+      throw new NotFoundException("Checkout request not found.");
     }
 
     return {
@@ -334,10 +375,88 @@ export class StorefrontService {
     };
   }
 
+  async createCheckoutPaymentSession(email: string, requestId: string, ipAddress?: string) {
+    const gate = await getCheckoutGateRequestById(requestId);
+    if (!gate || gate.customerEmail !== email) {
+      throw new NotFoundException("Not found checkout request.");
+    }
+
+    if (gate.status !== "allowed") {
+      throw new ConflictException("Checkout request is not allowed to proceed to payment.");
+    }
+
+    if (gate.paymentUrl) {
+      return {
+        requestId: gate.requestId,
+        paymentUrl: gate.paymentUrl,
+        lockedUntil: gate.lockedUntil || "",
+        message: gate.message || ""
+      };
+    }
+
+    const firstProduct = await getStorefrontProductById(String(gate.items[0]?.productId ?? ""));
+    const payment = await this.vnpayService.createWorkflowPaymentUrl({
+      email,
+      items: gate.items,
+      orderId: gate.requestId,
+      orderDescription: firstProduct
+        ? `Payment for ${firstProduct.name} - ${gate.requestId}`
+        : `Payment for reserved items ${gate.requestId}`,
+      bankCode: gate.bankCode,
+      locale: gate.locale,
+      ipAddress
+    });
+
+    await updateCheckoutGateRequestStatus({
+      requestId: gate.requestId,
+      expectedStatus: "allowed",
+      status: "allowed",
+      message: "Redirecting to VNPay payment gateway.",
+      paymentUrl: payment.paymentUrl,
+      lockedUntil: payment.expiresAt
+    });
+
+    return {
+      requestId: gate.requestId,
+      paymentUrl: payment.paymentUrl,
+      lockedUntil: payment.expiresAt,
+      message: "Redirecting to VNPay payment gateway."
+    };
+  }
+
+  async cancelCheckout(email: string, requestId: string) {
+    const gate = await getCheckoutGateRequestById(requestId);
+    if (!gate || gate.customerEmail !== email) {
+      throw new NotFoundException("Not found checkout request.");
+    }
+
+    if (gate.status === "blocked") {
+      return {
+        success: true,
+        released: false,
+        requestId,
+        message: gate.message || "This checkout attempt was already released."
+      };
+    }
+
+    await releaseCheckoutGateReservation({
+      requestId,
+      message: "Previous checkout attempt was cancelled after returning from payment.",
+      failureCode: "checkout_abandoned"
+    });
+
+    return {
+      success: true,
+      released: true,
+      requestId,
+      message: "Released previous checkout attempt."
+    };
+  }
+
   async createOrder(email: string, input: CreateStorefrontOrderInput) {
     if (!env.EVENTBRIDGE_COMMERCE_BUS_NAME) {
       this.logger.warn(`[eventbridge-commerce] disabled customer=${email}`);
-      throw new Error("Hàng đợi xử lý đơn hàng chưa được cấu hình.");
+      throw new Error("Queue processing is not enabled. Cannot create order at this time.");
     }
 
     const normalizedItems = normalizeOrderItems(input.items);
@@ -388,7 +507,7 @@ export class StorefrontService {
       success: true,
       queued: true,
       requestId,
-      message: "Yêu cầu đặt hàng đã được đưa vào queue để xử lý."
+      message: "Your order has been queued for processing. You will receive an update once the order is processed."
     };
   }
 
@@ -525,27 +644,60 @@ export class StorefrontService {
 
   private async resolveCheckoutGate(payload: CheckoutGateQueuePayload) {
     const normalizedItems = normalizeOrderItems(payload.items);
-    const acquiredLocks: Array<{ productId: string }> = [];
+    const acquiredLocks: Array<{ productId: string; lockedUntil: string }> = [];
 
     try {
       for (const item of normalizedItems) {
         const product = await getStorefrontProductById(item.productId);
         if (!product) {
-          throw new Error(`Không tìm thấy sản phẩm ${item.productId}.`);
+          throw new Error(`Not found ${item.productId}.`);
         }
 
         if (Number(product.stock ?? 0) < item.quantity) {
-          throw new Error(`Sản phẩm ${product.name} hiện không đủ số lượng.`);
+          throw new Error(`Product ${product.name} is not available in the requested quantity.`);
         }
 
-        await acquireProductSelectionLock({
+        const lock = await acquireProductSelectionLock({
           productId: item.productId,
           email: payload.email,
           requestId: payload.requestId,
           holdSeconds: 5 * 60
         });
-        acquiredLocks.push({ productId: item.productId });
+        acquiredLocks.push({
+          productId: item.productId,
+          lockedUntil: lock.lockedUntil
+        });
       }
+
+      const lockExpiresAt = acquiredLocks
+        .map((lockItem) => Date.parse(lockItem.lockedUntil))
+        .filter((value) => Number.isFinite(value))
+        .reduce((latest, value) => Math.max(latest, value), 0);
+
+      await updateCheckoutGateRequestStatus({
+        requestId: payload.requestId,
+        expectedStatus: "pending",
+        status: "allowed",
+        message: "your bucket is held temporarily. you can proceed to payment.",
+        lockedUntil: lockExpiresAt > 0 ? new Date(lockExpiresAt).toISOString() : ""
+      });
+
+      logQueueBusinessEvent(this.logger, {
+        queue: "checkoutGate",
+        eventType: "storefront.checkout.gate.requested",
+        status: "allowed",
+        requestId: payload.requestId,
+        details: {
+          itemCount: normalizedItems.length,
+          productIds: normalizedItems.map((item) => item.productId),
+          lockedUntil: lockExpiresAt > 0 ? new Date(lockExpiresAt).toISOString() : ""
+        }
+      });
+
+      return {
+        requestId: payload.requestId,
+        status: "allowed"
+      };
 
       const firstProduct = await getStorefrontProductById(normalizedItems[0]?.productId ?? "");
       const payment = await this.vnpayService.createWorkflowPaymentUrl({
@@ -553,8 +705,8 @@ export class StorefrontService {
         items: normalizedItems,
         orderId: payload.requestId,
         orderDescription: firstProduct
-          ? `Thanh toán giữ hàng ${firstProduct.name} - ${payload.requestId}`
-          : `Thanh toán giữ hàng ${payload.requestId}`,
+          ? `payment is holding ${firstProduct.name} - ${payload.requestId}`
+          : `payment is holding items - ${payload.requestId}`,
         bankCode: payload.bankCode,
         locale: payload.locale
       });
@@ -563,7 +715,7 @@ export class StorefrontService {
         requestId: payload.requestId,
         expectedStatus: "pending",
         status: "allowed",
-        message: "Giỏ hàng đã được giữ tạm. Bạn có thể tiếp tục thanh toán.",
+        message: "your bucket is held temporarily. you can proceed to payment.",
         paymentUrl: payment.paymentUrl,
         lockedUntil: payment.expiresAt
       });
@@ -586,7 +738,7 @@ export class StorefrontService {
         } catch {}
       }
 
-      const message = error instanceof Error ? error.message : "Không thể giữ chỗ sản phẩm lúc này.";
+      const message = error instanceof Error ? error.message : "Unable to hold product inventory at this time.";
       await updateCheckoutGateRequestStatus({
         requestId: payload.requestId,
         expectedStatus: "pending",
@@ -599,7 +751,25 @@ export class StorefrontService {
         queue: "checkoutGate",
         eventType: "storefront.checkout.gate.requested",
         status: "blocked",
-        requestId: payload.requestId
+        requestId: payload.requestId,
+        message,
+        details: {
+          itemCount: normalizedItems.length,
+          productIds: normalizedItems.map((item) => item.productId)
+        }
+      });
+
+      logQueueError(this.logger, {
+        queue: "checkoutGate",
+        eventType: "storefront.checkout.gate.requested",
+        status: "blocked_reason",
+        requestId: payload.requestId,
+        message,
+        productId: normalizedItems[0]?.productId,
+        details: {
+          itemCount: normalizedItems.length,
+          productIds: normalizedItems.map((item) => item.productId)
+        }
       });
 
       return {
@@ -625,8 +795,8 @@ export class StorefrontService {
       await this.notificationsService.createPendingNotification({
         email,
         channel: "system",
-        title: "Đơn hàng đang chờ xử lý",
-        message: `Đơn hàng ${order.id} đã vào hàng đợi xử lý thông báo hệ thống.`,
+        title: "order is queued for processing",
+        message: `order ${order.id} has been added to the processing queue.`,
         metadata: {
           requestId: requestId ?? "",
           orderId: order.id,
@@ -638,8 +808,8 @@ export class StorefrontService {
       await this.notificationsService.createPendingNotification({
         email,
         channel: "email",
-        title: "Email xác nhận đang chờ gửi",
-        message: `Hệ thống đã xếp hàng email xác nhận cho đơn ${order.id}. Đơn sẽ chuyển sang done sau khi gửi xong.`,
+        title: "Email confirmation is pending",
+        message: `The system has queued the confirmation email for order ${order.id}. The order will be marked as done once the email is sent.`,
         metadata: {
           orderId: order.id,
           template: "order-confirmation"
@@ -711,7 +881,7 @@ export class StorefrontService {
       };
     } catch (error) {
       if (isInsufficientStockError(error)) {
-        const failureReason = "Thanh toán thất bại vì sản phẩm không còn đủ tồn kho.";
+        const failureReason = "Payment is failed due to insufficient stock for one or more items in your order. Please review your cart and try again.";
         this.logger.warn(
           `[dynamo-stock] insufficient_after_queue requestId=${requestId ?? ""} customer=${email} reason=insufficient_stock error=${error.message}`
         );
@@ -742,7 +912,7 @@ export class StorefrontService {
         await this.notificationsService.createPendingNotification({
           email,
           channel: "system",
-          title: "Thanh toán thất bại",
+          title: "Payment Failed",
           message: failureReason,
           metadata: {
             requestId: requestId ?? "",

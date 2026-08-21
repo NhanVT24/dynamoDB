@@ -1763,11 +1763,14 @@ export function ProductDetailClient({ slug }: { slug: string }) {
     async function loadProducts() {
       try {
         setLoadFailed(false);
-        const listing = await fetchStorefrontProducts({ category: "all", limit: "12" });
+        const listing = await fetchStorefrontProducts({ category: "all", limit: "240" });
         const matchedFromListing = listing.items.find((item) => item.slug === slug) ?? null;
         const productId = matchedFromListing?.id
           || slug.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)?.[0]
           || null;
+        const matchedById = productId
+          ? listing.items.find((item) => item.id === productId) ?? null
+          : null;
 
         if (!productId) {
           if (!cancelled) {
@@ -1777,9 +1780,18 @@ export function ProductDetailClient({ slug }: { slug: string }) {
           return;
         }
 
-        const detail = matchedFromListing && matchedFromListing.id === productId
-          ? matchedFromListing
-          : await fetchStorefrontProductById(productId);
+        const detail = matchedFromListing
+          ?? matchedById
+          ?? await fetchStorefrontProductById(productId).catch(() => null);
+
+        if (!detail) {
+          if (!cancelled) {
+            setProduct(null);
+            setRelatedProducts([]);
+            setLoadFailed(true);
+          }
+          return;
+        }
 
         if (!cancelled) {
           setProduct(detail);
