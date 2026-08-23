@@ -7,7 +7,7 @@ import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { publishAdminAlert } from "../../integrations/sns/publisher.js";
 import { sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
-import { getOrderById, markOrderAsDone } from "../storefront/storefront.repository.js";
+import { commitCheckoutReservationsToOrder, getOrderById, markOrderAsDone, type InventoryStockChange } from "../storefront/storefront.repository.js";
 import {
   createNotification,
   deleteNotification,
@@ -121,6 +121,7 @@ export class NotificationsService {
     txnRef: string;
     amount: number;
     orderInfo: string;
+    requestId?: string;
     orderId?: string;
     responseCode: string;
     transactionNo: string;
@@ -143,6 +144,7 @@ export class NotificationsService {
         txnRef: input.txnRef,
         amount: input.amount,
         orderInfo: input.orderInfo,
+        requestId: input.requestId ?? "",
         orderId: input.orderId ?? "",
         responseCode: input.responseCode,
         transactionNo: input.transactionNo,
@@ -162,6 +164,7 @@ export class NotificationsService {
     txnRef: string;
     amount: number;
     orderInfo: string;
+    requestId?: string;
     orderId?: string;
     responseCode: string;
     transactionNo: string;
@@ -185,6 +188,7 @@ export class NotificationsService {
         txnRef: input.txnRef,
         amount: input.amount,
         orderInfo: input.orderInfo,
+        requestId: input.requestId ?? "",
         orderId: input.orderId ?? "",
         responseCode: input.responseCode,
         transactionNo: input.transactionNo,
@@ -400,6 +404,7 @@ export class NotificationsService {
       txnRef?: string;
       amount?: number;
       orderInfo?: string;
+      requestId?: string;
       orderId?: string;
       responseCode?: string;
       transactionNo?: string;
@@ -479,6 +484,7 @@ export class NotificationsService {
     txnRef?: string;
     amount?: number;
     orderInfo?: string;
+    requestId?: string;
     orderId?: string;
     responseCode?: string;
     transactionNo?: string;
@@ -498,13 +504,21 @@ export class NotificationsService {
     }
 
     const email = payload.email.trim().toLowerCase();
-    const orderId = payload.orderId?.trim() || "";
+    const requestId = payload.requestId?.trim() || "";
     const amount = Number(payload.amount ?? 0);
 
     if (payload.forceFail) {
       this.logger.error(`[queue-payment] success_force_fail txnRef=${payload.txnRef}`);
       throw new Error(`Forced failure for payment txnRef=${payload.txnRef}`);
     }
+
+    const committed = requestId
+      ? await commitCheckoutReservationsToOrder({
+        requestId,
+        expectedCustomerEmail: email
+      })
+      : { order: null, orderId: payload.orderId?.trim() || "", stockChanges: [] as InventoryStockChange[] };
+    const orderId = committed.order?.id ?? committed.orderId ?? (payload.orderId?.trim() || "");
 
     await this.createPendingNotification({
       email,
@@ -513,6 +527,7 @@ export class NotificationsService {
       message: `Giao dịch ${payload.txnRef} đã được xác nhận thanh toán thành công.`,
       metadata: {
         orderId,
+        requestId,
         txnRef: payload.txnRef,
         amount,
         orderInfo: payload.orderInfo ?? "",
@@ -526,6 +541,7 @@ export class NotificationsService {
       resourceId: payload.txnRef,
       metadata: {
         orderId,
+        requestId,
         amount,
         orderInfo: payload.orderInfo ?? "",
         responseCode: payload.responseCode ?? "",
@@ -547,6 +563,7 @@ export class NotificationsService {
       type: "payment.completed",
       txnRef: payload.txnRef,
       orderId,
+      requestId,
       queuedNotifications: 1,
       auditQueued: true
     };
@@ -557,6 +574,7 @@ export class NotificationsService {
     txnRef?: string;
     amount?: number;
     orderInfo?: string;
+    requestId?: string;
     orderId?: string;
     responseCode?: string;
     transactionNo?: string;
@@ -577,6 +595,7 @@ export class NotificationsService {
 
     const email = payload.email.trim().toLowerCase();
     const orderId = payload.orderId?.trim() || "";
+    const requestId = payload.requestId?.trim() || "";
     const amount = Number(payload.amount ?? 0);
     const failureReason = String(payload.failureReason ?? "payment_failed");
 
@@ -610,6 +629,7 @@ export class NotificationsService {
       message: `Giao dịch ${payload.txnRef} không hoàn tất. Lý do: ${failureReason}.`,
       metadata: {
         orderId,
+        requestId,
         txnRef: payload.txnRef,
         amount,
         orderInfo: payload.orderInfo ?? "",
@@ -625,6 +645,7 @@ export class NotificationsService {
       resourceId: payload.txnRef,
       metadata: {
         orderId,
+        requestId,
         amount,
         orderInfo: payload.orderInfo ?? "",
         responseCode: payload.responseCode ?? "",
@@ -668,6 +689,7 @@ export class NotificationsService {
       type: "payment.failed",
       txnRef: payload.txnRef,
       orderId,
+      requestId,
       queuedNotifications: 1,
       auditQueued: true,
       failureReason

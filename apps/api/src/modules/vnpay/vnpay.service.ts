@@ -382,7 +382,7 @@ export class VnpayService {
         txnRef: result.txnRef,
         amount: result.amount || session.amount,
         orderInfo: resolvedOrderInfo,
-        orderId: requestId,
+        requestId,
         responseCode: result.responseCode,
         transactionNo: result.transactionNo,
         bankCode: result.bankCode,
@@ -440,7 +440,7 @@ export class VnpayService {
       txnRef: result.txnRef,
       amount: result.amount || session.amount,
       orderInfo: resolvedOrderInfo,
-      orderId: requestId,
+      requestId,
       responseCode: result.responseCode || "TIMEOUT",
       transactionNo: result.transactionNo,
       bankCode: result.bankCode,
@@ -488,7 +488,7 @@ export class VnpayService {
         txnRef: result.txnRef,
         amount: result.amount || session.amount,
         orderInfo: resolvedOrderInfo,
-        orderId: requestId,
+        requestId,
         responseCode: result.responseCode,
         transactionNo: result.transactionNo,
         bankCode: result.bankCode,
@@ -508,7 +508,7 @@ export class VnpayService {
       txnRef: string;
       amount: number;
       orderInfo: string;
-      orderId?: string;
+      requestId?: string;
       responseCode: string;
       transactionNo: string;
       bankCode: string;
@@ -547,7 +547,7 @@ export class VnpayService {
       txnRef: string;
       amount: number;
       orderInfo: string;
-      orderId?: string;
+      requestId?: string;
       responseCode: string;
       transactionNo: string;
       bankCode: string;

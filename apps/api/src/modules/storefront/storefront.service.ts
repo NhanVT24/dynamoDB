@@ -15,14 +15,12 @@ import { NotificationsService } from "../notifications/notifications.service.js"
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
 import { VnpayService } from "../vnpay/vnpay.service.js";
 import {
-  acquireProductSelectionLock,
+  createCheckoutReservations,
   createCheckoutGateRequest,
   createStorefrontOrder,
   getCheckoutGateRequestById,
-  getActiveProductSelectionLock,
   getStorefrontProductById,
   releaseCheckoutGateReservation,
-  releaseProductSelectionLock,
   type InventoryStockChange,
   listOrdersByCustomer,
   listStorefrontProducts,
@@ -121,11 +119,20 @@ function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T):
 const listCache = new TtlCache<PublicProductListResponse>(20_000);
 const detailCache = new TtlCache<PublicProductDetail>(30_000);
 
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function buildListCacheKey(query: Record<string, unknown>) {
   return JSON.stringify(Object.keys(query).sort().map((key) => [key, query[key as keyof typeof query]]));
 }
 
 function toPublicProductSummary(item: ProductRecord): PublicProductSummary {
+  const stock = Number(item.stock ?? 0);
+  const reservedStock = Number(item.reservedStock ?? 0);
+  const availableStock = Math.max(0, stock - reservedStock);
   return {
     id: String(item.id),
     name: String(item.name ?? ""),
@@ -134,14 +141,14 @@ function toPublicProductSummary(item: ProductRecord): PublicProductSummary {
     price: Number(item.price ?? 0),
     originalPrice: Number(item.originalPrice ?? item.price ?? 0),
     status: String(item.status ?? ""),
-    stock: Number(item.stock ?? 0),
+    stock: availableStock,
     imageUrl: item.imageUrl ? String(item.imageUrl) : undefined,
     rating: item.rating == null ? undefined : Number(item.rating),
     soldCount: item.soldCount == null ? undefined : Number(item.soldCount),
     location: item.location ? String(item.location) : undefined,
     featured: Boolean(item.featured),
     updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
-    isLocked: Boolean(item.isLocked),
+    isLocked: reservedStock > 0,
     lockedUntil: item.lockedUntil ? String(item.lockedUntil) : undefined
   };
 }
@@ -173,6 +180,9 @@ function toPublicProductDetail(item: ProductRecord): PublicProductDetail {
     sku,
     ...attributes
   } = item;
+  const numericStock = Number(stock ?? 0);
+  const reservedStock = Number(item.reservedStock ?? 0);
+  const availableStock = Math.max(0, numericStock - reservedStock);
 
   return {
     id: String(id),
@@ -182,7 +192,7 @@ function toPublicProductDetail(item: ProductRecord): PublicProductDetail {
     price: Number(price ?? 0),
     originalPrice: Number(originalPrice ?? price ?? 0),
     status: String(status ?? ""),
-    stock: Number(stock ?? 0),
+    stock: availableStock,
     imageUrl: imageUrl ? String(imageUrl) : undefined,
     rating: rating == null ? undefined : Number(rating),
     soldCount: soldCount == null ? undefined : Number(soldCount),
@@ -191,7 +201,7 @@ function toPublicProductDetail(item: ProductRecord): PublicProductDetail {
     updatedAt: updatedAt ? String(updatedAt) : undefined,
     description: description ? String(description) : undefined,
     sku: sku ? String(sku) : undefined,
-    isLocked: Boolean(item.isLocked),
+    isLocked: reservedStock > 0,
     lockedUntil: item.lockedUntil ? String(item.lockedUntil) : undefined,
     attributes
   };
@@ -222,6 +232,18 @@ function shouldProcessCommerceQueuesInline() {
   return Boolean(env.DYNAMODB_ENDPOINT) && process.env.NODE_ENV !== "production";
 }
 
+function getCheckoutGateProcessingDelayMs(processingMode?: "interactive" | "trigger") {
+  if (processingMode === "trigger") {
+    return 0;
+  }
+
+  if (env.CHECKOUT_GATE_PROCESSING_DELAY_MS > 0) {
+    return env.CHECKOUT_GATE_PROCESSING_DELAY_MS;
+  }
+
+  return Boolean(env.DYNAMODB_ENDPOINT) && process.env.NODE_ENV !== "production" ? 1500 : 0;
+}
+
 @Injectable()
 export class StorefrontService {
   private readonly logger = new Logger(StorefrontService.name);
@@ -241,19 +263,9 @@ export class StorefrontService {
     }
 
     const result = await listStorefrontProducts(query);
-    const itemsWithLockState = await Promise.all(
-      result.items.map(async (item) => {
-        const lock = await getActiveProductSelectionLock(String(item.id));
-        return {
-          ...item,
-          isLocked: Boolean(lock),
-          lockedUntil: lock?.lockedUntil
-        };
-      })
-    );
 
     const shaped = {
-      items: itemsWithLockState.map((item) => toPublicProductSummary(item)),
+      items: result.items.map((item) => toPublicProductSummary(item)),
       pageInfo: {
         limit: result.limit,
         cursor: result.cursor,
@@ -277,12 +289,7 @@ export class StorefrontService {
       throw new NotFoundException("Không tìm thấy sản phẩm.");
     }
 
-    const lock = await getActiveProductSelectionLock(id);
-    const shaped = toPublicProductDetail({
-      ...item,
-      isLocked: Boolean(lock),
-      lockedUntil: lock?.lockedUntil
-    });
+    const shaped = toPublicProductDetail(item);
     detailCache.set(id, shaped);
     return shaped;
   }
@@ -293,7 +300,6 @@ export class StorefrontService {
     }
 
     const normalizedItems = normalizeOrderItems(input.items);
-    await this.precheckProducts(email, normalizedItems);
 
     const requestId = crypto.randomUUID();
     await createCheckoutGateRequest({
@@ -302,6 +308,8 @@ export class StorefrontService {
       items: normalizedItems,
       locale: input.locale,
       bankCode: input.bankCode
+      ,
+      processingMode: input.processingMode
     });
 
     const payload: CheckoutGateQueuePayload = {
@@ -311,6 +319,7 @@ export class StorefrontService {
       items: normalizedItems,
       locale: input.locale,
       bankCode: input.bankCode,
+      processingMode: input.processingMode,
       createdAt: new Date().toISOString()
     };
 
@@ -318,30 +327,6 @@ export class StorefrontService {
       this.logger.log(`[eventbridge-commerce] inline_checkout_gate requestId=${requestId} customer=${email} itemCount=${normalizedItems.length}`);
       await this.resolveCheckoutGate(payload);
     } else {
-      const activeLocks = await Promise.all(normalizedItems.map(async (item) => ({
-        productId: item.productId,
-        lock: await getActiveProductSelectionLock(item.productId)
-      })));
-      const isContendedSingleItem = normalizedItems.length === 1
-        && activeLocks.some((entry) => entry.lock && entry.lock.requestId !== requestId);
-      if (isContendedSingleItem) {
-        const conflictingEntry = activeLocks.find((entry) => entry.lock && entry.lock.requestId !== requestId);
-        logQueueBusinessEvent(this.logger, {
-          queue: "checkoutGate",
-          eventType: "storefront.checkout.gate.requested",
-          status: "fast_rejected",
-          requestId,
-          productId: normalizedItems[0]?.productId,
-          message: "Product is already held by another checkout request.",
-          details: {
-            requestedItemCount: normalizedItems.length,
-            conflictingRequestId: conflictingEntry?.lock?.requestId ?? "",
-            conflictingLockedUntil: conflictingEntry?.lock?.lockedUntil ?? ""
-          }
-        });
-        throw new ConflictException("Product is being held for another request. Please try again in a few seconds.");
-      }
-
       await sqsClient.send(new SendMessageCommand({
         QueueUrl: env.SQS_CHECKOUT_GATE_QUEUE_URL,
         MessageBody: JSON.stringify(payload),
@@ -644,42 +629,27 @@ export class StorefrontService {
 
   private async resolveCheckoutGate(payload: CheckoutGateQueuePayload) {
     const normalizedItems = normalizeOrderItems(payload.items);
-    const acquiredLocks: Array<{ productId: string; lockedUntil: string }> = [];
 
     try {
-      for (const item of normalizedItems) {
-        const product = await getStorefrontProductById(item.productId);
-        if (!product) {
-          throw new Error(`Not found ${item.productId}.`);
-        }
-
-        if (Number(product.stock ?? 0) < item.quantity) {
-          throw new Error(`Product ${product.name} is not available in the requested quantity.`);
-        }
-
-        const lock = await acquireProductSelectionLock({
-          productId: item.productId,
-          email: payload.email,
-          requestId: payload.requestId,
-          holdSeconds: 5 * 60
-        });
-        acquiredLocks.push({
-          productId: item.productId,
-          lockedUntil: lock.lockedUntil
-        });
+      const processingDelayMs = getCheckoutGateProcessingDelayMs(payload.processingMode);
+      if (processingDelayMs > 0) {
+        this.logger.log(`[queue-delay] checkout_gate_sleep requestId=${payload.requestId} delayMs=${processingDelayMs}`);
+        await delay(processingDelayMs);
       }
 
-      const lockExpiresAt = acquiredLocks
-        .map((lockItem) => Date.parse(lockItem.lockedUntil))
-        .filter((value) => Number.isFinite(value))
-        .reduce((latest, value) => Math.max(latest, value), 0);
+      const reservation = await createCheckoutReservations({
+        requestId: payload.requestId,
+        email: payload.email,
+        items: normalizedItems,
+        holdSeconds: 5 * 60
+      });
 
       await updateCheckoutGateRequestStatus({
         requestId: payload.requestId,
         expectedStatus: "pending",
         status: "allowed",
         message: "your bucket is held temporarily. you can proceed to payment.",
-        lockedUntil: lockExpiresAt > 0 ? new Date(lockExpiresAt).toISOString() : ""
+        lockedUntil: reservation.expiresAt
       });
 
       logQueueBusinessEvent(this.logger, {
@@ -690,7 +660,7 @@ export class StorefrontService {
         details: {
           itemCount: normalizedItems.length,
           productIds: normalizedItems.map((item) => item.productId),
-          lockedUntil: lockExpiresAt > 0 ? new Date(lockExpiresAt).toISOString() : ""
+          lockedUntil: reservation.expiresAt
         }
       });
 
@@ -698,46 +668,7 @@ export class StorefrontService {
         requestId: payload.requestId,
         status: "allowed"
       };
-
-      const firstProduct = await getStorefrontProductById(normalizedItems[0]?.productId ?? "");
-      const payment = await this.vnpayService.createWorkflowPaymentUrl({
-        email: payload.email,
-        items: normalizedItems,
-        orderId: payload.requestId,
-        orderDescription: firstProduct
-          ? `payment is holding ${firstProduct.name} - ${payload.requestId}`
-          : `payment is holding items - ${payload.requestId}`,
-        bankCode: payload.bankCode,
-        locale: payload.locale
-      });
-
-      await updateCheckoutGateRequestStatus({
-        requestId: payload.requestId,
-        expectedStatus: "pending",
-        status: "allowed",
-        message: "your bucket is held temporarily. you can proceed to payment.",
-        paymentUrl: payment.paymentUrl,
-        lockedUntil: payment.expiresAt
-      });
-
-      logQueueBusinessEvent(this.logger, {
-        queue: "checkoutGate",
-        eventType: "storefront.checkout.gate.requested",
-        status: "allowed",
-        requestId: payload.requestId
-      });
-
-      return {
-        requestId: payload.requestId,
-        status: "allowed"
-      };
     } catch (error) {
-      for (const lock of acquiredLocks) {
-        try {
-          await releaseProductSelectionLock(lock.productId, payload.requestId);
-        } catch {}
-      }
-
       const message = error instanceof Error ? error.message : "Unable to hold product inventory at this time.";
       await updateCheckoutGateRequestStatus({
         requestId: payload.requestId,
@@ -962,12 +893,6 @@ export class StorefrontService {
       }
 
       throw error;
-    } finally {
-      if (requestId) {
-        await Promise.allSettled(normalizedItems.map(async (item) => {
-          await releaseProductSelectionLock(item.productId, requestId);
-        }));
-      }
     }
   }
 

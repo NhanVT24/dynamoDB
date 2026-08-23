@@ -40,6 +40,7 @@ export const env = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((value) => value === "true"),
+  CHECKOUT_GATE_PROCESSING_DELAY_MS: z.coerce.number().int().min(0).max(15000).default(0),
   SNS_ADMIN_ALERTS_TOPIC_ARN: z.string().optional(),
   SES_FROM_EMAIL: z.string().email().optional(),
   ADMIN_REPORT_EMAIL: z.string().email().optional(),

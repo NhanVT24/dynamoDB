@@ -34,67 +34,94 @@
     }
 
     const payload = await response.json();
-    const product = (payload.items ?? []).find((item) => Number(item.stock ?? 0) >= 2 && !item.isLocked);
+    const product = (payload.items ?? []).find((item) => Number(item.stock ?? 0) >= 1 && !item.isLocked);
     if (!product?.id) {
-      throw new Error("Khong tim thay san pham nao con it nhat 2 ton kho va chua bi lock.");
+      throw new Error("Khong tim thay san pham nao con ton kho va chua bi reserve.");
     }
 
     console.log("[duplicate-checkout-test] auto-picked product =", product);
     return String(product.id);
   }
 
+  async function startCheckout(label, productId) {
+    const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        items: [{ productId, quantity: 1 }],
+        locale: "vn",
+        processingMode: "trigger"
+      })
+    });
+
+    const payload = await response.json().catch(() => null);
+    console.log(`[duplicate-checkout-test] ${label} prepare =`, response.status, payload);
+
+    if (!response.ok || !payload?.requestId) {
+      throw new Error(`${label}: ${payload?.message || "Khong tao duoc checkout gate request."}`);
+    }
+
+    return String(payload.requestId);
+  }
+
+  async function pollRequest(label, requestId) {
+    const pollDelayMs = 400;
+    const maxAttempts = 20;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs));
+
+      const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare/${requestId}`, {
+        headers: {
+          Authorization: `Bearer ${idToken}`
+        },
+        cache: "no-store"
+      });
+      const payload = await response.json().catch(() => null);
+      console.log(`[duplicate-checkout-test] ${label} poll #${attempt}`, response.status, payload);
+
+      if (payload?.status === "allowed" || payload?.status === "blocked") {
+        return {
+          label,
+          requestId,
+          status: payload.status,
+          payload
+        };
+      }
+    }
+
+    throw new Error(`${label}: Polling qua ${maxAttempts} lan nhung request ${requestId} van chua ra allowed/blocked.`);
+  }
+
   const manualProductId = String(window.__TEST_PRODUCT_ID__ ?? "").trim()
     || String(prompt("Nhap productId de test. Bam Cancel hoac de trong de tu dong chon.") ?? "").trim();
   const productId = (manualProductId || await pickProductId()).replace(/^PRODUCT#/i, "");
-  const duplicatedItems = [
-    { productId, quantity: 1 },
-    { productId, quantity: 1 }
-  ];
 
   console.log("[duplicate-checkout-test] apiBaseUrl =", apiBaseUrl);
-  console.log("[duplicate-checkout-test] duplicatedItems =", duplicatedItems);
+  console.log("[duplicate-checkout-test] productId =", productId);
+  console.log("[duplicate-checkout-test] mode = trigger (no artificial delay)");
 
-  const prepareResponse = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`
-    },
-    body: JSON.stringify({
-      items: duplicatedItems,
-      locale: "vn"
-    })
-  });
+  const [requestIdA, requestIdB] = await Promise.all([
+    startCheckout("request-A", productId),
+    startCheckout("request-B", productId)
+  ]);
 
-  const preparePayload = await prepareResponse.json().catch(() => null);
-  console.log("[duplicate-checkout-test] prepare =", prepareResponse.status, preparePayload);
+  console.log("[duplicate-checkout-test] request ids =", { requestIdA, requestIdB });
 
-  if (!prepareResponse.ok || !preparePayload?.requestId) {
-    throw new Error(preparePayload?.message || "Khong tao duoc checkout gate request.");
-  }
+  const results = await Promise.all([
+    pollRequest("request-A", requestIdA),
+    pollRequest("request-B", requestIdB)
+  ]);
 
-  const requestId = String(preparePayload.requestId);
-  const pollDelayMs = 1500;
-  const maxAttempts = 20;
+  console.table(results.map((item) => ({
+    label: item.label,
+    requestId: item.requestId,
+    status: item.status,
+    message: item.payload?.message ?? ""
+  })));
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs));
-
-    const statusResponse = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare/${requestId}`, {
-      headers: {
-        Authorization: `Bearer ${idToken}`
-      },
-      cache: "no-store"
-    });
-
-    const statusPayload = await statusResponse.json().catch(() => null);
-    console.log(`[duplicate-checkout-test] poll #${attempt}`, statusResponse.status, statusPayload);
-
-    if (statusPayload?.status === "allowed" || statusPayload?.status === "blocked") {
-      console.log("[duplicate-checkout-test] finished =", statusPayload);
-      return statusPayload;
-    }
-  }
-
-  throw new Error(`Polling qua ${maxAttempts} lan nhung request ${requestId} van chua ra allowed/blocked.`);
+  return results;
 })();

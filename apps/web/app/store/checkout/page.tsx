@@ -7,7 +7,7 @@ import { formatCurrency } from "../store-utils";
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
-const checkoutGatePollIntervalMs = 2000;
+const checkoutGatePollIntervalMs = 1000;
 const checkoutGateMaxPollAttempts = 15;
 
 type PrepareCheckoutResponse = {
