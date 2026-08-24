@@ -96,7 +96,7 @@ export class VnpayService {
     private readonly runtimeConfigService: RuntimeConfigService
   ) {}
 
-  async createPaymentUrl(input: CreateVnpayPaymentInput, ipAddress: string) {
+  async createPaymentUrl(input: CreateVnpayPaymentInput, ipAddress: string, options?: { skipStockValidation?: boolean }) {
     const paymentConfig = this.runtimeConfigService.getPaymentConfig();
     let totalAmount = 0;
 
@@ -106,7 +106,7 @@ export class VnpayService {
         throw new Error(`Không tìm thấy sản phẩm ${item.productId}.`);
       }
 
-      if (Number(product.stock ?? 0) < item.quantity) {
+      if (!options?.skipStockValidation && Number(product.stock ?? 0) < item.quantity) {
         throw new Error(`Sản phẩm ${product.name} hiện không đủ số lượng.`);
       }
 
@@ -292,6 +292,7 @@ export class VnpayService {
     bankCode?: string;
     locale?: "vn" | "en";
     ipAddress?: string;
+    skipStockValidation?: boolean;
   }) {
     return this.createPaymentUrl({
       email: input.email,
@@ -299,7 +300,9 @@ export class VnpayService {
       orderDescription: input.orderDescription?.trim() || (input.orderId ? `Thanh toán đơn hàng ${input.orderId}` : "Thanh toán đơn hàng"),
       bankCode: input.bankCode,
       locale: input.locale
-    }, input.ipAddress?.trim() || "127.0.0.1");
+    }, input.ipAddress?.trim() || "127.0.0.1", {
+      skipStockValidation: input.skipStockValidation
+    });
   }
 
   private async handlePaymentEvent(result: VnpayReturnPayload, source: "return" | "ipn"): Promise<VnpayHandlingOverride | null> {

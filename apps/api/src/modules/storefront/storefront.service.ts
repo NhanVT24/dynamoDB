@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { TtlCache } from "../../common/cache/ttl-cache.js";
 import {
   logQueueBusinessEvent,
   logQueueError,
@@ -22,6 +21,7 @@ import {
   getStorefrontProductById,
   releaseCheckoutGateReservation,
   type InventoryStockChange,
+  listCheckoutReservationsByRequestId,
   listOrdersByCustomer,
   listStorefrontProducts,
   type CheckoutGateQueuePayload,
@@ -116,23 +116,11 @@ function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T):
     : payload;
 }
 
-const listCache = new TtlCache<PublicProductListResponse>(20_000);
-const detailCache = new TtlCache<PublicProductDetail>(30_000);
-
-function delay(ms: number) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function buildListCacheKey(query: Record<string, unknown>) {
-  return JSON.stringify(Object.keys(query).sort().map((key) => [key, query[key as keyof typeof query]]));
-}
-
 function toPublicProductSummary(item: ProductRecord): PublicProductSummary {
   const stock = Number(item.stock ?? 0);
   const reservedStock = Number(item.reservedStock ?? 0);
   const availableStock = Math.max(0, stock - reservedStock);
+  const status = availableStock <= 0 ? "out_of_stock" : availableStock <= 10 ? "low_stock" : String(item.status ?? "active");
   return {
     id: String(item.id),
     name: String(item.name ?? ""),
@@ -140,7 +128,7 @@ function toPublicProductSummary(item: ProductRecord): PublicProductSummary {
     brand: String(item.brand ?? ""),
     price: Number(item.price ?? 0),
     originalPrice: Number(item.originalPrice ?? item.price ?? 0),
-    status: String(item.status ?? ""),
+    status,
     stock: availableStock,
     imageUrl: item.imageUrl ? String(item.imageUrl) : undefined,
     rating: item.rating == null ? undefined : Number(item.rating),
@@ -148,7 +136,7 @@ function toPublicProductSummary(item: ProductRecord): PublicProductSummary {
     location: item.location ? String(item.location) : undefined,
     featured: Boolean(item.featured),
     updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
-    isLocked: reservedStock > 0,
+    isLocked: availableStock <= 0 && reservedStock > 0,
     lockedUntil: item.lockedUntil ? String(item.lockedUntil) : undefined
   };
 }
@@ -183,6 +171,7 @@ function toPublicProductDetail(item: ProductRecord): PublicProductDetail {
   const numericStock = Number(stock ?? 0);
   const reservedStock = Number(item.reservedStock ?? 0);
   const availableStock = Math.max(0, numericStock - reservedStock);
+  const publicStatus = availableStock <= 0 ? "out_of_stock" : availableStock <= 10 ? "low_stock" : String(status ?? "active");
 
   return {
     id: String(id),
@@ -191,7 +180,7 @@ function toPublicProductDetail(item: ProductRecord): PublicProductDetail {
     brand: String(brand ?? ""),
     price: Number(price ?? 0),
     originalPrice: Number(originalPrice ?? price ?? 0),
-    status: String(status ?? ""),
+    status: publicStatus,
     stock: availableStock,
     imageUrl: imageUrl ? String(imageUrl) : undefined,
     rating: rating == null ? undefined : Number(rating),
@@ -201,7 +190,7 @@ function toPublicProductDetail(item: ProductRecord): PublicProductDetail {
     updatedAt: updatedAt ? String(updatedAt) : undefined,
     description: description ? String(description) : undefined,
     sku: sku ? String(sku) : undefined,
-    isLocked: reservedStock > 0,
+    isLocked: availableStock <= 0 && reservedStock > 0,
     lockedUntil: item.lockedUntil ? String(item.lockedUntil) : undefined,
     attributes
   };
@@ -209,19 +198,6 @@ function toPublicProductDetail(item: ProductRecord): PublicProductDetail {
 
 function isInsufficientStockError(error: unknown) {
   return error instanceof Error && error.message.startsWith("Insufficient stock for ");
-}
-
-function buildCheckoutGateMessageGroupId(items: Array<{ productId: string; quantity: number }>) {
-  if (items.length === 1) {
-    return `product:${items[0]?.productId ?? "unknown"}`;
-  }
-
-  const normalizedProductIds = items
-    .map((item) => String(item.productId ?? "").trim())
-    .filter(Boolean)
-    .sort();
-  const digest = crypto.createHash("sha1").update(normalizedProductIds.join("|")).digest("hex").slice(0, 16);
-  return `cart:${digest}`;
 }
 
 function shouldProcessCommerceQueuesInline() {
@@ -244,6 +220,10 @@ function getCheckoutGateProcessingDelayMs(processingMode?: "interactive" | "trig
   return Boolean(env.DYNAMODB_ENDPOINT) && process.env.NODE_ENV !== "production" ? 1500 : 0;
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 @Injectable()
 export class StorefrontService {
   private readonly logger = new Logger(StorefrontService.name);
@@ -255,13 +235,6 @@ export class StorefrontService {
 
   async listProducts(rawQuery: Record<string, unknown>) {
     const query = shoppingListQuerySchema.parse(rawQuery);
-    const cacheKey = buildListCacheKey(query);
-    const cached = listCache.get(cacheKey);
-
-    if (cached) {
-      return cached;
-    }
-
     const result = await listStorefrontProducts(query);
 
     const shaped = {
@@ -274,23 +247,16 @@ export class StorefrontService {
       }
     };
 
-    listCache.set(cacheKey, shaped);
     return shaped;
   }
 
   async getProductById(id: string) {
-    const cached = detailCache.get(id);
-    if (cached) {
-      return cached;
-    }
-
     const item = await getStorefrontProductById(id);
     if (!item) {
       throw new NotFoundException("Không tìm thấy sản phẩm.");
     }
 
     const shaped = toPublicProductDetail(item);
-    detailCache.set(id, shaped);
     return shaped;
   }
 
@@ -327,11 +293,18 @@ export class StorefrontService {
       this.logger.log(`[eventbridge-commerce] inline_checkout_gate requestId=${requestId} customer=${email} itemCount=${normalizedItems.length}`);
       await this.resolveCheckoutGate(payload);
     } else {
+      const processingDelayMs = getCheckoutGateProcessingDelayMs(input.processingMode);
+      const queueUrl = processingDelayMs > 0 && input.processingMode !== "trigger"
+        ? env.SQS_CHECKOUT_GATE_INTERACTIVE_QUEUE_URL ?? env.SQS_CHECKOUT_GATE_QUEUE_URL
+        : env.SQS_CHECKOUT_GATE_QUEUE_URL;
+
+      if (queueUrl !== env.SQS_CHECKOUT_GATE_QUEUE_URL) {
+        this.logger.log(`[queue-delay] checkout_gate_delayed_queue requestId=${requestId} delayMs=${processingDelayMs}`);
+      }
+
       await sqsClient.send(new SendMessageCommand({
-        QueueUrl: env.SQS_CHECKOUT_GATE_QUEUE_URL,
-        MessageBody: JSON.stringify(payload),
-        MessageGroupId: buildCheckoutGateMessageGroupId(normalizedItems),
-        MessageDeduplicationId: requestId
+        QueueUrl: queueUrl,
+        MessageBody: JSON.stringify(payload)
       }));
     }
 
@@ -356,7 +329,8 @@ export class StorefrontService {
       message: gate.message || "",
       failureCode: gate.failureCode || "",
       paymentUrl: gate.paymentUrl || "",
-      lockedUntil: gate.lockedUntil || ""
+      lockedUntil: gate.lockedUntil || "",
+      orderId: String((gate as Record<string, unknown>).orderId ?? "").trim()
     };
   }
 
@@ -369,6 +343,8 @@ export class StorefrontService {
     if (gate.status !== "allowed") {
       throw new ConflictException("Checkout request is not allowed to proceed to payment.");
     }
+
+    await this.ensureCheckoutGateCanProceedToPayment(gate);
 
     if (gate.paymentUrl) {
       return {
@@ -398,13 +374,13 @@ export class StorefrontService {
       status: "allowed",
       message: "Redirecting to VNPay payment gateway.",
       paymentUrl: payment.paymentUrl,
-      lockedUntil: payment.expiresAt
+      lockedUntil: gate.lockedUntil || payment.expiresAt
     });
 
     return {
       requestId: gate.requestId,
       paymentUrl: payment.paymentUrl,
-      lockedUntil: payment.expiresAt,
+      lockedUntil: gate.lockedUntil || payment.expiresAt,
       message: "Redirecting to VNPay payment gateway."
     };
   }
@@ -429,7 +405,6 @@ export class StorefrontService {
       message: "Previous checkout attempt was cancelled after returning from payment.",
       failureCode: "checkout_abandoned"
     });
-
     return {
       success: true,
       released: true,
@@ -525,9 +500,17 @@ export class StorefrontService {
     records: Array<{ body?: string; messageId?: string }>,
     _options?: { queueName?: string; workerName?: string }
   ) {
+    const workerDelayMs = env.CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS;
+    if (workerDelayMs > 0) {
+      this.logger.log(`[queue-delay] checkout_gate_batch_barrier recordCount=${records.length} delayMs=${workerDelayMs}`);
+      await sleep(workerDelayMs);
+    }
+
     const settled = await Promise.allSettled(records.map(async (record) => ({
       messageId: String(record.messageId ?? ""),
-      item: await this.processCheckoutGateRecord(record.body)
+      item: await this.processCheckoutGateRecord(record.body, {
+        skipWorkerDelay: true
+      })
     })));
 
     const processedItems = settled
@@ -605,7 +588,7 @@ export class StorefrontService {
     return this.finalizeQueuedOrder(payload.email, payload.items, payload.requestId);
   }
 
-  private async processCheckoutGateRecord(body: string | undefined) {
+  private async processCheckoutGateRecord(body: string | undefined, options?: { skipWorkerDelay?: boolean }) {
     if (!body) {
       logQueueWarn(this.logger, {
         queue: "checkoutGate",
@@ -624,17 +607,16 @@ export class StorefrontService {
       return null;
     }
 
-    return this.resolveCheckoutGate(payload as CheckoutGateQueuePayload);
+    return this.resolveCheckoutGate(payload as CheckoutGateQueuePayload, options);
   }
 
-  private async resolveCheckoutGate(payload: CheckoutGateQueuePayload) {
+  private async resolveCheckoutGate(payload: CheckoutGateQueuePayload, options?: { skipWorkerDelay?: boolean }) {
     const normalizedItems = normalizeOrderItems(payload.items);
 
     try {
-      const processingDelayMs = getCheckoutGateProcessingDelayMs(payload.processingMode);
-      if (processingDelayMs > 0) {
-        this.logger.log(`[queue-delay] checkout_gate_sleep requestId=${payload.requestId} delayMs=${processingDelayMs}`);
-        await delay(processingDelayMs);
+      if (!options?.skipWorkerDelay && env.CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS > 0) {
+        this.logger.log(`[queue-delay] checkout_gate_worker_sleep requestId=${payload.requestId} delayMs=${env.CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS}`);
+        await sleep(env.CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS);
       }
 
       const reservation = await createCheckoutReservations({
@@ -643,7 +625,6 @@ export class StorefrontService {
         items: normalizedItems,
         holdSeconds: 5 * 60
       });
-
       await updateCheckoutGateRequestStatus({
         requestId: payload.requestId,
         expectedStatus: "pending",
@@ -690,10 +671,10 @@ export class StorefrontService {
         }
       });
 
-      logQueueError(this.logger, {
+      logQueueWarn(this.logger, {
         queue: "checkoutGate",
         eventType: "storefront.checkout.gate.requested",
-        status: "blocked_reason",
+        status: "inventory_gate_blocked_reason",
         requestId: payload.requestId,
         message,
         productId: normalizedItems[0]?.productId,
@@ -719,7 +700,6 @@ export class StorefrontService {
     const normalizedItems = normalizeOrderItems(items);
     try {
       const { order, stockChanges } = await createStorefrontOrder({ email, items: normalizedItems });
-      this.invalidateProductCaches(normalizedItems.map((item) => item.productId));
       this.logger.log(`[dynamo-order] created orderId=${order.id} requestId=${requestId ?? ""} customer=${email} status=${order.status} totalAmount=${order.totalAmount} itemCount=${order.items.length}`);
       await this.publishInventoryAlertsFromOrder(stockChanges, email);
 
@@ -896,10 +876,43 @@ export class StorefrontService {
     }
   }
 
-  private invalidateProductCaches(productIds: string[]) {
-    listCache.clear();
-    for (const productId of productIds) {
-      detailCache.delete(productId);
+  private async ensureCheckoutGateCanProceedToPayment(gate: NonNullable<Awaited<ReturnType<typeof getCheckoutGateRequestById>>>) {
+    const lockedUntilMs = new Date(String(gate.lockedUntil ?? "")).getTime();
+    if (!Number.isFinite(lockedUntilMs) || lockedUntilMs <= Date.now()) {
+      await releaseCheckoutGateReservation({
+        requestId: gate.requestId,
+        message: "Checkout reservation expired before payment could start.",
+        failureCode: "checkout_reservation_expired"
+      });
+      throw new ConflictException("Checkout reservation expired. Please start checkout again.");
+    }
+
+    const reservations = (await listCheckoutReservationsByRequestId(gate.requestId))
+      .filter((reservation) => reservation.status === "reserved");
+    const reservationByProductId = new Map(reservations.map((reservation) => [reservation.productId, reservation]));
+
+    for (const item of normalizeOrderItems(gate.items)) {
+      const reservation = reservationByProductId.get(item.productId);
+      if (!reservation || Number(reservation.quantity ?? 0) < item.quantity) {
+        await releaseCheckoutGateReservation({
+          requestId: gate.requestId,
+          message: "Checkout reservation is no longer available.",
+          failureCode: "checkout_reservation_lost"
+        });
+        throw new ConflictException("Checkout reservation is no longer available. Please start checkout again.");
+      }
+
+      const product = await getStorefrontProductById(item.productId);
+      const stock = Number(product?.stock ?? 0);
+      const reservedStock = Number(product?.reservedStock ?? 0);
+      if (!product || stock < item.quantity || reservedStock < item.quantity) {
+        await releaseCheckoutGateReservation({
+          requestId: gate.requestId,
+          message: "Product stock changed before payment could start.",
+          failureCode: "checkout_stock_changed"
+        });
+        throw new ConflictException("Product stock changed before payment could start. Please review your cart.");
+      }
     }
   }
 

@@ -221,17 +221,24 @@ export class AwsApiStack extends Stack {
     });
 
     const checkoutGateDlq = new sqs.Queue(this, "CheckoutGateDlq", {
-      queueName: "supermarket-checkout-gate-dlq.fifo",
-      fifo: true,
-      contentBasedDeduplication: true,
+      queueName: "supermarket-checkout-gate-dlq",
       visibilityTimeout: Duration.seconds(30),
       retentionPeriod: Duration.days(14)
     });
 
     const checkoutGateQueue = new sqs.Queue(this, "CheckoutGateQueue", {
-      queueName: "supermarket-checkout-gate.fifo",
-      fifo: true,
-      contentBasedDeduplication: true,
+      queueName: "supermarket-checkout-gate",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(4),
+      deadLetterQueue: {
+        queue: checkoutGateDlq,
+        maxReceiveCount: 3
+      }
+    });
+
+    const checkoutGateInteractiveQueue = new sqs.Queue(this, "CheckoutGateInteractiveQueue", {
+      queueName: "supermarket-checkout-gate-interactive",
+      deliveryDelay: Duration.seconds(10),
       visibilityTimeout: Duration.seconds(30),
       retentionPeriod: Duration.days(4),
       deadLetterQueue: {
@@ -577,6 +584,7 @@ exports.handler = async (event) => {
       SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
       SQS_STOREFRONT_ORDERS_QUEUE_URL: storefrontOrdersQueue.queueUrl,
       SQS_CHECKOUT_GATE_QUEUE_URL: checkoutGateQueue.queueUrl,
+      SQS_CHECKOUT_GATE_INTERACTIVE_QUEUE_URL: checkoutGateInteractiveQueue.queueUrl,
       SQS_IMAGE_UPLOADS_QUEUE_URL: imageUploadsQueue.queueUrl,
       SQS_NOTIFICATIONS_DLQ_URL: notificationsDlq.queueUrl,
       SQS_STOREFRONT_ORDERS_DLQ_URL: storefrontOrdersDlq.queueUrl,
@@ -591,6 +599,8 @@ exports.handler = async (event) => {
       EVENTBRIDGE_COMMERCE_ARCHIVE_ARN: commerceArchive.attrArn,
       EVENTBRIDGE_PAYMENT_ARCHIVE_ARN: paymentArchive.attrArn,
       EVENTBRIDGE_PLATFORM_ARCHIVE_ARN: platformArchive.attrArn,
+      CHECKOUT_GATE_PROCESSING_DELAY_MS: "10000",
+      CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS: "5000",
       SNS_ADMIN_ALERTS_TOPIC_ARN: adminAlertsTopic.topicArn,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
       ADMIN_REPORT_EMAIL: adminReportEmail.valueAsString,
@@ -668,6 +678,7 @@ exports.handler = async (event) => {
       auditQueue.grantSendMessages(fn);
       storefrontOrdersQueue.grantSendMessages(fn);
       checkoutGateQueue.grantSendMessages(fn);
+      checkoutGateInteractiveQueue.grantSendMessages(fn);
       paymentEventsQueue.grantSendMessages(fn);
       imageUploadsQueue.grantSendMessages(fn);
     };
@@ -700,7 +711,9 @@ exports.handler = async (event) => {
     const httpApiFunction = createApplicationLambda(
       "SupermarketHttpApiFunction",
       "supermarket-http-api-aws",
-      "src/lambda-admin.handler"
+      "src/lambda-admin.handler",
+      25,
+      256
     );
     const orderWorkerFunction = createApplicationLambda(
       "SupermarketOrderWorkerFunction",
@@ -784,6 +797,13 @@ exports.handler = async (event) => {
       "supermarket-audit-event-worker-aws",
       "src/lambda-audit-event-worker.handler",
       15,
+      256
+    );
+    const releaseExpiredCheckoutsFunction = createApplicationLambda(
+      "SupermarketReleaseExpiredCheckoutsFunction",
+      "supermarket-release-expired-checkouts-aws",
+      "src/lambda-release-expired-checkouts.handler",
+      20,
       256
     );
 
@@ -897,6 +917,11 @@ exports.handler = async (event) => {
       checkoutGateQueue,
       checkoutGateWorkerFunction.functionArn
     );
+    const checkoutGateInteractivePipeRole = createPipeRole(
+      "CheckoutGateInteractivePipeRole",
+      checkoutGateInteractiveQueue,
+      checkoutGateWorkerFunction.functionArn
+    );
     const notificationPipeRole = createPipeRole(
       "NotificationsPipeRole",
       notificationsQueue,
@@ -941,9 +966,26 @@ exports.handler = async (event) => {
     });
 
     new pipes.CfnPipe(this, "CheckoutGatePipe", {
-      name: "supermarket-checkout-gate-fifo-pipe",
+      name: "supermarket-checkout-gate-pipe",
       roleArn: checkoutGatePipeRole.roleArn,
       source: checkoutGateQueue.queueArn,
+      target: checkoutGateWorkerFunction.functionArn,
+      sourceParameters: {
+        sqsQueueParameters: {
+          batchSize: 10
+        }
+      },
+      targetParameters: {
+        lambdaFunctionParameters: {
+          invocationType: "REQUEST_RESPONSE"
+        }
+      }
+    });
+
+    new pipes.CfnPipe(this, "CheckoutGateInteractivePipe", {
+      name: "supermarket-checkout-gate-interactive-pipe",
+      roleArn: checkoutGateInteractivePipeRole.roleArn,
+      source: checkoutGateInteractiveQueue.queueArn,
       target: checkoutGateWorkerFunction.functionArn,
       sourceParameters: {
         sqsQueueParameters: {
@@ -1034,8 +1076,7 @@ exports.handler = async (event) => {
         detailType: ["storefront.checkout.gate.requested"]
       },
       targets: [new eventsTargets.SqsQueue(checkoutGateQueue, {
-        deadLetterQueue: eventBridgeTargetDlq,
-        messageGroupId: "storefront-checkout-gate"
+        deadLetterQueue: eventBridgeTargetDlq
       })]
     });
 
@@ -1148,6 +1189,43 @@ exports.handler = async (event) => {
         },
         input: JSON.stringify({
           source: "scheduler.weekly-admin-revenue-report"
+        })
+      }
+    });
+
+    const releaseExpiredCheckoutsSchedulerRole = new iam.Role(this, "ReleaseExpiredCheckoutsSchedulerRole", {
+      assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+      description: "Allows EventBridge Scheduler to invoke the expired checkout hold cleanup Lambda"
+    });
+    releaseExpiredCheckoutsSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["lambda:InvokeFunction"],
+      resources: [releaseExpiredCheckoutsFunction.functionArn]
+    }));
+    releaseExpiredCheckoutsSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["sqs:SendMessage"],
+      resources: [eventBridgeTargetDlq.queueArn]
+    }));
+
+    new scheduler.CfnSchedule(this, "ReleaseExpiredCheckoutsSchedule", {
+      name: "supermarket-release-expired-checkouts",
+      description: "Releases checkout holds that have passed the 5-minute lock window.",
+      groupName: "default",
+      scheduleExpression: "rate(1 minute)",
+      flexibleTimeWindow: {
+        mode: "OFF"
+      },
+      target: {
+        arn: releaseExpiredCheckoutsFunction.functionArn,
+        roleArn: releaseExpiredCheckoutsSchedulerRole.roleArn,
+        deadLetterConfig: {
+          arn: eventBridgeTargetDlq.queueArn
+        },
+        retryPolicy: {
+          maximumEventAgeInSeconds: 300,
+          maximumRetryAttempts: 2
+        },
+        input: JSON.stringify({
+          source: "scheduler.release-expired-checkouts"
         })
       }
     });
@@ -1293,6 +1371,10 @@ exports.handler = async (event) => {
       value: auditEventWorkerFunction.functionName
     });
 
+    new CfnOutput(this, "ReleaseExpiredCheckoutsFunctionName", {
+      value: releaseExpiredCheckoutsFunction.functionName
+    });
+
     new CfnOutput(this, "CommerceEventBusName", {
       value: commerceEventBus.eventBusName
     });
@@ -1339,6 +1421,10 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "CheckoutGateQueueUrl", {
       value: checkoutGateQueue.queueUrl
+    });
+
+    new CfnOutput(this, "CheckoutGateInteractiveQueueUrl", {
+      value: checkoutGateInteractiveQueue.queueUrl
     });
 
     new CfnOutput(this, "StorefrontOrdersDlqUrl", {

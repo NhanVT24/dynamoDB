@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { authSessionChangedEvent, readAuthSession, type AuthSession } from "../../lib/cognito-auth";
 import { useStorefront } from "../store-client";
@@ -9,6 +10,7 @@ const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
 const checkoutGatePollIntervalMs = 1000;
 const checkoutGateMaxPollAttempts = 15;
+const failedRedirectDelaySeconds = 15;
 
 type PrepareCheckoutResponse = {
   requestId?: string;
@@ -40,6 +42,7 @@ type CancelCheckoutResponse = {
 };
 
 export default function CheckoutPage() {
+  const router = useRouter();
   const { items, subtotal, shipping, total, theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -50,6 +53,26 @@ export default function CheckoutPage() {
   const [gateRequestId, setGateRequestId] = useState("");
   const [gateStatus, setGateStatus] = useState<"idle" | "pending" | "allowed" | "blocked">("idle");
   const [gateMessage, setGateMessage] = useState("");
+  const [redirectCountdown, setRedirectCountdown] = useState(0);
+  const [shouldRedirectHome, setShouldRedirectHome] = useState(false);
+
+  const isFailureOverlayVisible = !isSubmitting && gateStatus === "blocked" && Boolean(error) && redirectCountdown > 0;
+
+  function resetFailureRedirect() {
+    setRedirectCountdown(0);
+    setShouldRedirectHome(false);
+  }
+
+  function startFailureRedirect() {
+    setIsSubmitting(false);
+    setIsRedirectingToPayment(false);
+    setRedirectCountdown(failedRedirectDelaySeconds);
+  }
+
+  function goToStoreHome() {
+    resetFailureRedirect();
+    router.push("/store");
+  }
 
   useEffect(() => {
     setHasHydrated(true);
@@ -114,6 +137,39 @@ export default function CheckoutPage() {
       cancelled = true;
     };
   }, [session?.idToken]);
+
+  useEffect(() => {
+    if (gateStatus !== "blocked" || !error) {
+      resetFailureRedirect();
+      return;
+    }
+
+    setRedirectCountdown(failedRedirectDelaySeconds);
+
+    const intervalId = window.setInterval(() => {
+      setRedirectCountdown((current) => {
+        if (current <= 1) {
+          window.clearInterval(intervalId);
+          setShouldRedirectHome(true);
+          return 0;
+        }
+
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [error, gateStatus, router]);
+
+  useEffect(() => {
+    if (!shouldRedirectHome) {
+      return;
+    }
+
+    router.push("/store");
+  }, [router, shouldRedirectHome]);
 
   async function createPaymentSessionAndRedirect(requestId: string) {
     if (!session?.idToken) {
@@ -184,22 +240,21 @@ export default function CheckoutPage() {
 
         if (payload.status === "blocked") {
           setGateStatus("blocked");
-          setIsRedirectingToPayment(false);
           setError(payload.message || "We could not reserve all items in your cart for payment. Please review your cart and try again.");
-          setIsSubmitting(false);
+          startFailureRedirect();
           return;
         }
 
         if (attempts >= checkoutGateMaxPollAttempts) {
           setGateStatus("blocked");
           setError("The checkout queue is taking too long. Please check the checkout-gate worker on AWS and try again.");
-          setIsSubmitting(false);
+          startFailureRedirect();
         }
       } catch (pollError) {
         if (!cancelled) {
           setError(pollError instanceof Error ? pollError.message : "We could not check the checkout queue right now.");
-          setIsRedirectingToPayment(false);
-          setIsSubmitting(false);
+          setGateStatus("blocked");
+          startFailureRedirect();
         }
       }
     }
@@ -235,6 +290,7 @@ export default function CheckoutPage() {
       setIsSubmitting(true);
       setIsRedirectingToPayment(false);
       setError("");
+      resetFailureRedirect();
       setGateRequestId("");
       setGateStatus("idle");
       setGateMessage("Preparing your checkout request and sending it to the product gate queue.");
@@ -249,7 +305,8 @@ export default function CheckoutPage() {
             productId: item.productId,
             quantity: item.quantity
           })),
-          locale: "vn"
+          locale: "vn",
+          processingMode: "trigger"
         })
       });
 
@@ -265,30 +322,79 @@ export default function CheckoutPage() {
     } catch (checkoutError) {
       setGateStatus("blocked");
       setError(checkoutError instanceof Error ? checkoutError.message : "We could not start checkout verification.");
-      setIsSubmitting(false);
+      startFailureRedirect();
     }
   }
 
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
-      {isSubmitting ? (
+      {isSubmitting || isFailureOverlayVisible ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4 backdrop-blur-[3px]">
-          <div className="w-full max-w-sm rounded-[2rem] border border-white/45 bg-white/92 p-7 text-center shadow-[0_30px_90px_-30px_rgba(15,23,42,0.45)]">
-            <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-slate-100 shadow-inner shadow-slate-200">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full border border-slate-200 bg-white shadow-[0_8px_30px_-18px_rgba(15,23,42,0.45)]">
-                <span className="inline-flex h-10 w-10 animate-spin rounded-full border-[3px] border-slate-300 border-t-sky-500 border-r-cyan-400" />
+          {isFailureOverlayVisible ? (
+            <div className="w-full max-w-lg overflow-hidden rounded-[2rem] border border-rose-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(255,244,246,0.98)_100%)] shadow-[0_40px_120px_-34px_rgba(190,24,93,0.35)]">
+              <div className="relative overflow-hidden px-7 pb-6 pt-7 text-center">
+                <div className="absolute inset-x-0 top-0 h-28 bg-[radial-gradient(circle_at_top,rgba(251,113,133,0.28),transparent_70%)]" />
+                <div className="relative mx-auto flex h-24 w-24 items-center justify-center rounded-full border border-rose-200 bg-white shadow-[0_18px_50px_-24px_rgba(225,29,72,0.45)]">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-rose-500 text-3xl font-black text-white shadow-[0_14px_30px_-18px_rgba(225,29,72,0.55)]">
+                    ×
+                  </div>
+                </div>
+                <p className="relative mt-6 text-xs font-semibold uppercase tracking-[0.28em] text-rose-500">
+                  Checkout Interrupted
+                </p>
+                <h2 className="relative mt-3 text-[1.9rem] font-semibold tracking-tight text-slate-950">
+                  Sorry, this payment could not continue
+                </h2>
+                <p className="relative mx-auto mt-3 max-w-md text-sm leading-7 text-slate-600">
+                  Another checkout may have reserved the remaining quantity, or your order is still finishing synchronization. We are sending you back to the store safely so you can try again.
+                </p>
+
+                <div className="relative mt-6 rounded-[1.5rem] border border-rose-200/80 bg-white/90 p-5 text-left shadow-[0_20px_40px_-30px_rgba(15,23,42,0.35)]">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-rose-500">What happened</p>
+                  <p className="mt-3 text-sm leading-7 text-slate-700">
+                    {error || "The checkout gate could not keep enough stock reserved for this order."}
+                  </p>
+                  <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
+                    Returning to store in {redirectCountdown}s
+                  </div>
+                </div>
+
+                <div className="relative mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+                  <button
+                    type="button"
+                    onClick={goToStoreHome}
+                    className="inline-flex items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  >
+                    Back To Store Home
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetFailureRedirect}
+                    className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-white px-6 py-3 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50"
+                  >
+                    Keep This Message Open
+                  </button>
+                </div>
               </div>
             </div>
-            <h2 className="mt-6 text-xl font-semibold tracking-tight text-slate-950">Please wait a moment</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              Sorry, we are confirming product availability and reserving your checkout slot before redirecting you to payment.
-            </p>
-            <p className="mt-3 text-sm font-medium text-sky-700">
-              {gateMessage || (isRedirectingToPayment
-                ? "Completing verification and opening VNPay..."
-                : "Checking inventory in real-time...")}
-            </p>
-          </div>
+          ) : (
+            <div className="w-full max-w-sm rounded-[2rem] border border-white/45 bg-white/92 p-7 text-center shadow-[0_30px_90px_-30px_rgba(15,23,42,0.45)]">
+              <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-full bg-slate-100 shadow-inner shadow-slate-200">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-slate-200 bg-white shadow-[0_8px_30px_-18px_rgba(15,23,42,0.45)]">
+                  <span className="inline-flex h-10 w-10 animate-spin rounded-full border-[3px] border-slate-300 border-t-sky-500 border-r-cyan-400" />
+                </div>
+              </div>
+              <h2 className="mt-6 text-xl font-semibold tracking-tight text-slate-950">Please wait a moment</h2>
+              <p className="mt-3 text-sm leading-6 text-slate-600">
+                Sorry, we are confirming product availability and reserving your checkout slot before redirecting you to payment.
+              </p>
+              <p className="mt-3 text-sm font-medium text-sky-700">
+                {gateMessage || (isRedirectingToPayment
+                  ? "Completing verification and opening VNPay..."
+                  : "Checking inventory in real-time...")}
+              </p>
+            </div>
+          )}
         </div>
       ) : null}
 

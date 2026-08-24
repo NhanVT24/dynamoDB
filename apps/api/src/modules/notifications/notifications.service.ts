@@ -6,7 +6,7 @@ import {
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { publishAdminAlert } from "../../integrations/sns/publisher.js";
-import { sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
+import { sendOrderConfirmationEmail, sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
 import { commitCheckoutReservationsToOrder, getOrderById, markOrderAsDone, type InventoryStockChange } from "../storefront/storefront.repository.js";
 import {
   createNotification,
@@ -60,6 +60,67 @@ export class NotificationsService {
     } catch (error) {
       this.logger.warn(`[sns-admin-alert] failed error=${error instanceof Error ? error.message : "unknown"} ${input.logContext}`);
       return { queued: false };
+    }
+  }
+
+  private async createPendingNotificationSafely(input: {
+    email: string;
+    title: string;
+    message: string;
+    channel: "email" | "system";
+    metadata?: Record<string, unknown>;
+  }) {
+    try {
+      return await this.createPendingNotification(input);
+    } catch (error) {
+      this.logger.warn(
+        `[queue-notification] create_failed email=${input.email} channel=${input.channel} error=${error instanceof Error ? error.message : "unknown"}`
+      );
+      return null;
+    }
+  }
+
+  private async publishAuditLogSafely(input: {
+    eventType: string;
+    email?: string;
+    resourceId?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    try {
+      return await this.publishAuditLog(input);
+    } catch (error) {
+      this.logger.warn(
+        `[eventbridge-platform] audit_failed eventType=${input.eventType} resourceId=${input.resourceId ?? ""} error=${error instanceof Error ? error.message : "unknown"}`
+      );
+      return { queued: false };
+    }
+  }
+
+  private async sendOrderConfirmationEmailSafely(input: {
+    toEmail: string;
+    orderId: string;
+    totalAmount: number;
+    createdAt: string;
+    items: Array<{
+      productName: string;
+      quantity: number;
+      lineTotal: number;
+    }>;
+  }) {
+    if (!env.SES_FROM_EMAIL) {
+      this.logger.warn(`[mail-ses] order_success_skipped orderId=${input.orderId} reason=ses_not_configured`);
+      return { sent: false };
+    }
+
+    try {
+      await sendOrderConfirmationEmail(input);
+      this.logger.log(`[mail-ses] order_success_sent orderId=${input.orderId} to=${input.toEmail}`);
+      return { sent: true };
+    } catch (error) {
+      this.logger.warn(
+        `[mail-ses] order_success_failed orderId=${input.orderId} to=${input.toEmail} error=${error instanceof Error ? error.message : "unknown"}`
+      );
+      return { sent: false };
     }
   }
 
@@ -512,19 +573,85 @@ export class NotificationsService {
       throw new Error(`Forced failure for payment txnRef=${payload.txnRef}`);
     }
 
-    const committed = requestId
-      ? await commitCheckoutReservationsToOrder({
+    let committed: {
+      order: Awaited<ReturnType<typeof getOrderById>> | null;
+      orderId: string;
+      stockChanges: InventoryStockChange[];
+    };
+
+    try {
+      committed = requestId
+        ? await commitCheckoutReservationsToOrder({
+          requestId,
+          expectedCustomerEmail: email
+        })
+        : { order: null, orderId: payload.orderId?.trim() || "", stockChanges: [] as InventoryStockChange[] };
+    } catch (error) {
+      const syncErrorMessage = error instanceof Error ? error.message : "unknown";
+
+      await this.publishAuditLogSafely({
+        eventType: "payments.vnpay.completed.sync_failed",
+        email,
+        resourceId: payload.txnRef,
+        metadata: {
+          requestId,
+          orderId: payload.orderId?.trim() || "",
+          amount,
+          orderInfo: payload.orderInfo ?? "",
+          responseCode: payload.responseCode ?? "",
+          transactionNo: payload.transactionNo ?? "",
+          bankCode: payload.bankCode ?? "",
+          payDate: payload.payDate ?? "",
+          status: "sync_failed",
+          syncErrorMessage
+        }
+      });
+
+      await this.publishAdminAlertSafely({
+        subject: `Payment sync failed ${payload.txnRef}`,
+        message: [
+          "Payment completed successfully but order synchronization after payment failed.",
+          `TxnRef: ${payload.txnRef}`,
+          `Customer: ${email}`,
+          `RequestId: ${requestId || "N/A"}`,
+          `OrderId: ${payload.orderId?.trim() || "N/A"}`,
+          `ResponseCode: ${payload.responseCode ?? ""}`,
+          `Error: ${syncErrorMessage}`
+        ].join("\n"),
+        attributes: {
+          alertType: "payment.completed.sync_failed",
+          txnRef: payload.txnRef,
+          requestId,
+          orderId: payload.orderId?.trim() || "",
+          customerEmail: email
+        },
+        logContext: `alertType=payment.completed.sync_failed txnRef=${payload.txnRef} requestId=${requestId}`
+      });
+
+      logQueueWarn(this.logger, {
+        queue: "paymentEvents",
+        eventType: "payment.completed",
+        status: "sync_failed",
+        txnRef: payload.txnRef,
+        message: syncErrorMessage
+      });
+
+      return {
+        type: "payment.completed",
+        txnRef: payload.txnRef,
+        orderId: payload.orderId?.trim() || "",
         requestId,
-        expectedCustomerEmail: email
-      })
-      : { order: null, orderId: payload.orderId?.trim() || "", stockChanges: [] as InventoryStockChange[] };
+        queuedNotifications: 0,
+        auditQueued: true
+      };
+    }
     const orderId = committed.order?.id ?? committed.orderId ?? (payload.orderId?.trim() || "");
 
-    await this.createPendingNotification({
+    await this.createPendingNotificationSafely({
       email,
       channel: "system",
-      title: "Thanh toán thành công",
-      message: `Giao dịch ${payload.txnRef} đã được xác nhận thanh toán thành công.`,
+      title: "Payment Successful",
+      message: `Transaction ${payload.txnRef} has been confirmed as successful.`,
       metadata: {
         orderId,
         requestId,
@@ -535,7 +662,21 @@ export class NotificationsService {
       }
     });
 
-    await this.publishAuditLog({
+    if (committed.order) {
+      await this.sendOrderConfirmationEmailSafely({
+        toEmail: email,
+        orderId: committed.order.id,
+        totalAmount: committed.order.totalAmount,
+        createdAt: committed.order.createdAt,
+        items: committed.order.items.map((item) => ({
+          productName: item.productName,
+          quantity: item.quantity,
+          lineTotal: item.lineTotal
+        }))
+      });
+    }
+
+    await this.publishAuditLogSafely({
       eventType: "payments.vnpay.completed",
       email,
       resourceId: payload.txnRef,
@@ -625,8 +766,8 @@ export class NotificationsService {
     await this.createPendingNotification({
       email,
       channel: "system",
-      title: "Thanh toán không thành công",
-      message: `Giao dịch ${payload.txnRef} không hoàn tất. Lý do: ${failureReason}.`,
+      title: "Payment Failed",
+      message: `Transaction ${payload.txnRef} failed. Reason: ${failureReason}.`,
       metadata: {
         orderId,
         requestId,
@@ -658,13 +799,13 @@ export class NotificationsService {
     });
 
     await this.publishAdminAlertSafely({
-      subject: `Cảnh báo thanh toán thất bại ${payload.txnRef}`,
+      subject: `Payment Failed Alert ${payload.txnRef}`,
       message: [
-        "Thanh toán thất bại đã được ghi nhận.",
+        "Payment failed has been recorded.",
         `TxnRef: ${payload.txnRef}`,
-        `Khách hàng: ${email}`,
-        `Số tiền: ${amount}`,
-        `Lý do: ${failureReason}`,
+        `Customer: ${email}`,
+        `Amount: ${amount}`,
+        `Reason: ${failureReason}`,
         `ResponseCode: ${payload.responseCode ?? ""}`,
         `OrderId: ${orderId || "N/A"}`
       ].join("\n"),
@@ -737,11 +878,11 @@ export class NotificationsService {
     const source = String(payload.source ?? "").trim();
     const changedBy = String(payload.changedBy ?? "").trim();
     const title = level === "out_of_stock"
-      ? "Sản phẩm đã hết hàng"
-      : "Sản phẩm sắp hết hàng";
+      ? "Product Out of Stock"
+      : "Product Low on Stock";
     const message = level === "out_of_stock"
-      ? `${payload.productName} đã hết hàng. Số lượng hiện tại: ${stock}.`
-      : `${payload.productName} đang ở mức tồn kho thấp. Số lượng hiện tại: ${stock}.`;
+      ? `${payload.productName} is out of stock. Current quantity: ${stock}.`
+      : `${payload.productName} is running low on stock. Current quantity: ${stock}.`;
 
     const notification = await this.createPendingNotification({
       email: env.ADMIN_REPORT_EMAIL,
@@ -780,17 +921,17 @@ export class NotificationsService {
     });
 
     await this.publishAdminAlertSafely({
-      subject: level === "out_of_stock" ? `Hết hàng: ${payload.productName}` : `Sắp hết hàng: ${payload.productName}`,
+      subject: level === "out_of_stock" ? `Out of Stock: ${payload.productName}` : `Low Stock Alert: ${payload.productName}`,
       message: [
-        "Cảnh báo tồn kho dành cho admin.",
-        `Sản phẩm: ${payload.productName}`,
+        "Inventory alert for administrators.",
+        `Product: ${payload.productName}`,
         `ProductId: ${payload.productId}`,
         `SKU: ${payload.sku ?? "N/A"}`,
-        `Mức cảnh báo: ${level}`,
-        `Tồn kho hiện tại: ${stock}`,
-        `ồn kho trước đó: ${Number(payload.previousStock ?? 0)}`,
-        `Nguồn thay đổi: ${source || "unknown"}`,
-        `Người thay đổi: ${changedBy || "unknown"}`
+        `Alert Level: ${level}`,
+        `Current Stock: ${stock}`,
+        `Previous Stock: ${Number(payload.previousStock ?? 0)}`,
+        `Source: ${source || "unknown"}`,
+        `Changed By: ${changedBy || "unknown"}`
       ].join("\n"),
       attributes: {
         alertType: "inventory.stock.alert",

@@ -30,13 +30,6 @@ type ReturnPayload = {
   payDate: string;
 };
 
-type FinalizeOrderPayload = {
-  success?: boolean;
-  queued?: boolean;
-  requestId?: string;
-  message?: string;
-};
-
 type NotificationApiItem = {
   id: string;
   title: string;
@@ -46,6 +39,16 @@ type NotificationApiItem = {
   channel: "email" | "system";
   createdAt: string;
   metadata?: Record<string, unknown>;
+};
+
+type CheckoutGateStatusResponse = {
+  requestId?: string;
+  status?: "pending" | "allowed" | "blocked" | "completed";
+  message?: string;
+  failureCode?: string;
+  paymentUrl?: string;
+  lockedUntil?: string;
+  orderId?: string;
 };
 
 type QueueTrackingState = "idle" | "polling" | "done" | "failed";
@@ -61,17 +64,19 @@ function getPendingOrderRequestKey(txnRef: string) {
   return `${pendingOrderRequestPrefix}${txnRef}`;
 }
 
+function extractRequestId(orderInfo: string) {
+  return orderInfo.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0] ?? "";
+}
+
 function CheckoutResultPageContent() {
   const searchParams = useSearchParams();
   const { clearCart, theme } = useStorefront();
   const isDark = theme === "dark";
   const verifiedQueryRef = useRef("");
-  const finalizingTxnRef = useRef("");
 
   const [result, setResult] = useState<ReturnPayload | null>(null);
   const [error, setError] = useState("");
   const [hasBroadcastSuccess, setHasBroadcastSuccess] = useState(false);
-  const [isFinalizingOrder, setIsFinalizingOrder] = useState(false);
   const [requestId, setRequestId] = useState("");
   const [queueState, setQueueState] = useState<QueueTrackingState>("idle");
   const [queueMessage, setQueueMessage] = useState("");
@@ -118,10 +123,14 @@ function CheckoutResultPageContent() {
     }
 
     const savedRequestId = window.sessionStorage.getItem(getPendingOrderRequestKey(result.txnRef));
-    if (savedRequestId) {
-      setRequestId(savedRequestId);
-      setQueueState("polling");
+    const fallbackRequestId = extractRequestId(result.orderInfo);
+    const nextRequestId = savedRequestId || fallbackRequestId;
+    if (!nextRequestId) {
+      return;
     }
+
+    setRequestId(nextRequestId);
+    setQueueState("polling");
   }, [result?.txnRef]);
 
   useEffect(() => {
@@ -163,7 +172,7 @@ function CheckoutResultPageContent() {
   }, [hasBroadcastSuccess, result]);
 
   useEffect(() => {
-    async function finalizeSuccessfulCheckout() {
+    function finalizeSuccessfulCheckout() {
       if (!result) {
         return;
       }
@@ -178,10 +187,6 @@ function CheckoutResultPageContent() {
         return;
       }
 
-      if (finalizingTxnRef.current === result.txnRef) {
-        return;
-      }
-
       const rawPendingCheckout = window.localStorage.getItem(pendingCheckoutStorageKey);
       if (!rawPendingCheckout) {
         window.localStorage.removeItem(cartStorageKey);
@@ -189,68 +194,29 @@ function CheckoutResultPageContent() {
         return;
       }
 
-      let pendingCheckout: { requestId?: string; items?: Array<{ productId: string; quantity: number }> } | null = null;
+      let pendingCheckout: { requestId?: string } | null = null;
       try {
-        pendingCheckout = JSON.parse(rawPendingCheckout) as { requestId?: string; items?: Array<{ productId: string; quantity: number }> };
+        pendingCheckout = JSON.parse(rawPendingCheckout) as { requestId?: string };
       } catch {
         window.localStorage.removeItem(pendingCheckoutStorageKey);
         return;
       }
 
-      if (!pendingCheckout?.items?.length) {
-        window.localStorage.removeItem(pendingCheckoutStorageKey);
-        window.localStorage.removeItem(cartStorageKey);
-        clearCart();
-        return;
-      }
-
-      const session = readAuthSession();
-      if (!session?.idToken) {
-        setError("The payment succeeded, but the order could not be created because your session expired. Please sign in again and review your order history.");
-        return;
-      }
-
-      setIsFinalizingOrder(true);
-      finalizingTxnRef.current = result.txnRef;
-      setQueueState("idle");
-      setQueueMessage("");
-
-      try {
-        const response = await fetch("/api/lambda-proxy/api/storefront/orders", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.idToken}`
-          },
-          body: JSON.stringify({
-            requestId: String(pendingCheckout.requestId ?? "").trim() || undefined,
-            items: pendingCheckout.items
-          })
-        });
-
-        const payload = (await response.json().catch(() => null)) as FinalizeOrderPayload | null;
-        if (!response.ok || !payload?.requestId) {
-          throw new Error(payload?.message || "We could not create the order after payment succeeded.");
-        }
-
-        window.sessionStorage.setItem(processedKey, "1");
-        window.sessionStorage.setItem(getPendingOrderRequestKey(result.txnRef), payload.requestId);
-        window.localStorage.removeItem(cartStorageKey);
-        window.localStorage.removeItem(pendingCheckoutStorageKey);
-        clearCart();
-
-        setRequestId(payload.requestId);
+      const nextRequestId = String(pendingCheckout?.requestId ?? "").trim() || extractRequestId(result.orderInfo);
+      window.sessionStorage.setItem(processedKey, "1");
+      if (nextRequestId) {
+        window.sessionStorage.setItem(getPendingOrderRequestKey(result.txnRef), nextRequestId);
+        setRequestId(nextRequestId);
         setQueueState("polling");
-        setQueueMessage(payload.message || "The order has been placed in the processing queue.");
-      } catch (finalizeError) {
-        setError(finalizeError instanceof Error ? finalizeError.message : "We could not create the order after payment.");
-      } finally {
-        finalizingTxnRef.current = "";
-        setIsFinalizingOrder(false);
+        setQueueMessage("Payment has been confirmed. The system is synchronizing your order from the reserved checkout request.");
       }
+
+      window.localStorage.removeItem(cartStorageKey);
+      window.localStorage.removeItem(pendingCheckoutStorageKey);
+      clearCart();
     }
 
-    void finalizeSuccessfulCheckout();
+    finalizeSuccessfulCheckout();
   }, [clearCart, result]);
 
   useEffect(() => {
@@ -269,19 +235,63 @@ function CheckoutResultPageContent() {
     async function pollQueueResult() {
       attempts += 1;
       try {
-        const response = await fetch("/api/lambda-proxy/api/notifications/me", {
+        const gateResponse = await fetch(`/api/lambda-proxy/api/storefront/checkout/prepare/${requestId}`, {
           headers: {
             Authorization: `Bearer ${session.idToken}`
           },
           cache: "no-store"
         });
 
-        if (!response.ok) {
-          throw new Error("We could not check the order processing status.");
+        if (!gateResponse.ok) {
+          throw new Error("We could not check the checkout synchronization status.");
         }
 
-        const payload = (await response.json()) as { items?: NotificationApiItem[] };
-        const notification = (payload.items ?? []).find((item) => String(item.metadata?.requestId ?? "") === requestId);
+        const gatePayload = (await gateResponse.json().catch(() => null)) as CheckoutGateStatusResponse | null;
+        if (cancelled || !gatePayload?.status) {
+          return;
+        }
+
+        if (gatePayload.status === "completed") {
+          setQueueState("done");
+          setQueueMessage(gatePayload.message || "Your order has been recorded successfully.");
+          setMatchedNotification({
+            id: `checkout-completed-${requestId}`,
+            title: "Order recorded successfully",
+            message: gatePayload.message || "Payment has been confirmed and your order has already been synchronized.",
+            status: "sent",
+            isRead: false,
+            channel: "system",
+            createdAt: new Date().toISOString(),
+            metadata: {
+              requestId,
+              orderId: gatePayload.orderId ?? "",
+              paymentStatus: "success"
+            }
+          });
+          window.sessionStorage.removeItem(getPendingOrderRequestKey(result.txnRef));
+          return;
+        }
+
+        if (gatePayload.status === "blocked") {
+          setQueueState("failed");
+          setQueueMessage(gatePayload.message || "The order could not be synchronized after payment.");
+          window.sessionStorage.removeItem(getPendingOrderRequestKey(result.txnRef));
+          return;
+        }
+
+        const notificationResponse = await fetch("/api/lambda-proxy/api/notifications/me", {
+          headers: {
+            Authorization: `Bearer ${session.idToken}`
+          },
+          cache: "no-store"
+        });
+
+        if (!notificationResponse.ok) {
+          return;
+        }
+
+        const notificationPayload = (await notificationResponse.json().catch(() => null)) as { items?: NotificationApiItem[] } | null;
+        const notification = (notificationPayload?.items ?? []).find((item) => String(item.metadata?.requestId ?? "") === requestId);
 
         if (!notification || cancelled) {
           return;
@@ -296,10 +306,6 @@ function CheckoutResultPageContent() {
           window.sessionStorage.removeItem(getPendingOrderRequestKey(result.txnRef));
           return;
         }
-
-        setQueueState("done");
-        setQueueMessage(notification.message);
-        window.sessionStorage.removeItem(getPendingOrderRequestKey(result.txnRef));
       } catch (pollError) {
         if (!cancelled) {
           setQueueMessage(pollError instanceof Error ? pollError.message : "We could not check the queue status right now.");
@@ -333,7 +339,7 @@ function CheckoutResultPageContent() {
       return null;
     }
 
-    if (queueState === "polling" || isFinalizingOrder) {
+    if (queueState === "polling") {
       return {
         tone: isDark ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-100" : "border-cyan-200 bg-cyan-50 text-cyan-800",
         badge: "Processing",
@@ -366,7 +372,7 @@ function CheckoutResultPageContent() {
       title: "The system is preparing your order request",
       message: queueMessage || "Your request has been received. The system is preparing to check the queue status."
     };
-  }, [isDark, isFinalizingOrder, isSuccess, queueMessage, queueState, requestId]);
+  }, [isDark, isSuccess, queueMessage, queueState, requestId]);
 
   return (
     <main className="px-4 py-12 sm:px-6 lg:px-8">

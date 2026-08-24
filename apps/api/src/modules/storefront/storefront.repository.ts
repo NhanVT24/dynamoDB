@@ -104,7 +104,10 @@ export type CheckoutGateRequestRecord = {
   bankCode?: string;
   lockedUntil?: string;
   processingMode?: "interactive" | "trigger";
+  orderId?: string;
 };
+
+type ExpiredAllowedCheckoutGateRecord = Pick<CheckoutGateRequestRecord, "requestId" | "lockedUntil" | "status">;
 
 function toDynamoItem(item: Record<string, unknown>) {
   return marshall(item, { removeUndefinedValues: true });
@@ -112,6 +115,16 @@ function toDynamoItem(item: Record<string, unknown>) {
 
 function fromDynamoItem(item?: Record<string, AttributeValue>) {
   return item ? (unmarshall(item) as Record<string, any>) : null;
+}
+
+function isDynamoConditionalConflict(error: unknown) {
+  const candidate = error as { name?: string; CancellationReasons?: Array<{ Code?: string }> };
+  return candidate?.name === "ConditionalCheckFailedException" ||
+    (
+      candidate?.name === "TransactionCanceledException" &&
+      Array.isArray(candidate.CancellationReasons) &&
+      candidate.CancellationReasons.some((reason) => reason.Code === "ConditionalCheckFailed")
+    );
 }
 
 function buildCheckoutReservationKey(requestId: string, productId: string) {
@@ -145,6 +158,76 @@ function normalizeOrderItems(items: Array<{ productId?: string; quantity: number
     productId,
     quantity
   }));
+}
+
+function isIsoDateExpired(value?: string) {
+  if (!value) {
+    return false;
+  }
+
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) && timestamp <= Date.now();
+}
+
+async function listExpiredAllowedCheckoutGates() {
+  const expiredGates: ExpiredAllowedCheckoutGateRecord[] = [];
+  let exclusiveStartKey: Record<string, AttributeValue> | undefined;
+
+  do {
+    const result = await rawDb.send(new ScanCommand({
+      TableName,
+      ExclusiveStartKey: exclusiveStartKey,
+      FilterExpression: "entityType = :entityType AND #status = :status AND attribute_exists(lockedUntil) AND lockedUntil <= :now",
+      ExpressionAttributeNames: {
+        "#status": "status"
+      },
+      ExpressionAttributeValues: toDynamoItem({
+        ":entityType": "CHECKOUT_GATE",
+        ":status": "allowed",
+        ":now": new Date().toISOString()
+      })
+    }));
+
+    expiredGates.push(
+      ...(result.Items ?? [])
+        .map((item) => fromDynamoItem(item) as ExpiredAllowedCheckoutGateRecord | null)
+        .filter(Boolean) as ExpiredAllowedCheckoutGateRecord[]
+    );
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+
+  return expiredGates;
+}
+
+export async function releaseExpiredCheckoutGates() {
+  const expiredGates = await listExpiredAllowedCheckoutGates();
+  let releasedCount = 0;
+
+  for (const gate of expiredGates) {
+    if (!gate.requestId || !isIsoDateExpired(gate.lockedUntil)) {
+      continue;
+    }
+
+    try {
+      const released = await releaseCheckoutGateReservation({
+        requestId: gate.requestId,
+        message: "Checkout reservation expired after 5 minutes.",
+        failureCode: "checkout_reservation_expired"
+      });
+
+      if (released) {
+        releasedCount += 1;
+      }
+    } catch (error) {
+      console.warn("[checkout-hold-cleanup] release_failed", {
+        requestId: gate.requestId,
+        lockedUntil: gate.lockedUntil ?? "",
+        message: error instanceof Error ? error.message : "unknown"
+      });
+    }
+  }
+
+  return releasedCount;
 }
 
 export async function listStorefrontProducts(query: Record<string, any>) {
@@ -373,13 +456,21 @@ export async function releaseCheckoutGateReservation(input: {
 
   await releaseReservedInventory(input.requestId);
 
-  await updateCheckoutGateRequestStatus({
-    requestId: input.requestId,
-    expectedStatus: "allowed",
-    status: "blocked",
-    message: input.message,
-    failureCode: input.failureCode ?? "payment_not_completed"
-  });
+  try {
+    await updateCheckoutGateRequestStatus({
+      requestId: input.requestId,
+      expectedStatus: "allowed",
+      status: "blocked",
+      message: input.message,
+      failureCode: input.failureCode ?? "payment_not_completed"
+    });
+  } catch (error) {
+    if (isDynamoConditionalConflict(error)) {
+      return false;
+    }
+
+    throw error;
+  }
 
   return true;
 }
@@ -455,6 +546,7 @@ export async function createCheckoutReservations(input: {
         const stock = Number(product.stock ?? 0);
         const reservedStock = Number(product.reservedStock ?? 0);
         const availableStock = stock - reservedStock;
+
         if (availableStock < item.quantity) {
           throw new Error(`Insufficient reserved availability for ${product.name}`);
         }
@@ -553,49 +645,85 @@ export async function listCheckoutReservationsByRequestId(requestId: string) {
 export async function releaseReservedInventory(requestId: string) {
   const reservations = await listCheckoutReservationsByRequestId(requestId);
   const activeReservations = reservations.filter((item) => item.status === "reserved");
+  let releasedCount = 0;
 
   for (const reservation of activeReservations) {
-    await rawDb.send(new TransactWriteItemsCommand({
-      TransactItems: [
-        {
-          Update: {
-            TableName,
-            Key: toDynamoItem(keys.product(reservation.productId)),
-            ConditionExpression: "attribute_exists(PK) AND if_not_exists(#reservedStock, :zero) >= :quantity",
-            UpdateExpression: "SET #reservedStock = if_not_exists(#reservedStock, :zero) - :quantity, updatedAt = :updatedAt, #version = if_not_exists(#version, :zero) + :one",
-            ExpressionAttributeNames: {
-              "#reservedStock": "reservedStock",
-              "#version": "version"
-            },
-            ExpressionAttributeValues: toDynamoItem({
-              ":quantity": reservation.quantity,
-              ":updatedAt": new Date().toISOString(),
-              ":zero": 0,
-              ":one": 1
-            })
+    try {
+      await rawDb.send(new TransactWriteItemsCommand({
+        TransactItems: [
+          {
+            Update: {
+              TableName,
+              Key: toDynamoItem(keys.product(reservation.productId)),
+              ConditionExpression: "attribute_exists(PK) AND attribute_exists(#reservedStock) AND #reservedStock >= :quantity",
+              UpdateExpression: "SET #reservedStock = if_not_exists(#reservedStock, :zero) - :quantity, updatedAt = :updatedAt, #version = if_not_exists(#version, :zero) + :one",
+              ExpressionAttributeNames: {
+                "#reservedStock": "reservedStock",
+                "#version": "version"
+              },
+              ExpressionAttributeValues: toDynamoItem({
+                ":quantity": reservation.quantity,
+                ":updatedAt": new Date().toISOString(),
+                ":zero": 0,
+                ":one": 1
+              })
+            }
+          },
+          {
+            Update: {
+              TableName,
+              Key: toDynamoItem(buildCheckoutReservationKey(requestId, reservation.productId)),
+              ConditionExpression: "attribute_exists(PK) AND #status = :reservedStatus",
+              UpdateExpression: "SET #status = :releasedStatus, updatedAt = :updatedAt",
+              ExpressionAttributeNames: {
+                "#status": "status"
+              },
+              ExpressionAttributeValues: toDynamoItem({
+                ":reservedStatus": "reserved",
+                ":releasedStatus": "released",
+                ":updatedAt": new Date().toISOString()
+              })
+            }
           }
-        },
-        {
-          Update: {
-            TableName,
-            Key: toDynamoItem(buildCheckoutReservationKey(requestId, reservation.productId)),
-            ConditionExpression: "attribute_exists(PK) AND #status = :reservedStatus",
-            UpdateExpression: "SET #status = :releasedStatus, updatedAt = :updatedAt",
-            ExpressionAttributeNames: {
-              "#status": "status"
-            },
-            ExpressionAttributeValues: toDynamoItem({
-              ":reservedStatus": "reserved",
-              ":releasedStatus": "released",
-              ":updatedAt": new Date().toISOString()
-            })
-          }
+        ]
+      }));
+      releasedCount += 1;
+    } catch (error) {
+      if (!isDynamoConditionalConflict(error)) {
+        throw error;
+      }
+
+      console.warn("[checkout-reservation-release] stale_reservation", {
+        requestId,
+        productId: reservation.productId,
+        quantity: reservation.quantity,
+        message: error instanceof Error ? error.message : "unknown"
+      });
+
+      try {
+        await rawDb.send(new UpdateItemCommand({
+          TableName,
+          Key: toDynamoItem(buildCheckoutReservationKey(requestId, reservation.productId)),
+          ConditionExpression: "attribute_exists(PK) AND #status = :reservedStatus",
+          UpdateExpression: "SET #status = :releasedStatus, updatedAt = :updatedAt",
+          ExpressionAttributeNames: {
+            "#status": "status"
+          },
+          ExpressionAttributeValues: toDynamoItem({
+            ":reservedStatus": "reserved",
+            ":releasedStatus": "released",
+            ":updatedAt": new Date().toISOString()
+          })
+        }));
+      } catch (statusError) {
+        if (!isDynamoConditionalConflict(statusError)) {
+          throw statusError;
         }
-      ]
-    }));
+      }
+    }
   }
 
-  return activeReservations.length;
+  return releasedCount;
 }
 
 export async function commitCheckoutReservationsToOrder(input: {
@@ -667,7 +795,7 @@ export async function commitCheckoutReservationsToOrder(input: {
         Update: {
           TableName,
           Key: toDynamoItem(keys.product(reservation.productId)),
-          ConditionExpression: "attribute_exists(PK) AND #stock >= :quantity AND if_not_exists(#reservedStock, :zero) >= :quantity",
+          ConditionExpression: "attribute_exists(PK) AND #stock >= :quantity AND attribute_exists(#reservedStock) AND #reservedStock >= :quantity",
           UpdateExpression: "SET #stock = #stock - :quantity, #reservedStock = if_not_exists(#reservedStock, :zero) - :quantity, #soldCount = if_not_exists(#soldCount, :zero) + :quantity, updatedAt = :updatedAt, #version = if_not_exists(#version, :zero) + :one",
           ExpressionAttributeNames: {
             "#stock": "stock",

@@ -32,6 +32,7 @@ export const handler = async (event: WorkflowInput) => {
     email,
     items,
     orderId,
-    orderDescription: orderId ? `Thanh toán đơn hàng ${orderId}` : "Thanh toán đơn hàng"
+    orderDescription: orderId ? `Payment for order ${orderId}` : "Payment for order",
+    skipStockValidation: orderResult.outcome === "success"
   });
 };

@@ -6,6 +6,11 @@
     "web-auth-session",
     "auth-session"
   ];
+  const defaultProductId = "506284f1-bdac-4241-83ce-99454e09a87e";
+  const requestCount = Math.max(2, Math.trunc(Number(window.__DUPLICATE_CHECKOUT_COUNT__ ?? 5)));
+  const quantity = Math.max(1, Math.trunc(Number(window.__DUPLICATE_CHECKOUT_QUANTITY__ ?? 1)));
+  const pollDelayMs = Math.max(200, Math.trunc(Number(window.__DUPLICATE_CHECKOUT_POLL_DELAY_MS__ ?? 400)));
+  const maxAttempts = Math.max(10, Math.trunc(Number(window.__DUPLICATE_CHECKOUT_MAX_ATTEMPTS__ ?? 30)));
 
   const authRaw = authStorageCandidates
     .map((key) => window.localStorage.getItem(key))
@@ -43,6 +48,38 @@
     return String(product.id);
   }
 
+  async function getProduct(productId) {
+    const headers = {
+      Authorization: `Bearer ${idToken}`
+    };
+    const candidates = [
+      `${apiBaseUrl}/api/storefront/products/${productId}`,
+      `${apiBaseUrl}/api/products/${productId}`
+    ];
+
+    let response = null;
+    let payload = null;
+    for (const url of candidates) {
+      response = await fetch(url, {
+        headers,
+        cache: "no-store"
+      });
+      payload = await response.json().catch(() => null);
+
+      if (response.ok && payload?.id) {
+        return payload;
+      }
+
+      console.warn("[duplicate-checkout-test] product lookup failed =", {
+        url,
+        status: response.status,
+        message: payload?.message ?? ""
+      });
+    }
+
+    throw new Error(payload?.message || `Khong the lay thong tin san pham ${productId}.`);
+  }
+
   async function startCheckout(label, productId) {
     const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare`, {
       method: "POST",
@@ -51,7 +88,7 @@
         Authorization: `Bearer ${idToken}`
       },
       body: JSON.stringify({
-        items: [{ productId, quantity: 1 }],
+        items: [{ productId, quantity }],
         locale: "vn",
         processingMode: "trigger"
       })
@@ -68,9 +105,6 @@
   }
 
   async function pollRequest(label, requestId) {
-    const pollDelayMs = 400;
-    const maxAttempts = 20;
-
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, pollDelayMs));
 
@@ -97,24 +131,32 @@
   }
 
   const manualProductId = String(window.__TEST_PRODUCT_ID__ ?? "").trim()
-    || String(prompt("Nhap productId de test. Bam Cancel hoac de trong de tu dong chon.") ?? "").trim();
+    || String(window.__DUPLICATE_CHECKOUT_PRODUCT_ID__ ?? "").trim()
+    || defaultProductId;
   const productId = (manualProductId || await pickProductId()).replace(/^PRODUCT#/i, "");
+  const productBefore = await getProduct(productId);
 
   console.log("[duplicate-checkout-test] apiBaseUrl =", apiBaseUrl);
   console.log("[duplicate-checkout-test] productId =", productId);
+  console.log("[duplicate-checkout-test] product before =", {
+    id: productBefore.id,
+    name: productBefore.name,
+    stock: productBefore.stock,
+    status: productBefore.status,
+    isLocked: productBefore.isLocked,
+    lockedUntil: productBefore.lockedUntil
+  });
+  console.log("[duplicate-checkout-test] requestCount =", requestCount);
+  console.log("[duplicate-checkout-test] quantity =", quantity);
   console.log("[duplicate-checkout-test] mode = trigger (no artificial delay)");
 
-  const [requestIdA, requestIdB] = await Promise.all([
-    startCheckout("request-A", productId),
-    startCheckout("request-B", productId)
-  ]);
+  const labels = Array.from({ length: requestCount }, (_, index) => `request-${index + 1}`);
+  const requestIds = await Promise.all(labels.map((label) => startCheckout(label, productId)));
 
-  console.log("[duplicate-checkout-test] request ids =", { requestIdA, requestIdB });
+  console.log("[duplicate-checkout-test] request ids =", Object.fromEntries(labels.map((label, index) => [label, requestIds[index]])));
 
-  const results = await Promise.all([
-    pollRequest("request-A", requestIdA),
-    pollRequest("request-B", requestIdB)
-  ]);
+  const results = await Promise.all(labels.map((label, index) => pollRequest(label, requestIds[index])));
+  const productAfter = await getProduct(productId);
 
   console.table(results.map((item) => ({
     label: item.label,
@@ -122,6 +164,22 @@
     status: item.status,
     message: item.payload?.message ?? ""
   })));
+  console.table([{
+    productId,
+    beforeStock: productBefore.stock,
+    afterStock: productAfter.stock,
+    beforeStatus: productBefore.status,
+    afterStatus: productAfter.status,
+    afterIsLocked: productAfter.isLocked,
+    allowedCount: results.filter((item) => item.status === "allowed").length,
+    blockedCount: results.filter((item) => item.status === "blocked").length
+  }]);
 
-  return results;
+  window.__LAST_DUPLICATE_CHECKOUT_RESULTS__ = {
+    productBefore,
+    productAfter,
+    results
+  };
+
+  return window.__LAST_DUPLICATE_CHECKOUT_RESULTS__;
 })();
