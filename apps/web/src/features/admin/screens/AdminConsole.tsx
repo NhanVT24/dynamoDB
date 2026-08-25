@@ -67,8 +67,8 @@ function PasswordField({
       <button
         type="button"
         onClick={() => setVisible((current) => !current)}
-        aria-label={visible ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-        title={visible ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+        aria-label={visible ? "Hide password" : "Show password"}
+        title={visible ? "Hide password" : "Show password"}
         className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
       >
         {visible ? (
@@ -321,7 +321,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
         type="button"
         onClick={() => setOpen((current) => !current)}
         className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
-        aria-label="Mở thông báo admin"
+        aria-label="open admin notifications"
       >
         <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M15 18H5.5a1 1 0 0 1-.8-1.6l1.3-1.7V10a6 6 0 1 1 12 0v4.7l1.3 1.7a1 1 0 0 1-.8 1.6H15" />
@@ -346,8 +346,8 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
         >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold">Thông báo quản trị</p>
-              <p className="text-xs text-slate-500">{pendingCount} chưa đọc</p>
+              <p className="text-sm font-semibold">Admin Notifications</p>
+              <p className="text-xs text-slate-500">{pendingCount} unread</p>
             </div>
             <div className="flex shrink-0 gap-2">
               <button
@@ -356,7 +356,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
                 onClick={() => void markAllAsRead()}
                 className="rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-200 disabled:opacity-50"
               >
-                Đọc hết
+                Mark All as Read
               </button>
               <button
                 type="button"
@@ -372,7 +372,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
           <div className="mt-3 max-h-[26rem] space-y-3 overflow-y-auto pr-1">
             {notifications.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
-                Chưa có thông báo nào cho admin.
+                No notifications available for admin.
               </div>
             ) : notifications.map((item) => {
               const alertLevel = String(item.metadata?.alertLevel ?? "");
@@ -386,7 +386,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
             <div className="min-w-0 flex-1">
                       <p className={`text-sm font-semibold ${item.isRead ? "text-slate-500" : "text-slate-900"}`}>{item.title}</p>
                       <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                        {isCritical ? "Hết hàng" : "Sắp hết hàng"} {item.createdAt ? `· ${formatNotificationTime(item.createdAt)}` : ""}
+                        {isCritical ? "Out of Stock" : "Low Inventory"} {item.createdAt ? `· ${formatNotificationTime(item.createdAt)}` : ""}
                       </p>
                     </div>
                     {!item.isRead ? <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-rose-500" /> : null}
@@ -399,7 +399,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
                         onClick={() => void markAsRead(item.id)}
                         className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100"
                       >
-                        Đánh dấu đã đọc
+                        Mark as Read
                       </button>
                     ) : null}
                     <button
@@ -407,7 +407,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
                       onClick={() => void removeNotification(item.id, Boolean(item.isRead))}
                       className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-100"
                     >
-                      Xóa
+                      Delete
                     </button>
                   </div>
                 </article>
@@ -469,7 +469,7 @@ export default function Home() {
 
   useEffect(() => {
     if (searchParams.get("auth") === "insufficient-role") {
-      setMessage("Tài khoản hiện tại đã đăng nhập nhưng không thuộc nhóm admin, nên không thể vào màn quản trị.");
+      setMessage("The current account is logged in but does not belong to the admin group, so it cannot access the admin panel.");
     }
   }, [searchParams]);
 
@@ -484,7 +484,7 @@ export default function Home() {
     }
 
     if (session.role !== "admin") {
-      setMessage(`Tài khoản ${session.email} đang có quyền ${session.role}. Muốn vào admin, hãy đăng nhập bằng user thuộc group admin.`);
+      setMessage(`The account ${session.email} has the role ${session.role}. To access the admin panel, please log in with a user from the admin group.`);
     }
   }, [ready, router, session]);
 
@@ -509,15 +509,12 @@ export default function Home() {
   }, [resendCountdown]);
 
   function handleLogout() {
-    clearAuthSession();
-    setSession(null);
-    setMessage("Đã đăng xuất.");
-    setAuthMode("login");
-    router.replace("/");
+    // Do not notify this mounted admin screen, otherwise it briefly renders its login fallback.
+    signOutLocally({ notify: false });
+    window.location.replace("/store");
   }
 
   function handleHostedLogout() {
-    signOutLocally();
     handleLogout();
   }
 
@@ -525,13 +522,13 @@ export default function Home() {
     const lowered = message.toLowerCase();
 
     if (
-      lowered.includes("thất bại") ||
-      lowered.includes("không") ||
-      lowered.includes("sai") ||
-      lowered.includes("hết hạn") ||
-      lowered.includes("khớp") ||
-      lowered.includes("đã được đăng ký") ||
-      lowered.includes("không thuộc nhóm admin")
+      lowered.includes("failed") ||
+      lowered.includes("not") ||
+      lowered.includes("incorrect") ||
+      lowered.includes("expired") ||
+      lowered.includes("mismatch") ||
+      lowered.includes("already registered") ||
+      lowered.includes("does not belong to the admin group")
     ) {
       return "border-rose-200 bg-rose-50 text-rose-700";
     }
@@ -545,7 +542,7 @@ export default function Home() {
 
     try {
       if (!loginEmail.trim() || !loginPassword.trim()) {
-        throw new Error("Hãy nhập đầy đủ email và mật khẩu.");
+        throw new Error("Please enter both email and password.");
       }
 
       const nextSession = await signInWithCognito({
@@ -561,11 +558,11 @@ export default function Home() {
       }
       setMessage(
         nextSession.role === "admin"
-          ? "Đăng nhập admin thành công."
-          : `Đăng nhập thành công nhưng tài khoản hiện tại có quyền ${nextSession.role}, chưa đủ để vào admin.`
+          ? "Successfully logged in as admin."
+          : `Successfully logged in but the current account has the role ${nextSession.role}, which is not sufficient to access the admin panel.`
       );
     } catch (error) {
-      const text = error instanceof Error ? error.message : "Đăng nhập thất bại";
+      const text = error instanceof Error ? error.message : "Failed to log in";
       setMessage(text);
 
       if (/xác nhận|confirm/i.test(text)) {
@@ -583,11 +580,11 @@ export default function Home() {
 
     try {
       if (registerPassword.length < 8) {
-        throw new Error("Mật khẩu cần ít nhất 8 ký tự.");
+        throw new Error("Password must be at least 8 characters long.");
       }
 
       if (registerPassword !== registerConfirmPassword) {
-        throw new Error("Mật khẩu xác nhận không khớp.");
+        throw new Error("The confirmation password does not match.");
       }
 
       await signUpWithCognito({
@@ -601,9 +598,9 @@ export default function Home() {
       setLoginPassword(registerPassword);
       setResendCountdown(60);
       setAuthMode("confirm");
-      setMessage("Tạo tài khoản thành công. Hãy kiểm tra email để lấy mã xác nhận.");
+      setMessage("Successfully created account. Please check your email for the confirmation code.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Đăng ký thất bại");
+      setMessage(error instanceof Error ? error.message : "Failed to create account");
     } finally {
       setIsSubmitting(false);
     }
@@ -615,7 +612,7 @@ export default function Home() {
 
     try {
       if (!confirmCode.trim()) {
-        throw new Error("Hãy nhập mã xác nhận.");
+        throw new Error("Please enter the confirmation code.");
       }
 
       await confirmSignUpWithCognito({
@@ -625,9 +622,9 @@ export default function Home() {
 
       setResendCountdown(0);
       setAuthMode("login");
-      setMessage("Xác nhận tài khoản thành công. Bạn có thể đăng nhập ngay.");
+      setMessage("Successfully confirmed account. You can log in now.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Xác nhận tài khoản thất bại");
+      setMessage(error instanceof Error ? error.message : "Failed to confirm account");
     } finally {
       setIsSubmitting(false);
     }
@@ -639,14 +636,14 @@ export default function Home() {
 
     try {
       if (!forgotEmail.trim()) {
-        throw new Error("Hãy nhập email để nhận mã đặt lại mật khẩu.");
+        throw new Error("Please enter your email to receive the password reset code.");
       }
 
       await forgotPassword(forgotEmail);
       setAuthMode("reset");
-      setMessage("Đã gửi mã đặt lại mật khẩu tới email của bạn.");
+      setMessage("The password reset code has been sent to your email.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể bắt đầu đặt lại mật khẩu");
+      setMessage(error instanceof Error ? error.message : "Failed to initiate password reset");
     } finally {
       setIsSubmitting(false);
     }
@@ -658,15 +655,15 @@ export default function Home() {
 
     try {
       if (resetPassword.length < 8) {
-        throw new Error("Mật khẩu mới cần ít nhất 8 ký tự.");
+        throw new Error("New password must be at least 8 characters long.");
       }
 
       if (resetPassword !== resetConfirmPassword) {
-        throw new Error("Mật khẩu xác nhận không khớp.");
+        throw new Error("The confirmation password does not match.");
       }
 
       if (resetPassword === loginPassword && forgotEmail.trim().toLowerCase() === loginEmail.trim().toLowerCase()) {
-        throw new Error("Mật khẩu mới không nên giống mật khẩu cũ vừa sử dụng.");
+        throw new Error("The new password should not be the same as the previous password.");
       }
 
       await confirmForgotPassword({
@@ -678,9 +675,9 @@ export default function Home() {
       setAuthMode("login");
       setLoginEmail(forgotEmail);
       setLoginPassword("");
-      setMessage("Đã cập nhật mật khẩu. Hãy đăng nhập bằng mật khẩu mới.");
+      setMessage("Successfully updated password. Please log in with your new password.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Đặt lại mật khẩu thất bại");
+      setMessage(error instanceof Error ? error.message : "Failed to reset password");
     } finally {
       setIsSubmitting(false);
     }
@@ -696,9 +693,9 @@ export default function Home() {
     try {
       await resendConfirmationCode(confirmEmail);
       setResendCountdown(60);
-      setMessage("Đã gửi lại mã xác nhận mới.");
+      setMessage("The confirmation code has been sent again.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể gửi lại mã xác nhận");
+      setMessage(error instanceof Error ? error.message : "Failed to resend confirmation code");
     } finally {
       setIsSubmitting(false);
     }
@@ -723,11 +720,11 @@ export default function Home() {
         <section className="mx-auto w-full max-w-md rounded-[28px] border border-white/80 bg-white/95 p-6 shadow-[0_30px_100px_rgba(15,23,42,0.12)] backdrop-blur">
           <div className="mb-5 text-center">
             <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
-              {authMode === "login" && "Đăng nhập"}
-              {authMode === "register" && "Tạo tài khoản"}
-              {authMode === "confirm" && "Xác nhận email"}
-              {authMode === "forgot" && "Quên mật khẩu"}
-              {authMode === "reset" && "Đặt lại mật khẩu"}
+              {authMode === "login" && "Log in"}
+              {authMode === "register" && "Create account"}
+              {authMode === "confirm" && "Confirm email"}
+              {authMode === "forgot" && "Forgot password"}
+              {authMode === "reset" && "Reset password"}
             </h2>
             <p className={`mt-3 rounded-2xl border px-4 py-3 text-left text-sm ${renderMessageTone()}`}>{message}</p>
             {session && session.role !== "admin" ? (
@@ -737,14 +734,14 @@ export default function Home() {
                   onClick={() => router.push("/")}
                   className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
-                  Về trang chủ
+                  Back to home
                 </button>
                 <button
                   type="button"
                   onClick={handleHostedLogout}
                   className="inline-flex h-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
                 >
-                  Đăng xuất để đổi tài khoản
+                  Log out to switch accounts
                 </button>
               </div>
             ) : null}
@@ -759,11 +756,11 @@ export default function Home() {
                     <input className={inputClassName} type="email" placeholder="admin@example.com" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required />
                   </label>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Mật khẩu</span>
+                    <span>Password</span>
                     <PasswordField
                       value={loginPassword}
                       onChange={setLoginPassword}
-                      placeholder="Nhập mật khẩu của bạn"
+                      placeholder="Enter your password"
                       autoComplete="current-password"
                     />
                   </label>
@@ -772,7 +769,7 @@ export default function Home() {
                     disabled={isSubmitting}
                     className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isSubmitting ? "Đang đăng nhập..." : "Đăng nhập"}
+                    {isSubmitting ? "Logging in..." : "Log in"}
                   </button>
                   <button
                     type="button"
@@ -785,7 +782,7 @@ export default function Home() {
                       <path fill="#FBBC05" d="M12 21.5c2.6 0 4.8-.9 6.4-2.5l-3-2.5c-.8.6-1.9 1-3.4 1-3.9 0-5.2-2.6-5.5-3.9l-3.2 2.5C4.6 19.2 8 21.5 12 21.5Z" />
                       <path fill="#34A853" d="M6.5 13.6c-.2-.6-.3-1.2-.3-1.8s.1-1.2.3-1.8L3.3 7.5C2.8 8.7 2.5 10.2 2.5 11.8s.3 3.1.8 4.3l3.2-2.5Z" />
                     </svg>
-                    <span>Đăng nhập với Google</span>
+                    <span>Log in with Google</span>
                   </button>
                 </form>
               ) : null}
@@ -793,40 +790,40 @@ export default function Home() {
               {authMode === "register" ? (
                 <form className="grid gap-4" onSubmit={handleRegister}>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Họ và tên</span>
-                    <input className={inputClassName} placeholder="Ví dụ: Nguyễn Văn A" value={registerName} onChange={(event) => setRegisterName(event.target.value)} />
+                    <span>Full name</span>
+                    <input className={inputClassName} placeholder="e.g., John Doe" value={registerName} onChange={(event) => setRegisterName(event.target.value)} />
                   </label>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
                     <span>Email</span>
                     <input className={inputClassName} type="email" placeholder="you@example.com" value={registerEmail} onChange={(event) => setRegisterEmail(event.target.value)} required />
                   </label>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Mật khẩu</span>
+                    <span>Password</span>
                     <PasswordField
                       value={registerPassword}
                       onChange={setRegisterPassword}
-                      placeholder="Ít nhất 8 ký tự, có chữ hoa, chữ thường và số"
+                      placeholder="At least 8 characters, with uppercase, lowercase and numbers"
                       autoComplete="new-password"
                     />
                   </label>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Xác nhận mật khẩu</span>
+                    <span>Confirm password</span>
                     <PasswordField
                       value={registerConfirmPassword}
                       onChange={setRegisterConfirmPassword}
-                      placeholder="Nhập lại mật khẩu để xác nhận"
+                      placeholder="Enter your password again"
                       autoComplete="new-password"
                     />
                   </label>
                   <p className="text-xs text-slate-500">
-                    Quy tắc mật khẩu: ít nhất 8 ký tự, có chữ hoa, chữ thường và số.
+                    Password rules: at least 8 characters, with uppercase, lowercase and numbers.
                   </p>
                   <button
                     type="submit"
                     disabled={isSubmitting}
                     className="inline-flex h-11 items-center justify-center rounded-xl bg-cyan-600 px-4 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isSubmitting ? "Đang tạo tài khoản..." : "Tạo tài khoản"}
+                    {isSubmitting ? "Creating account..." : "Create account"}
                   </button>
                 </form>
               ) : null}
@@ -838,15 +835,15 @@ export default function Home() {
                     <input className={inputClassName} type="email" placeholder="Email vừa đăng ký" value={confirmEmail} onChange={(event) => setConfirmEmail(event.target.value)} required />
                   </label>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Mã xác nhận</span>
-                    <input className={inputClassName} placeholder="Nhập mã gồm 6 chữ số từ email" value={confirmCode} onChange={(event) => setConfirmCode(event.target.value)} required />
+                    <span>Confirmation code</span>
+                    <input className={inputClassName} placeholder="Enter the 6-digit code from your email" value={confirmCode} onChange={(event) => setConfirmCode(event.target.value)} required />
                   </label>
                   <button
                     type="submit"
                     disabled={isSubmitting}
                     className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isSubmitting ? "Đang xác nhận..." : "Xác nhận tài khoản"}
+                    {isSubmitting ? "Confirming..." : "Confirm account"}
                   </button>
                   <button
                     type="button"
@@ -854,7 +851,7 @@ export default function Home() {
                     disabled={isSubmitting || resendCountdown > 0}
                     className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {resendCountdown > 0 ? `Gửi lại mã sau ${resendCountdown}s` : "Gửi lại mã"}
+                    {resendCountdown > 0 ? `Resend code in ${resendCountdown}s` : "Resend code"}
                   </button>
                 </form>
               ) : null}
@@ -863,14 +860,14 @@ export default function Home() {
                 <form className="grid gap-4" onSubmit={handleForgotPassword}>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
                     <span>Email</span>
-                    <input className={inputClassName} type="email" placeholder="Nhập email tài khoản của bạn" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
+                    <input className={inputClassName} type="email" placeholder="Enter your account's email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
                   </label>
                   <button
                     type="submit"
                     disabled={isSubmitting}
                     className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isSubmitting ? "Đang gửi mã..." : "Gửi mã đặt lại"}
+                    {isSubmitting ? "Sending code..." : "Send reset code"}
                   </button>
                 </form>
               ) : null}
@@ -879,27 +876,27 @@ export default function Home() {
                 <form className="grid gap-4" onSubmit={handleResetPassword}>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
                     <span>Email</span>
-                    <input className={inputClassName} type="email" placeholder="Email cần đặt lại mật khẩu" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
+                    <input className={inputClassName} type="email" placeholder="Enter your account's email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
                   </label>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Mã đặt lại</span>
-                    <input className={inputClassName} placeholder="Nhập mã đặt lại từ email" value={resetCode} onChange={(event) => setResetCode(event.target.value)} required />
+                    <span>Reset code</span>
+                    <input className={inputClassName} placeholder="Enter the reset code from your email" value={resetCode} onChange={(event) => setResetCode(event.target.value)} required />
                   </label>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Mật khẩu mới</span>
+                    <span>New password</span>
                     <PasswordField
                       value={resetPassword}
                       onChange={setResetPassword}
-                      placeholder="Tạo mật khẩu mới mạnh hơn mật khẩu cũ"
+                      placeholder="Create a stronger new password"
                       autoComplete="new-password"
                     />
                   </label>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Xác nhận mật khẩu mới</span>
+                    <span>Confirm new password</span>
                     <PasswordField
                       value={resetConfirmPassword}
                       onChange={setResetConfirmPassword}
-                      placeholder="Nhập lại mật khẩu mới"
+                      placeholder="Confirm your new password"
                       autoComplete="new-password"
                     />
                   </label>
@@ -908,7 +905,7 @@ export default function Home() {
                     disabled={isSubmitting}
                     className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isSubmitting ? "Đang cập nhật mật khẩu..." : "Cập nhật mật khẩu"}
+                    {isSubmitting ? "Updating password..." : "Update password"}
                   </button>
                 </form>
               ) : null}
@@ -920,7 +917,7 @@ export default function Home() {
                     onClick={() => setAuthMode("register")}
                     className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-cyan-200 bg-cyan-50 px-4 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-100"
                   >
-                    Tạo tài khoản
+                    Create account
                   </button>
                 ) : null}
                 {authMode !== "forgot" && authMode !== "reset" && authMode !== "register" && authMode !== "confirm" ? (
@@ -929,7 +926,7 @@ export default function Home() {
                     onClick={() => setAuthMode("forgot")}
                     className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                   >
-                    Quên mật khẩu
+                    Forgot password
                   </button>
                 ) : null}
                 {authMode !== "login" ? (
@@ -938,7 +935,7 @@ export default function Home() {
                     onClick={() => setAuthMode("login")}
                     className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                   >
-                    Quay lại đăng nhập
+                    Back to login
                   </button>
                 ) : null}
               </div>
@@ -966,7 +963,7 @@ export default function Home() {
                 onClick={handleHostedLogout}
                 className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
-                Đăng xuất
+                Logout
               </button>
             </div>
           )}

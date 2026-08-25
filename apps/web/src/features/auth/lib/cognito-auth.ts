@@ -83,7 +83,7 @@ function getCognitoRegion() {
 function getCognitoClientId() {
   const value = getRequiredEnv("NEXT_PUBLIC_COGNITO_CLIENT_ID", process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID);
   if (value.includes("your-cognito-client-id") || value.includes("replace-me")) {
-    throw new Error("Cognito Client ID đang là placeholder. Hãy cập nhật apps/web/.env.local bằng UserPoolClientId thật từ AWS.");
+    throw new Error("Cognito Client ID is not set. Please update apps/web/.env.local with your actual Cognito Client ID from AWS.");
   }
 
   return value;
@@ -102,7 +102,7 @@ function getCognitoDomain() {
       throw new Error("invalid");
     }
   } catch {
-    throw new Error("Cognito domain không hợp lệ. Hãy cập nhật apps/web/.env.local bằng CognitoHostedUiDomain thật từ AWS.");
+    throw new Error("Cognito domain is not valid. Please update apps/web/.env.local with your actual Cognito Hosted UI Domain from AWS.");
   }
 
   return normalized;
@@ -134,48 +134,48 @@ function mapCognitoError(target: string, error: CognitoErrorLike) {
   const rawMessage = String(error.message || "").trim();
 
   if (rawType === "UsernameExistsException") {
-    return "Email đã được sử dụng.";
+    return "Email has already been used.";
   }
 
   if (rawType === "UserNotFoundException") {
-    return "Không tìm thấy tài khoản với email này.";
+    return "No account found with this email.";
   }
 
   if (rawType === "UserNotConfirmedException") {
-    return "Tài khoản chưa xác nhận email. Hãy nhập mã xác nhận trước.";
+    return "Account not confirmed. Please enter confirmation code.";
   }
 
   if (rawType === "CodeMismatchException") {
-    return "Mã xác nhận không đúng.";
+    return "Confirmation code is incorrect.";
   }
 
   if (rawType === "ExpiredCodeException") {
-    return "Mã xác nhận đã hết hạn. Hãy gửi lại mã mới.";
+    return "Confirmation code has expired. Please request a new one.";
   }
 
   if (rawType === "AliasExistsException") {
-    return "Email này đã được gắn với một tài khoản khác.";
+    return "This email is already associated with another account.";
   }
 
   if (rawType === "LimitExceededException" || rawType === "TooManyRequestsException") {
-    return "Bạn thao tác quá nhanh. Hãy thử lại sau vài phút.";
+    return "You are making too many requests. Please try again in a few minutes.";
   }
 
   if (rawType === "PasswordHistoryPolicyViolationException") {
-    return "Mật khẩu mới không được trùng với mật khẩu cũ.";
+    return "The new password cannot be the same as the previous password.";
   }
 
   if (rawType === "InvalidPasswordException") {
-    return "Mật khẩu chưa đúng policy. Cần ít nhất 8 ký tự, gồm chữ hoa, chữ thường và số.";
+    return "The new password does not meet the policy requirements. It must be at least 8 characters long and include uppercase, lowercase, and numeric characters.";
   }
 
   if (rawType === "NotAuthorizedException") {
     if (target === "InitiateAuth") {
-      return "Email hoặc mật khẩu không chính xác. Hãy kiểm tra lại thông tin đăng nhập.";
+      return "Email or password is incorrect. Please check your login information.";
     }
 
     if (target === "ConfirmForgotPassword") {
-      return rawMessage || "Không thể đặt lại mật khẩu với thông tin hiện tại.";
+      return rawMessage || "Cannot reset password with current information.";
     }
   }
 
@@ -224,14 +224,16 @@ export function persistAuthSession(session: AuthSession) {
   dispatchAuthSessionChanged();
 }
 
-export function clearAuthSession() {
+export function clearAuthSession(options?: { notify?: boolean }) {
   window.localStorage.removeItem(sessionStorageKey);
-  dispatchAuthSessionChanged();
+  if (options?.notify !== false) {
+    dispatchAuthSessionChanged();
+  }
 }
 
-export function signOutLocally() {
+export function signOutLocally(options?: { notify?: boolean }) {
   clearPostLoginRedirect();
-  clearAuthSession();
+  clearAuthSession(options);
 }
 
 export function rememberPostLoginRedirect(path: string) {
@@ -285,7 +287,7 @@ export async function exchangeAuthorizationCodeForSession(code: string) {
   } | null;
 
   if (!response.ok || !payload?.access_token || !payload?.id_token || !payload?.expires_in) {
-    throw new Error(payload?.error_description || payload?.error || "Không thể đăng nhập bằng Google qua Cognito.");
+    throw new Error(payload?.error_description || payload?.error || "Cannot sign in with Google through Cognito.");
   }
 
   return buildSession({

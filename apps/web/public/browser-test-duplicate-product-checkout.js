@@ -17,13 +17,13 @@
     .find(Boolean);
 
   if (!authRaw) {
-    throw new Error("Khong tim thay session dang nhap trong localStorage.");
+    throw new Error("Not found any auth session in localStorage. Please login first.");
   }
 
   const auth = JSON.parse(authRaw);
   const idToken = String(auth?.idToken ?? "").trim();
   if (!idToken) {
-    throw new Error("Session hien tai khong co idToken.");
+    throw new Error("Session does not contain idToken. Please login first.");
   }
 
   async function pickProductId() {
@@ -35,13 +35,13 @@
     });
 
     if (!response.ok) {
-      throw new Error(`Khong the lay danh sach san pham, status=${response.status}.`);
+      throw new Error(`Cannot fetch product list, status=${response.status}.`);
     }
 
     const payload = await response.json();
     const product = (payload.items ?? []).find((item) => Number(item.stock ?? 0) >= 1 && !item.isLocked);
     if (!product?.id) {
-      throw new Error("Khong tim thay san pham nao con ton kho va chua bi reserve.");
+      throw new Error("Not found any product with available stock and not reserved.");
     }
 
     console.log("[duplicate-checkout-test] auto-picked product =", product);
@@ -77,7 +77,7 @@
       });
     }
 
-    throw new Error(payload?.message || `Khong the lay thong tin san pham ${productId}.`);
+    throw new Error(payload?.message || `Cannot fetch product information for ${productId}.`);
   }
 
   async function startCheckout(label, productId) {
@@ -98,7 +98,7 @@
     console.log(`[duplicate-checkout-test] ${label} prepare =`, response.status, payload);
 
     if (!response.ok || !payload?.requestId) {
-      throw new Error(`${label}: ${payload?.message || "Khong tao duoc checkout gate request."}`);
+      throw new Error(`${label}: ${payload?.message || "Cannot create checkout gate request."}`);
     }
 
     return String(payload.requestId);
@@ -127,7 +127,7 @@
       }
     }
 
-    throw new Error(`${label}: Polling qua ${maxAttempts} lan nhung request ${requestId} van chua ra allowed/blocked.`);
+    throw new Error(`${label}: Polling exceeded ${maxAttempts} attempts for request ${requestId}.`);
   }
 
   const manualProductId = String(window.__TEST_PRODUCT_ID__ ?? "").trim()

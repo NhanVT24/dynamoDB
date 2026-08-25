@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { authSessionChangedEvent, readAuthSession, type AuthSession } from "../../lib/cognito-auth";
 import { useStorefront } from "../store-client";
-import { fetchStorefrontProductById } from "../store-api";
+import { fetchStorefrontProducts } from "../store-api";
 import { formatCurrency } from "../store-utils";
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
@@ -352,21 +352,6 @@ export default function CheckoutPage() {
         return;
       }
 
-      // Cart entries are persisted locally, so revalidate them before a user
-      // can start checkout after another customer reserves the last units.
-      const currentProducts = await Promise.all(items.map(async (item) => ({
-        item,
-        product: await fetchStorefrontProductById(item.productId)
-      })));
-      const unavailableItems = currentProducts.filter(({ item, product }) => (
-        product.isLocked || product.status === "out_of_stock" || product.stock < item.quantity
-      ));
-      if (unavailableItems.length > 0) {
-        unavailableItems.forEach(({ item }) => removeItem(item.variantId));
-        setError("Some items in your cart were reserved or sold out and have been removed. Please review your cart before checking out.");
-        return;
-      }
-
       setIsSubmitting(true);
       setIsRedirectingToPayment(false);
       isCreatingPaymentSessionRef.current = false;
@@ -375,6 +360,23 @@ export default function CheckoutPage() {
       resetFailureRedirect();
       setGateRequestId("");
       setGateStatus("idle");
+      setGateMessage("Checking current availability in your cart...");
+
+      // Cart entries are persisted locally, so revalidate them before a user
+      // can start checkout after another customer reserves the last units.
+      const productCatalog = await fetchStorefrontProducts({ limit: "240" });
+      const productsById = new Map(productCatalog.items.map((product) => [product.id, product]));
+      const unavailableItems = items.filter((item) => {
+        const product = productsById.get(item.productId);
+        return !product || product.isLocked || product.status === "out_of_stock" || product.stock < item.quantity;
+      });
+      if (unavailableItems.length > 0) {
+        unavailableItems.forEach((item) => removeItem(item.variantId));
+        setIsSubmitting(false);
+        setError("Some items in your cart were reserved or sold out and have been removed. Please review your cart before checking out.");
+        return;
+      }
+
       setGateMessage("Preparing your checkout request and sending it to the product gate queue.");
       const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare`, {
         method: "POST",

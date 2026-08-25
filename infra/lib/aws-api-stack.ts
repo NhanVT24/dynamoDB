@@ -1315,6 +1315,15 @@ exports.handler = async (event) => {
       authorizationType: apigateway.AuthorizationType.NONE
     });
 
+    const uploadsResource = apiResource.addResource("uploads");
+    uploadsResource.addMethod("ANY", httpIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+    const uploadsProxyResource = uploadsResource.addResource("{proxy+}");
+    uploadsProxyResource.addMethod("ANY", httpIntegration, {
+      authorizationType: apigateway.AuthorizationType.NONE
+    });
+
     const paymentsResource = apiResource.addResource("payments");
     const vnpayResource = paymentsResource.addResource("vnpay");
     vnpayResource.addMethod("ANY", httpIntegration, {

@@ -200,6 +200,10 @@ function isInsufficientStockError(error: unknown) {
   return error instanceof Error && error.message.startsWith("Insufficient stock for ");
 }
 
+function hasPhysicalStock(item: Record<string, unknown>) {
+  return Number(item.stock ?? 0) > 0;
+}
+
 function shouldProcessCommerceQueuesInline() {
   if (env.STOREFRONT_SYNC_QUEUE_PROCESSING) {
     return true;
@@ -234,7 +238,8 @@ export class StorefrontService {
     const result = await listStorefrontProducts(query);
 
     const shaped = {
-      items: result.items.map((item) => toPublicProductSummary(item)),
+      // Sold-out products remain available to admin tools but not shoppers.
+      items: result.items.filter(hasPhysicalStock).map((item) => toPublicProductSummary(item)),
       pageInfo: {
         limit: result.limit,
         cursor: result.cursor,
@@ -248,7 +253,7 @@ export class StorefrontService {
 
   async getProductById(id: string) {
     const item = await getStorefrontProductById(id);
-    if (!item) {
+    if (!item || !hasPhysicalStock(item)) {
       throw new NotFoundException("Không tìm thấy sản phẩm.");
     }
 

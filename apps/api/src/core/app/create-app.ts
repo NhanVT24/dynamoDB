@@ -73,6 +73,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const isStorefrontCheckoutPrepareMutation = method === "POST" && url === "/api/storefront/checkout/prepare";
     const isStorefrontCheckoutPaymentSessionMutation = method === "POST" && url === "/api/storefront/checkout/payment-session";
     const isStorefrontCheckoutCancelMutation = method === "POST" && url === "/api/storefront/checkout/cancel";
+    const isAvatarUploadPresignMutation = method === "POST" && url === "/api/uploads/avatar/presign";
     const isVnpayFailureTestMutation = method === "POST" && url === "/api/payments/vnpay/test/fail";
     const isPublicVnpayRequest =
       url === "/api/payments/vnpay" ||
@@ -131,6 +132,19 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       reply.status(403).send({
         statusCode: 403,
         message: "Chỉ tài khoản customer hoặc admin mới được hủy lượt checkout."
+      });
+      return;
+    }
+
+    if (isAvatarUploadPresignMutation) {
+      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      if (principal) {
+        return;
+      }
+
+      reply.status(403).send({
+        statusCode: 403,
+        message: "You need to sign in before uploading an avatar."
       });
       return;
     }

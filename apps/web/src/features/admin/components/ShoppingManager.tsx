@@ -705,7 +705,7 @@ export default function ShoppingManager({
 
   function startEdit(item: ProductItem) {
     if (isViewerOnly) {
-      setMessage("Tài khoản xem-only không được chỉnh sửa sản phẩm.");
+      setMessage("account does not have permission to edit products");
       return;
     }
 
@@ -726,7 +726,7 @@ export default function ShoppingManager({
 
   async function uploadProductImage(file: File) {
     if (!file.type.startsWith("image/")) {
-      throw new Error("Chỉ hỗ trợ tải lên tệp hình ảnh.");
+      throw new Error("Only image files are supported.");
     }
 
     const presignResponse = await fetch(`${apiUrl}/api/uploads/presign`, {
@@ -740,7 +740,7 @@ export default function ShoppingManager({
     });
 
     if (!presignResponse.ok) {
-      throw new Error(await logApiFailure(presignResponse, "Không thể tạo liên kết tải ảnh", "uploadProductImage:presign"));
+      throw new Error(await logApiFailure(presignResponse, "Cannot create image upload link", "uploadProductImage:presign"));
     }
 
     const presignData = await presignResponse.json() as PresignedUploadResponse;
@@ -753,7 +753,7 @@ export default function ShoppingManager({
     });
 
     if (!uploadResponse.ok) {
-      throw new Error(`Tải ảnh lên S3 thất bại với mã ${uploadResponse.status}.`);
+      throw new Error(`Upload to S3 failed with status ${uploadResponse.status}.`);
     }
 
     return presignData.fileUrl;
@@ -769,9 +769,9 @@ export default function ShoppingManager({
     try {
       const fileUrl = await uploadProductImage(file);
       updateField("imageUrl", fileUrl);
-      setMessage(editingId ? "Đã thay ảnh sản phẩm thành công." : "Đã thêm ảnh sản phẩm thành công.");
+      setMessage(editingId ? "Successfully updated product image." : "Successfully added product image.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Tải ảnh thất bại.");
+      setMessage(error instanceof Error ? error.message : "Failed to upload image.");
     } finally {
       setImageBusy(false);
       event.target.value = "";
@@ -870,7 +870,7 @@ export default function ShoppingManager({
 
   async function updateStock(item: ProductItem, incrementBy: number) {
     if (isViewerOnly) {
-      setMessage("Tài khoản xem-only không được cập nhật tồn kho.");
+      setMessage("Account does not have permission to update stock.");
       return;
     }
 
@@ -900,7 +900,7 @@ export default function ShoppingManager({
     event.preventDefault();
 
     if (isViewerOnly) {
-      setMessage("Tài khoản xem-only không được tạo hoặc cập nhật sản phẩm.");
+      setMessage("Account does not have permission to create or update products.");
       return;
     }
 
@@ -983,7 +983,7 @@ export default function ShoppingManager({
 
   function requestDelete(item: ProductItem) {
     if (isViewerOnly) {
-      setMessage("Tài khoản xem-only không được xóa sản phẩm.");
+      setMessage("account does not have permission to delete products");
       return;
     }
 
@@ -997,7 +997,7 @@ export default function ShoppingManager({
 
   async function removeItem(item: ProductItem) {
     if (isViewerOnly) {
-      setMessage("Tài khoản xem-only không được xóa sản phẩm.");
+      setMessage("Account does not have permission to delete products");
       return;
     }
 
@@ -1089,7 +1089,7 @@ export default function ShoppingManager({
 
       {isViewerOnly ? (
         <section className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800" style={panelStyle}>
-          Tài khoản này đang ở chế độ xem-only. Bạn vẫn xem được danh sách sản phẩm, nhưng không thể tạo, sửa, xóa hoặc cập nhật tồn kho.
+          This account does not have permission to manage products. You can view the product list, but you cannot create, edit, or delete products.
         </section>
       ) : null}
 
@@ -1338,7 +1338,7 @@ export default function ShoppingManager({
                 Viewer Mode
               </h2>
               <p className="mt-1 text-sm text-slate-500" style={{ margin: "4px 0 0", fontSize: "14px", color: "#64748b" }}>
-                Tài khoản này chỉ được xem dữ liệu. Muốn quản trị sản phẩm, hãy đăng nhập bằng user thuộc group `admin` trong Cognito.
+                This account does not have permission to create or edit products. You can view the product list, but you cannot make any changes.
               </p>
             </div>
           </section>
@@ -1438,9 +1438,9 @@ export default function ShoppingManager({
           <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-slate-900">Ảnh sản phẩm</div>
+                <div className="text-sm font-semibold text-slate-900">Product Image</div>
                 <p className="mt-1 text-sm text-slate-500">
-                  {editingId ? "Có thể thay ảnh mới trong lúc chỉnh sửa sản phẩm." : "Tải ảnh lên để sản phẩm hiển thị đẹp hơn trên storefront."}
+                  {editingId ? "You can upload a new image while editing the product." : "Upload an image to make the product display better on the storefront."}
                 </p>
               </div>
               <button
@@ -1449,7 +1449,7 @@ export default function ShoppingManager({
                 disabled={busy || imageBusy}
                 className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {imageBusy ? "Đang tải..." : editingId ? "Thay ảnh" : "Thêm ảnh"}
+                {imageBusy ? "Uploading..." : editingId ? "Replace Image" : "Add Image"}
               </button>
             </div>
 
@@ -1470,7 +1470,7 @@ export default function ShoppingManager({
                 />
               ) : (
                 <div className="flex h-[180px] items-center justify-center px-4 text-center text-sm text-slate-500">
-                  Chưa có ảnh nào được chọn. Nhấn {editingId ? "\"Thay ảnh\"" : "\"Thêm ảnh\""} để tải ảnh lên S3.
+                  No image selected. Click {editingId ? "\"Replace Image\"" : "\"Add Image\""} to upload an image to S3.
                 </div>
               )}
             </div>

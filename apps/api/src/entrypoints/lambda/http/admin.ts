@@ -6,6 +6,7 @@ export const handler = createHttpHandler({
   rewritablePrefixes: [
     "/api/storefront",
     "/api/products",
+    "/api/uploads",
     "/api/notifications",
     "/api/payments/vnpay"
   ]

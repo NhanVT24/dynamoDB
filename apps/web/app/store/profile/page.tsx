@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { readAuthSession } from "../../lib/cognito-auth";
 import { useStorefront } from "../store-client";
 import { fetchMyOrders } from "../store-api";
@@ -122,6 +122,13 @@ function makeInitials(name: string, email: string) {
   return parts.map((part) => part.charAt(0).toUpperCase()).join("") || "NX";
 }
 
+const avatarStoragePrefix = "web-storefront-avatar-";
+  const avatarUploadEndpoint = "/api/lambda-proxy/api/uploads/avatar/presign";
+
+function avatarStorageKey(email: string) {
+  return `${avatarStoragePrefix}${email.trim().toLowerCase()}`;
+}
+
 export default function StoreProfilePage() {
   const { theme } = useStorefront();
   const isDark = theme === "dark";
@@ -129,10 +136,14 @@ export default function StoreProfilePage() {
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const currentSession = readAuthSession();
     setSession(currentSession);
+    setAvatarUrl(currentSession ? window.localStorage.getItem(avatarStorageKey(currentSession.email)) ?? "" : "");
 
     let cancelled = false;
 
@@ -182,6 +193,46 @@ export default function StoreProfilePage() {
   }, [orders]);
 
   const recentOrders = orders.slice(0, 4);
+
+  async function uploadAvatar(file: File | undefined) {
+    if (!file || !session) return;
+    if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(file.type) || file.size > 5 * 1024 * 1024) {
+      setError("Please choose a JPG, PNG, or WebP image up to 5 MB.");
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    setError("");
+    try {
+      const presignResponse = await fetch(avatarUploadEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.idToken}`
+        },
+        body: JSON.stringify({ fileName: file.name, contentType: file.type, scope: "avatars" })
+      });
+      const presign = await presignResponse.json().catch(() => null) as { uploadUrl?: string; fileUrl?: string; message?: string } | null;
+      if (!presignResponse.ok || !presign?.uploadUrl || !presign.fileUrl) {
+        throw new Error(presign?.message || "Could not prepare avatar upload.");
+      }
+
+      const uploadResponse = await fetch(presign.uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file
+      });
+      if (!uploadResponse.ok) throw new Error("Could not upload avatar to S3.");
+
+      window.localStorage.setItem(avatarStorageKey(session.email), presign.fileUrl);
+      setAvatarUrl(presign.fileUrl);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Could not upload avatar.");
+    } finally {
+      setIsUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  }
 
   if (isLoading) {
     return <ProfileSkeleton isDark={isDark} />;
@@ -259,8 +310,14 @@ export default function StoreProfilePage() {
               }`}
             >
               <div className="flex items-center gap-4">
-                <div className="grid h-20 w-20 place-items-center rounded-[1.6rem] bg-gradient-to-br from-slate-950 via-orange-500 to-pink-500 text-2xl font-bold tracking-[0.18em] text-white">
-                  {initials}
+                <div className="flex shrink-0 flex-col items-center gap-2">
+                  <div className="h-28 w-28 overflow-hidden rounded-[2rem] bg-gradient-to-br from-slate-950 via-orange-500 to-pink-500 text-3xl font-bold tracking-[0.18em] text-white shadow-[0_18px_40px_-22px_rgba(249,115,22,0.85)]">
+                    {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center">{initials}</div>}
+                  </div>
+                  <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isUploadingAvatar} className={`rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${isDark ? "bg-white/10 text-white" : "bg-slate-900 text-white"} disabled:opacity-60`}>
+                    {isUploadingAvatar ? "Uploading" : "Change photo"}
+                  </button>
+                  <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => void uploadAvatar(event.target.files?.[0])} />
                 </div>
                 <div className="min-w-0">
                   <p className={`truncate text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{session.name}</p>
