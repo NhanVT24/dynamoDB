@@ -1,15 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { authSessionChangedEvent, readAuthSession, type AuthSession } from "../../lib/cognito-auth";
 import { useStorefront } from "../store-client";
+import { fetchStorefrontProductById } from "../store-api";
 import { formatCurrency } from "../store-utils";
 
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
+const resumeCheckoutAfterLoginStorageKey = "web-storefront-resume-checkout-after-login";
 const checkoutGatePollIntervalMs = 1000;
-const checkoutGateMaxPollAttempts = 15;
+// SQS/EventBridge Pipes can take up to a long-poll cycle before invoking the
+// worker, so a 15-second UI timeout can expire while a valid request is queued.
+const checkoutGateMaxPollAttempts = 40;
 const failedRedirectDelaySeconds = 15;
 
 type PrepareCheckoutResponse = {
@@ -43,7 +47,7 @@ type CancelCheckoutResponse = {
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { items, subtotal, shipping, total, theme, openAuthModal } = useStorefront();
+  const { items, subtotal, shipping, total, theme, openAuthModal, removeItem } = useStorefront();
   const isDark = theme === "dark";
   const [session, setSession] = useState<AuthSession | null>(null);
   const [hasHydrated, setHasHydrated] = useState(false);
@@ -55,6 +59,10 @@ export default function CheckoutPage() {
   const [gateMessage, setGateMessage] = useState("");
   const [redirectCountdown, setRedirectCountdown] = useState(0);
   const [shouldRedirectHome, setShouldRedirectHome] = useState(false);
+  const hasResumedCheckoutAfterLoginRef = useRef(false);
+  const isPollingGateRef = useRef(false);
+  const isCreatingPaymentSessionRef = useRef(false);
+  const lastLoggedGateStatusRef = useRef("");
 
   const isFailureOverlayVisible = !isSubmitting && gateStatus === "blocked" && Boolean(error) && redirectCountdown > 0;
 
@@ -171,10 +179,30 @@ export default function CheckoutPage() {
     router.push("/store");
   }, [router, shouldRedirectHome]);
 
+  useEffect(() => {
+    if (!hasHydrated || !session?.idToken || hasResumedCheckoutAfterLoginRef.current) {
+      return;
+    }
+
+    if (window.sessionStorage.getItem(resumeCheckoutAfterLoginStorageKey) !== "1") {
+      return;
+    }
+
+    hasResumedCheckoutAfterLoginRef.current = true;
+    window.sessionStorage.removeItem(resumeCheckoutAfterLoginStorageKey);
+    void handleCheckout();
+  }, [hasHydrated, session?.idToken]);
+
   async function createPaymentSessionAndRedirect(requestId: string) {
     if (!session?.idToken) {
       throw new Error("Your payment is expired. Please sign in again to continue checkout.");
     }
+
+    if (isCreatingPaymentSessionRef.current) {
+      return;
+    }
+    isCreatingPaymentSessionRef.current = true;
+    console.info("[checkout] payment_session_started", { requestId });
 
     setIsRedirectingToPayment(true);
     setGateMessage("Completing verification and redirecting to VNPay...");
@@ -188,6 +216,12 @@ export default function CheckoutPage() {
       body: JSON.stringify({ requestId })
     });
     const payload = (await response.json().catch(() => null)) as CheckoutPaymentSessionResponse | null;
+    console.info("[checkout] payment_session_response", {
+      requestId,
+      statusCode: response.status,
+      hasPaymentUrl: Boolean(payload?.paymentUrl),
+      message: payload?.message ?? ""
+    });
     if (!response.ok || !payload?.paymentUrl) {
       throw new Error(payload?.message || "Cannot create VNPay payment session at this time.");
     }
@@ -217,6 +251,11 @@ export default function CheckoutPage() {
     let attempts = 0;
 
     async function pollGateStatus() {
+      if (isPollingGateRef.current || cancelled) {
+        return;
+      }
+
+      isPollingGateRef.current = true;
       attempts += 1;
       try {
         const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare/${gateRequestId}`, {
@@ -227,10 +266,31 @@ export default function CheckoutPage() {
         });
         const payload = (await response.json().catch(() => null)) as CheckoutGateStatusResponse | null;
         if (!response.ok || !payload?.status || cancelled) {
+          console.warn("[checkout] gate_status_unavailable", {
+            requestId: gateRequestId,
+            attempt: attempts,
+            statusCode: response.status
+          });
           return;
         }
 
+        console.info("[checkout] gate_status_response", {
+          requestId: gateRequestId,
+          attempt: attempts,
+          status: payload.status,
+          message: payload.message || ""
+        });
+
         setGateMessage(payload.message || "");
+        if (payload.status !== lastLoggedGateStatusRef.current || attempts % 5 === 0) {
+          console.info("[checkout] gate_status", {
+            requestId: gateRequestId,
+            attempt: attempts,
+            status: payload.status,
+            message: payload.message || ""
+          });
+          lastLoggedGateStatusRef.current = payload.status;
+        }
 
         if (payload.status === "allowed") {
           setGateStatus("allowed");
@@ -246,16 +306,20 @@ export default function CheckoutPage() {
         }
 
         if (attempts >= checkoutGateMaxPollAttempts) {
+          console.error("[checkout] gate_timeout", { requestId: gateRequestId, attempts });
           setGateStatus("blocked");
-          setError("The checkout queue is taking too long. Please check the checkout-gate worker on AWS and try again.");
+          setError(`The checkout queue is taking too long for request ${gateRequestId}. Please check the checkout-gate worker on AWS and try again.`);
           startFailureRedirect();
         }
       } catch (pollError) {
         if (!cancelled) {
+          console.error("[checkout] gate_poll_failed", { requestId: gateRequestId, pollError });
           setError(pollError instanceof Error ? pollError.message : "We could not check the checkout queue right now.");
           setGateStatus("blocked");
           startFailureRedirect();
         }
+      } finally {
+        isPollingGateRef.current = false;
       }
     }
 
@@ -283,12 +347,30 @@ export default function CheckoutPage() {
 
     try {
       if (!session?.idToken) {
+        window.sessionStorage.setItem(resumeCheckoutAfterLoginStorageKey, "1");
         openAuthModal("/store/checkout");
+        return;
+      }
+
+      // Cart entries are persisted locally, so revalidate them before a user
+      // can start checkout after another customer reserves the last units.
+      const currentProducts = await Promise.all(items.map(async (item) => ({
+        item,
+        product: await fetchStorefrontProductById(item.productId)
+      })));
+      const unavailableItems = currentProducts.filter(({ item, product }) => (
+        product.isLocked || product.status === "out_of_stock" || product.stock < item.quantity
+      ));
+      if (unavailableItems.length > 0) {
+        unavailableItems.forEach(({ item }) => removeItem(item.variantId));
+        setError("Some items in your cart were reserved or sold out and have been removed. Please review your cart before checking out.");
         return;
       }
 
       setIsSubmitting(true);
       setIsRedirectingToPayment(false);
+      isCreatingPaymentSessionRef.current = false;
+      lastLoggedGateStatusRef.current = "";
       setError("");
       resetFailureRedirect();
       setGateRequestId("");
@@ -306,11 +388,17 @@ export default function CheckoutPage() {
             quantity: item.quantity
           })),
           locale: "vn",
-          processingMode: "trigger"
+          processingMode: "interactive"
         })
       });
 
       const payload = (await response.json().catch(() => null)) as PrepareCheckoutResponse | null;
+      console.info("[checkout] prepare_response", {
+        statusCode: response.status,
+        requestId: payload?.requestId ?? "",
+        status: payload?.status ?? "",
+        message: payload?.message ?? ""
+      });
 
       if (!response.ok || !payload?.requestId) {
         throw new Error(payload?.message || "We could not send this checkout request to the queue.");

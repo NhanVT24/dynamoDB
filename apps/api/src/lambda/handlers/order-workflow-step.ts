@@ -1,6 +1,6 @@
 import "reflect-metadata";
-import { createStandaloneContext } from "./core/app/create-standalone-context.js";
-import { StorefrontService } from "./modules/storefront/storefront.service.js";
+import { createStandaloneContext } from "../../core/app/create-standalone-context.js";
+import { StorefrontService } from "../../modules/storefront/storefront.service.js";
 
 type WorkflowInput = {
   detail?: {

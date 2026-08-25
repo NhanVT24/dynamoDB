@@ -434,7 +434,9 @@ export async function createCheckoutGateRequest(input: {
 export async function getCheckoutGateRequestById(requestId: string) {
   const result = await rawDb.send(new GetItemCommand({
     TableName,
-    Key: toDynamoItem(buildCheckoutGateKey(requestId))
+    Key: toDynamoItem(buildCheckoutGateKey(requestId)),
+    // The browser polls this record immediately after the worker commits it.
+    ConsistentRead: true
   }));
 
   return result.Item ? (unmarshall(result.Item) as CheckoutGateRequestRecord) : null;

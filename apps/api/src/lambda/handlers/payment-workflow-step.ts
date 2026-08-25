@@ -1,6 +1,6 @@
 import "reflect-metadata";
-import { createStandaloneContext } from "./core/app/create-standalone-context.js";
-import { VnpayService } from "./modules/vnpay/vnpay.service.js";
+import { createStandaloneContext } from "../../core/app/create-standalone-context.js";
+import { VnpayService } from "../../modules/vnpay/vnpay.service.js";
 
 type WorkflowInput = {
   detail?: {

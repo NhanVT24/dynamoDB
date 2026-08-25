@@ -209,10 +209,6 @@ function shouldProcessCommerceQueuesInline() {
 }
 
 function getCheckoutGateProcessingDelayMs(processingMode?: "interactive" | "trigger") {
-  if (processingMode === "trigger") {
-    return 0;
-  }
-
   if (env.CHECKOUT_GATE_PROCESSING_DELAY_MS > 0) {
     return env.CHECKOUT_GATE_PROCESSING_DELAY_MS;
   }
@@ -277,6 +273,7 @@ export class StorefrontService {
       ,
       processingMode: input.processingMode
     });
+    this.logger.log(`[checkout-gate] request_created requestId=${requestId} customer=${email} itemCount=${normalizedItems.length} mode=${input.processingMode}`);
 
     const payload: CheckoutGateQueuePayload = {
       type: "storefront.checkout.gate.requested",
@@ -294,18 +291,20 @@ export class StorefrontService {
       await this.resolveCheckoutGate(payload);
     } else {
       const processingDelayMs = getCheckoutGateProcessingDelayMs(input.processingMode);
-      const queueUrl = processingDelayMs > 0 && input.processingMode !== "trigger"
+      const queueUrl = input.processingMode === "interactive"
         ? env.SQS_CHECKOUT_GATE_INTERACTIVE_QUEUE_URL ?? env.SQS_CHECKOUT_GATE_QUEUE_URL
         : env.SQS_CHECKOUT_GATE_QUEUE_URL;
 
-      if (queueUrl !== env.SQS_CHECKOUT_GATE_QUEUE_URL) {
-        this.logger.log(`[queue-delay] checkout_gate_delayed_queue requestId=${requestId} delayMs=${processingDelayMs}`);
+      if (processingDelayMs > 0) {
+        this.logger.log(`[queue-delay] checkout_gate_pre_enqueue_delay requestId=${requestId} delayMs=${processingDelayMs}`);
+        await sleep(processingDelayMs);
       }
 
-      await sqsClient.send(new SendMessageCommand({
+      const sendResult = await sqsClient.send(new SendMessageCommand({
         QueueUrl: queueUrl,
         MessageBody: JSON.stringify(payload)
       }));
+      this.logger.log(`[checkout-gate] request_enqueued requestId=${requestId} queueUrl=${queueUrl} messageId=${sendResult.MessageId ?? ""}`);
     }
 
     return {
@@ -500,12 +499,6 @@ export class StorefrontService {
     records: Array<{ body?: string; messageId?: string }>,
     _options?: { queueName?: string; workerName?: string }
   ) {
-    const workerDelayMs = env.CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS;
-    if (workerDelayMs > 0) {
-      this.logger.log(`[queue-delay] checkout_gate_batch_barrier recordCount=${records.length} delayMs=${workerDelayMs}`);
-      await sleep(workerDelayMs);
-    }
-
     const settled = await Promise.allSettled(records.map(async (record) => ({
       messageId: String(record.messageId ?? ""),
       item: await this.processCheckoutGateRecord(record.body, {
@@ -597,8 +590,8 @@ export class StorefrontService {
       return null;
     }
 
-    const payload = unwrapEventBridgeDetail(JSON.parse(body) as Record<string, unknown>) as Partial<CheckoutGateQueuePayload>;
-    if (payload.type !== "storefront.checkout.gate.requested" || !payload.email || !payload.requestId || !Array.isArray(payload.items) || payload.items.length === 0) {
+    const payload = this.parseCheckoutGatePayload(body);
+    if (!payload) {
       logQueueWarn(this.logger, {
         queue: "checkoutGate",
         eventType: "storefront.checkout.gate.requested",
@@ -607,7 +600,24 @@ export class StorefrontService {
       return null;
     }
 
-    return this.resolveCheckoutGate(payload as CheckoutGateQueuePayload, options);
+    return this.resolveCheckoutGate(payload, options);
+  }
+
+  private parseCheckoutGatePayload(body: string | undefined): CheckoutGateQueuePayload | null {
+    if (!body) {
+      return null;
+    }
+
+    try {
+      const payload = unwrapEventBridgeDetail(JSON.parse(body) as Record<string, unknown>) as Partial<CheckoutGateQueuePayload>;
+      if (payload.type !== "storefront.checkout.gate.requested" || !payload.email || !payload.requestId || !Array.isArray(payload.items) || payload.items.length === 0) {
+        return null;
+      }
+
+      return payload as CheckoutGateQueuePayload;
+    } catch {
+      return null;
+    }
   }
 
   private async resolveCheckoutGate(payload: CheckoutGateQueuePayload, options?: { skipWorkerDelay?: boolean }) {

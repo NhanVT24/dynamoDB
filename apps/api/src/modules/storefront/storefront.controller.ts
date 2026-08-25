@@ -51,13 +51,15 @@ export class StorefrontController {
   }
 
   @Get("checkout/prepare/:requestId")
-  getCheckoutStatus(@Req() request: FastifyRequest, @Param("requestId") requestId: string) {
+  async getCheckoutStatus(@Req() request: FastifyRequest, @Param("requestId") requestId: string) {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
       throw new ForbiddenException("Bạn cần đăng nhập để xem trạng thái checkout.");
     }
 
-    return this.storefrontService.getCheckoutGateStatus(principal.email, requestId);
+    const status = await this.storefrontService.getCheckoutGateStatus(principal.email, requestId);
+    this.logger.log(`[checkout-gate] status_read requestId=${requestId} status=${status.status} customer=${principal.email}`);
+    return status;
   }
 
   @Post("checkout/payment-session")

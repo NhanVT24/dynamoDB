@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { buildWeeklyRevenueSummary } from "./modules/storefront/storefront.reporting.js";
+import { buildWeeklyRevenueSummary } from "../../modules/storefront/storefront.reporting.js";
 
 export const handler = async () => {
   const summary = await buildWeeklyRevenueSummary();

@@ -15,6 +15,7 @@
     "db:seed:test": "tsx src/scripts/seed.ts --products=2000 --include-orders --customers=120 --orders-per-customer=12",
     "db:reseed": "tsx src/scripts/reseed.ts",
     "db:backfill-products": "tsx src/scripts/backfill-products.ts",
+    "db:update-product-images": "tsx src/scripts/update-product-images.ts",
     "db:localize": "tsx src/scripts/localize-products.ts",
     "mail:test:status": "tsx src/scripts/test-payment-status-emails.ts",
     "mail:test:weekly-report": "tsx src/scripts/send-weekly-admin-report-preview.ts"

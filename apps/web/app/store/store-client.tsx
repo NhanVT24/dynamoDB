@@ -10,6 +10,7 @@ import {
   beginGoogleSignIn,
   confirmForgotPassword,
   confirmSignUpWithCognito,
+  consumePostLoginRedirect,
   authSessionChangedEvent,
   readAuthSession,
   rememberPostLoginRedirect,
@@ -18,6 +19,7 @@ import {
   signOutLocally,
   signUpWithCognito,
   forgotPassword,
+  resolvePostLoginRoute,
   type AuthSession
 } from "../lib/cognito-auth";
 import type { CartItem, StoreProduct } from "./store-types";
@@ -64,6 +66,7 @@ const cartStorageKey = "web-storefront-cart";
 const localNotificationsStorageKey = "web-storefront-local-notifications";
 const notificationsUpdatedEvent = "storefront-notifications-updated";
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
+const resumeCheckoutAfterLoginStorageKey = "web-storefront-resume-checkout-after-login";
 const processedPaymentPrefix = "web-storefront-payment-processed-";
 const pendingOrderRequestPrefix = "web-storefront-order-request-";
 
@@ -420,6 +423,7 @@ function CartDrawer({ session }: { session: AuthSession | null }) {
                 type="button"
                 onClick={() => {
                   toggleDrawer(false);
+                  window.sessionStorage.setItem(resumeCheckoutAfterLoginStorageKey, "1");
                   openAuthModal("/store/checkout");
                 }}
                 className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600"
@@ -506,7 +510,7 @@ function StorefrontAuthModal({
 
       onSignedIn(nextSession);
       closeAuthModal();
-      router.push(nextSession.role === "admin" ? "/admin" : "/store");
+      router.push(resolvePostLoginRoute(nextSession, consumePostLoginRedirect()));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "We could not sign you in right now.");
       if (error instanceof Error && /xác nhận|confirm/i.test(error.message)) {

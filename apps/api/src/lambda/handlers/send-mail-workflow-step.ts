@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { sendWeeklyRevenueReportEmail } from "./integrations/ses/admin-report-mailer.js";
+import { sendWeeklyRevenueReportEmail } from "../../integrations/ses/admin-report-mailer.js";
 
 type MailWorkflowInput = {
   mailType?: string;
