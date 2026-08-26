@@ -22,6 +22,7 @@ import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3n from "aws-cdk-lib/aws-s3-notifications";
+import * as ses from "aws-cdk-lib/aws-ses";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as sqs from "aws-cdk-lib/aws-sqs";
@@ -573,6 +574,43 @@ exports.handler = async (event) => {
       displayName: "Supermarket Admin Alerts"
     });
     adminAlertsTopic.addSubscription(new subscriptions.EmailSubscription(adminReportEmail.valueAsString));
+    const inventoryReportEventsTopic = new sns.Topic(this, "InventoryReportEventsTopic", {
+      topicName: "supermarket-inventory-report-events",
+      displayName: "Supermarket Inventory Report SES Events"
+    });
+    const inventoryReportConfigurationSet = new ses.CfnConfigurationSet(this, "InventoryReportConfigurationSet", {
+      name: "supermarket-inventory-daily-report"
+    });
+    const inventoryReportSesEventDestination = new ses.CfnConfigurationSetEventDestination(this, "InventoryReportSesEventDestination", {
+      configurationSetName: inventoryReportConfigurationSet.ref,
+      eventDestination: {
+        enabled: true,
+        matchingEventTypes: ["SEND", "DELIVERY", "BOUNCE", "REJECT", "DELIVERY_DELAY"],
+        snsDestination: {
+          topicArn: inventoryReportEventsTopic.topicArn
+        }
+      }
+    });
+    const inventoryReportEventsTopicPolicy = new sns.TopicPolicy(this, "InventoryReportEventsTopicPolicy", {
+      topics: [inventoryReportEventsTopic]
+    });
+    inventoryReportEventsTopicPolicy.document.addStatements(new iam.PolicyStatement({
+      principals: [new iam.ServicePrincipal("ses.amazonaws.com")],
+      actions: ["sns:Publish"],
+      resources: [inventoryReportEventsTopic.topicArn],
+      conditions: {
+        StringEquals: {
+          "AWS:SourceAccount": this.account
+        },
+        ArnLike: {
+          "AWS:SourceArn": `arn:aws:ses:${this.region}:${this.account}:configuration-set/${inventoryReportConfigurationSet.ref}`
+        }
+      }
+    }));
+    // SES validates its SNS publish permission while creating the event destination.
+    inventoryReportSesEventDestination.addResourceDependency(
+      inventoryReportEventsTopicPolicy.node.defaultChild as sns.CfnTopicPolicy
+    );
 
     const sharedEnvironment = {
       DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString,
@@ -603,6 +641,7 @@ exports.handler = async (event) => {
       CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS: "0",
       SNS_ADMIN_ALERTS_TOPIC_ARN: adminAlertsTopic.topicArn,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
+      SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME: inventoryReportConfigurationSet.ref,
       ADMIN_REPORT_EMAIL: adminReportEmail.valueAsString,
       VNPAY_TMN_CODE: vnpayTmnCodeValue,
       VNPAY_HASH_SECRET: vnpayHashSecret.valueAsString,
@@ -750,6 +789,27 @@ exports.handler = async (event) => {
       30,
       512
     );
+    const dailyInventoryReportFunction = createApplicationLambda(
+      "SupermarketDailyInventoryReportFunction",
+      "supermarket-daily-inventory-report-aws",
+      "src/lambda/handlers/daily-inventory-report.handler",
+      30,
+      512
+    );
+    const sesInventoryEventFunction = createApplicationLambda(
+      "SupermarketSesInventoryEventFunction",
+      "supermarket-ses-inventory-event-aws",
+      "src/lambda/handlers/ses-inventory-event.handler",
+      20,
+      256
+    );
+    inventoryReportEventsTopic.addSubscription(new subscriptions.LambdaSubscription(sesInventoryEventFunction));
+    // The daily digest is deliberately best-effort; a failed run is summarized by the next day instead of retrying immediately.
+    new lambda.EventInvokeConfig(this, "DailyInventoryReportInvokeConfig", {
+      function: dailyInventoryReportFunction,
+      maxEventAge: Duration.hours(1),
+      retryAttempts: 0
+    });
     const orderWorkflowStepFunction = createApplicationLambda(
       "SupermarketOrderWorkflowStepFunction",
       "supermarket-order-workflow-step-aws",
@@ -1189,6 +1249,44 @@ exports.handler = async (event) => {
         },
         input: JSON.stringify({
           source: "scheduler.weekly-admin-revenue-report"
+        })
+      }
+    });
+
+    const dailyInventoryReportSchedulerRole = new iam.Role(this, "DailyInventoryReportSchedulerRole", {
+      assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+      description: "Allows EventBridge Scheduler to invoke the daily inventory digest Lambda"
+    });
+    dailyInventoryReportSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["lambda:InvokeFunction"],
+      resources: [dailyInventoryReportFunction.functionArn]
+    }));
+    dailyInventoryReportSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["sqs:SendMessage"],
+      resources: [eventBridgeTargetDlq.queueArn]
+    }));
+
+    new scheduler.CfnSchedule(this, "DailyInventoryReportSchedule", {
+      name: "supermarket-daily-inventory-report",
+      description: "Sends the daily low-stock and out-of-stock digest at 08:00 in Vietnam.",
+      groupName: "default",
+      scheduleExpression: "cron(0 8 * * ? *)",
+      scheduleExpressionTimezone: "Asia/Ho_Chi_Minh",
+      flexibleTimeWindow: {
+        mode: "OFF"
+      },
+      target: {
+        arn: dailyInventoryReportFunction.functionArn,
+        roleArn: dailyInventoryReportSchedulerRole.roleArn,
+        deadLetterConfig: {
+          arn: eventBridgeTargetDlq.queueArn
+        },
+        retryPolicy: {
+          maximumEventAgeInSeconds: 60,
+          maximumRetryAttempts: 0
+        },
+        input: JSON.stringify({
+          source: "scheduler.daily-inventory-report"
         })
       }
     });

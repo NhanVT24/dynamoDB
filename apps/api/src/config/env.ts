@@ -45,6 +45,7 @@ export const env = z.object({
   CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS: z.coerce.number().int().min(0).max(15000).default(0),
   SNS_ADMIN_ALERTS_TOPIC_ARN: z.string().optional(),
   SES_FROM_EMAIL: z.string().email().optional(),
+  SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME: z.string().min(1).optional(),
   ADMIN_REPORT_EMAIL: z.string().email().optional(),
   NEXT_PUBLIC_API_URL: z.string().url().optional(),
   VNPAY_TMN_CODE: z.string().min(1),

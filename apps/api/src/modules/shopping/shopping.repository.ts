@@ -41,6 +41,10 @@ type ShoppingFilters = {
   sortDirection?: "asc" | "desc";
 };
 
+export type InventoryReportProduct = Pick<ProductRecord,
+  "id" | "name" | "sku" | "stock" | "status" | "updatedAt"
+>;
+
 function normalizeText(value: unknown) {
   return String(value ?? "")
     .trim()
@@ -676,6 +680,47 @@ export async function getShoppingItemAll(pageLimit = 50, maxPages = 20, filters:
 
   const base = await getShoppingItemAllBase(pageLimit, maxPages, filters);
   return { ...base, items: sortItems(base.items, {}) };
+}
+
+export async function listInventoryReportProducts(): Promise<InventoryReportProduct[]> {
+  const products: InventoryReportProduct[] = [];
+
+  // Each status has its own partition in StatusTimelineIndex, so this avoids a table Scan.
+  for (const status of ["out_of_stock", "low_stock"] as const) {
+    let lastKey: DynamoKey | undefined;
+
+    do {
+      const result = await rawDb.send(new QueryCommand({
+        TableName,
+        IndexName: "StatusTimelineIndex",
+        KeyConditionExpression: "#status = :status",
+        ExpressionAttributeNames: {
+          "#status": "status"
+        },
+        ExpressionAttributeValues: toDynamoItem({
+          ":status": status
+        }),
+        ScanIndexForward: true,
+        ExclusiveStartKey: lastKey
+      }));
+
+      products.push(...(result.Items ?? [])
+        .map((item) => fromDynamoItem(item))
+        .filter(isProductItem)
+        .map((item) => ({
+          id: String(item?.id ?? ""),
+          name: String(item?.name ?? ""),
+          sku: item?.sku ? String(item.sku) : undefined,
+          stock: Number(item?.stock ?? 0),
+          status: String(item?.status ?? status),
+          updatedAt: String(item?.updatedAt ?? item?.createdAt ?? "")
+        })));
+
+      lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+  }
+
+  return products;
 }
 
 async function getShoppingItemAllBase(pageLimit = 50, maxPages = 20, filters: ShoppingFilters = {}) {
