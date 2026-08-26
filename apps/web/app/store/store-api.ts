@@ -133,7 +133,8 @@ export async function fetchStorefrontProducts(query: Record<string, string> = {}
   });
 
   if (!response.ok) {
-    throw new Error("We could not load product data.");
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(payload?.message || `We could not load product data (HTTP ${response.status}).`);
   }
 
   const payload = (await response.json()) as StorefrontListResponse;

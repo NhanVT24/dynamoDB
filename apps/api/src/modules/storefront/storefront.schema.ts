@@ -18,7 +18,9 @@ export const prepareStorefrontCheckoutSchema = z.object({
   items: z.array(storefrontOrderItemSchema).min(1).max(20),
   locale: z.enum(["vn", "en"]).default("vn"),
   bankCode: z.string().trim().min(2).max(20).optional(),
-  processingMode: z.enum(["interactive", "trigger"]).default("interactive")
+  processingMode: z.enum(["interactive", "trigger"]).default("interactive"),
+  // Accepted only by the opt-in transaction race test; ignored during normal checkout processing.
+  raceTestId: z.string().uuid().optional()
 });
 
 export type PrepareStorefrontCheckoutInput = z.infer<typeof prepareStorefrontCheckoutSchema>;

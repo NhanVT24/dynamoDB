@@ -42,6 +42,15 @@ export class AwsApiStack extends Stack {
     // Use entity-only for the first deployment, then deploy normally to add the sale index.
     const includeSaleCampaignTimelineIndex = gsiDeploymentPhase !== "entity-only";
 
+    const checkoutGateRaceBatchWindowSeconds = Number(this.node.tryGetContext("checkoutGateRaceBatchWindowSeconds") ?? 0);
+    if (!Number.isInteger(checkoutGateRaceBatchWindowSeconds) || checkoutGateRaceBatchWindowSeconds < 0 || checkoutGateRaceBatchWindowSeconds > 300) {
+      throw new Error("checkoutGateRaceBatchWindowSeconds must be an integer between 0 and 300.");
+    }
+    // Opt-in only for the concurrency demo. Production keeps immediate checkout processing.
+    const checkoutGatePipeParameters = checkoutGateRaceBatchWindowSeconds > 0
+      ? { batchSize: 2, maximumBatchingWindowInSeconds: checkoutGateRaceBatchWindowSeconds }
+      : { batchSize: 10 };
+
     const callbackUrl = new CfnParameter(this, "CallbackUrl", {
       type: "String",
       default: "http://localhost:3000/auth/callback",
@@ -671,6 +680,7 @@ exports.handler = async (event) => {
       // The API waits briefly before handing a checkout to SQS.
       CHECKOUT_GATE_PROCESSING_DELAY_MS: "2000",
       CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS: "0",
+      CHECKOUT_TX_RACE_LOGGING: String(checkoutGateRaceBatchWindowSeconds > 0),
       SNS_ADMIN_ALERTS_TOPIC_ARN: adminAlertsTopic.topicArn,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
       SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME: inventoryReportConfigurationSet.ref,
@@ -1104,9 +1114,7 @@ exports.handler = async (event) => {
       source: checkoutGateQueue.queueArn,
       target: checkoutGateWorkerFunction.functionArn,
       sourceParameters: {
-        sqsQueueParameters: {
-          batchSize: 10
-        }
+        sqsQueueParameters: checkoutGatePipeParameters
       },
       targetParameters: {
         lambdaFunctionParameters: {

@@ -39,6 +39,7 @@ export type CheckoutGateQueuePayload = {
   locale?: "vn" | "en";
   bankCode?: string;
   processingMode?: "interactive" | "trigger";
+  raceTestId?: string;
   createdAt: string;
 };
 
@@ -141,6 +142,53 @@ function buildCheckoutGateKey(requestId: string) {
     PK: `CHECKOUT_GATE#${requestId}`,
     SK: "DETAIL"
   };
+}
+
+function buildCheckoutRaceBarrierKey(raceTestId: string) {
+  return {
+    PK: `CHECKOUT_RACE_BARRIER#${raceTestId}`,
+    SK: "DETAIL"
+  };
+}
+
+export async function arriveAtCheckoutRaceBarrier(input: { raceTestId: string; requestId: string }) {
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const result = await rawDb.send(new UpdateItemCommand({
+    TableName,
+    Key: toDynamoItem(buildCheckoutRaceBarrierKey(input.raceTestId)),
+    UpdateExpression: "SET entityType = if_not_exists(entityType, :entityType), updatedAt = :now, expiresAt = :expiresAt ADD participantIds :participantIds",
+    ExpressionAttributeValues: toDynamoItem({
+      ":entityType": "CHECKOUT_RACE_BARRIER",
+      ":now": now,
+      ":expiresAt": expiresAt,
+      ":participantIds": new Set([input.requestId])
+    }),
+    ReturnValues: "ALL_NEW"
+  }));
+  const barrier = fromDynamoItem(result.Attributes);
+  return new Set<string>(Array.from((barrier?.participantIds as Set<string> | undefined) ?? []));
+}
+
+export async function waitForCheckoutRaceBarrier(input: { raceTestId: string; expectedParticipants: number; timeoutMs: number }) {
+  const deadline = Date.now() + input.timeoutMs;
+
+  while (Date.now() < deadline) {
+    const result = await rawDb.send(new GetItemCommand({
+      TableName,
+      Key: toDynamoItem(buildCheckoutRaceBarrierKey(input.raceTestId)),
+      ConsistentRead: true
+    }));
+    const barrier = fromDynamoItem(result.Item);
+    const participantIds = new Set<string>(Array.from((barrier?.participantIds as Set<string> | undefined) ?? []));
+    if (participantIds.size >= input.expectedParticipants) {
+      return participantIds;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+
+  throw new Error("Checkout transaction race test timed out while waiting for both participants.");
 }
 
 function normalizeOrderItems(items: Array<{ productId?: string; quantity: number }>) {
@@ -532,6 +580,11 @@ export async function createCheckoutReservations(input: {
   email: string;
   items: Array<{ productId: string; quantity: number }>;
   holdSeconds: number;
+  trace?: {
+    batchId?: string;
+    recordIndex?: number;
+    enabled?: boolean;
+  };
 }) {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + input.holdSeconds * 1000).toISOString();
@@ -554,6 +607,21 @@ export async function createCheckoutReservations(input: {
         const availableStock = stock - reservedStock;
 
         if (availableStock < item.quantity) {
+          if (input.trace?.enabled) {
+            console.log(JSON.stringify({
+              marker: "CHECKOUT_TX_RACE",
+              phase: "availability_rejected",
+              batchId: input.trace.batchId ?? "",
+              recordIndex: input.trace.recordIndex,
+              requestId: input.requestId,
+              productId: item.productId,
+              attempt: attempt + 1,
+              stock,
+              reservedStock,
+              availableStock,
+              requestedQuantity: item.quantity
+            }));
+          }
           throw new Error(`Insufficient reserved availability for ${product.name}`);
         }
 
@@ -574,6 +642,21 @@ export async function createCheckoutReservations(input: {
         };
 
         try {
+          if (input.trace?.enabled) {
+            console.log(JSON.stringify({
+              marker: "CHECKOUT_TX_RACE",
+              phase: "transaction_begin",
+              batchId: input.trace.batchId ?? "",
+              recordIndex: input.trace.recordIndex,
+              requestId: input.requestId,
+              productId: item.productId,
+              attempt: attempt + 1,
+              expectedVersion: Number(product.version ?? 0),
+              expectedReservedStock: reservedStock,
+              availableStock,
+              requestedQuantity: item.quantity
+            }));
+          }
           await rawDb.send(new TransactWriteItemsCommand({
             TransactItems: [
               {
@@ -609,9 +692,31 @@ export async function createCheckoutReservations(input: {
 
           createdReservations.push(reservationRecord);
           reserved = true;
+          if (input.trace?.enabled) {
+            console.log(JSON.stringify({
+              marker: "CHECKOUT_TX_RACE",
+              phase: "transaction_committed",
+              batchId: input.trace.batchId ?? "",
+              recordIndex: input.trace.recordIndex,
+              requestId: input.requestId,
+              productId: item.productId,
+              attempt: attempt + 1
+            }));
+          }
         } catch (error) {
           const candidate = error as { name?: string };
           if (candidate?.name === "TransactionCanceledException") {
+            if (input.trace?.enabled) {
+              console.log(JSON.stringify({
+                marker: "CHECKOUT_TX_RACE",
+                phase: "transaction_cancelled",
+                batchId: input.trace.batchId ?? "",
+                recordIndex: input.trace.recordIndex,
+                requestId: input.requestId,
+                productId: item.productId,
+                attempt: attempt + 1
+              }));
+            }
             continue;
           }
           throw error;

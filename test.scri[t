@@ -1,0 +1,14 @@
+SOURCE logGroups(namePrefix: [], class: "STANDARD") START=-1w END=0s |
+filter @message LIKE /506284f1-bdac-4241-83ce-99454e09a87e/
+|filter @message LIKE /"status":"(allowed|blocked)"/
+|fields @timestamp, @message
+| sort @timestamp desc
+| limit 10000
+
+
+
+SOURCE logGroups(namePrefix: [], class: "STANDARD") START=-1w END=0s |
+fields @timestamp, @message
+| filter @message like /CHECKOUT_TX_RACE/
+| sort @timestamp asc
+| limit 100

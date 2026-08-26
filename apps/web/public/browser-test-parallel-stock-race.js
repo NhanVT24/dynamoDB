@@ -6,9 +6,11 @@
   const requestCount = Math.max(2, Math.trunc(Number(window.__PARALLEL_STOCK_REQUEST_COUNT__ ?? 5)));
   const quantity = Math.max(1, Math.trunc(Number(window.__PARALLEL_STOCK_QUANTITY__ ?? 1)));
   const pollDelayMs = Math.max(200, Math.trunc(Number(window.__PARALLEL_STOCK_POLL_DELAY_MS__ ?? 400)));
-  const maxPollAttempts = Math.max(10, Math.trunc(Number(window.__PARALLEL_STOCK_MAX_POLL_ATTEMPTS__ ?? 45)));
+  const maxPollAttempts = Math.max(10, Math.trunc(Number(window.__PARALLEL_STOCK_MAX_POLL_ATTEMPTS__ ?? 140)));
   const pendingLogEvery = Math.max(1, Math.trunc(Number(window.__PARALLEL_STOCK_PENDING_LOG_EVERY__ ?? 5)));
-  const maxPendingMs = Math.max(5000, Math.trunc(Number(window.__PARALLEL_STOCK_MAX_PENDING_MS__ ?? 15000)));
+  // Low-traffic SQS Pipes can wait about 20 seconds even with a short batching window.
+  const maxPendingMs = Math.max(5000, Math.trunc(Number(window.__PARALLEL_STOCK_MAX_PENDING_MS__ ?? 45000)));
+  const raceTestId = window.crypto?.randomUUID?.();
   const authStorageCandidates = [
     "cognito-auth-session",
     "web-auth-session",
@@ -49,8 +51,8 @@
 
   async function getProductSnapshot(label) {
     const candidates = [
-      `${apiBaseUrl}/api/storefront/products/${productId}`,
-      `${apiBaseUrl}/api/products/${productId}`
+      `${apiBaseUrl}/api/products/${productId}`,
+      `${apiBaseUrl}/api/storefront/products/${productId}`
     ];
 
     for (const url of candidates) {
@@ -97,7 +99,8 @@
       body: JSON.stringify({
         items: [{ productId, quantity }],
         locale: "vn",
-        processingMode: "trigger"
+        processingMode: "trigger",
+        raceTestId
       })
     });
     const payload = await readJson(response);
@@ -195,6 +198,7 @@
     maxPollAttempts,
     pendingLogEvery,
     maxPendingMs,
+    raceTestId,
     startedAt: nowLabel()
   });
   console.log("[parallel-stock-race] stop command: window.__STOP_PARALLEL_STOCK_RACE__ = true");
@@ -245,8 +249,18 @@
     finishedAt: nowLabel()
   };
 
+  const requestIdsForCloudWatch = results.map((item) => item.requestId).join("|");
+  const cloudWatchQuery = [
+    'fields @timestamp, @message',
+    '| filter @message like /CHECKOUT_TX_RACE/',
+    `| filter @message like /${productId}/ or @message like /${requestIdsForCloudWatch}/`,
+    '| sort @timestamp asc',
+    '| limit 100'
+  ].join("\\n");
+
   console.table(rows);
   console.table([summary]);
+  console.log("[parallel-stock-race] CloudWatch Logs Insights query (log group: /aws/lambda/supermarket-checkout-gate-worker-aws):\\n" + cloudWatchQuery);
 
   window.__LAST_PARALLEL_STOCK_RACE__ = {
     config: {
@@ -258,11 +272,14 @@
       maxPollAttempts,
       pendingLogEvery,
       maxPendingMs
+      ,
+      raceTestId
     },
     before,
     after,
     results,
-    summary
+    summary,
+    cloudWatchQuery
   };
 
   return window.__LAST_PARALLEL_STOCK_RACE__;

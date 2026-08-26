@@ -17,6 +17,7 @@ import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
 import { VnpayService } from "../vnpay/vnpay.service.js";
 import {
   createCheckoutReservations,
+  arriveAtCheckoutRaceBarrier,
   createCheckoutGateRequest,
   createStorefrontOrder,
   getCheckoutGateRequestById,
@@ -29,7 +30,8 @@ import {
   type CheckoutGateQueuePayload,
   type StorefrontOrderQueuePayload
   ,
-  updateCheckoutGateRequestStatus
+  updateCheckoutGateRequestStatus,
+  waitForCheckoutRaceBarrier
 } from "./storefront.repository.js";
 import type { CreateStorefrontOrderInput, PrepareStorefrontCheckoutInput } from "./storefront.schema.js";
 
@@ -289,6 +291,7 @@ export class StorefrontService {
       locale: input.locale,
       bankCode: input.bankCode,
       processingMode: input.processingMode,
+      raceTestId: input.raceTestId,
       createdAt: new Date().toISOString()
     };
 
@@ -503,12 +506,14 @@ export class StorefrontService {
 
   async processCheckoutGateRecords(
     records: Array<{ body?: string; messageId?: string }>,
-    _options?: { queueName?: string; workerName?: string }
+    options?: { queueName?: string; workerName?: string; batchId?: string }
   ) {
-    const settled = await Promise.allSettled(records.map(async (record) => ({
+    const settled = await Promise.allSettled(records.map(async (record, recordIndex) => ({
       messageId: String(record.messageId ?? ""),
       item: await this.processCheckoutGateRecord(record.body, {
-        skipWorkerDelay: true
+        skipWorkerDelay: true,
+        batchId: options?.batchId,
+        recordIndex
       })
     })));
 
@@ -587,7 +592,11 @@ export class StorefrontService {
     return this.finalizeQueuedOrder(payload.email, payload.items, payload.requestId);
   }
 
-  private async processCheckoutGateRecord(body: string | undefined, options?: { skipWorkerDelay?: boolean }) {
+  private async processCheckoutGateRecord(body: string | undefined, options?: {
+    skipWorkerDelay?: boolean;
+    batchId?: string;
+    recordIndex?: number;
+  }) {
     if (!body) {
       logQueueWarn(this.logger, {
         queue: "checkoutGate",
@@ -626,7 +635,11 @@ export class StorefrontService {
     }
   }
 
-  private async resolveCheckoutGate(payload: CheckoutGateQueuePayload, options?: { skipWorkerDelay?: boolean }) {
+  private async resolveCheckoutGate(payload: CheckoutGateQueuePayload, options?: {
+    skipWorkerDelay?: boolean;
+    batchId?: string;
+    recordIndex?: number;
+  }) {
     const normalizedItems = normalizeOrderItems(payload.items);
 
     try {
@@ -635,11 +648,47 @@ export class StorefrontService {
         await sleep(env.CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS);
       }
 
+      if (env.CHECKOUT_TX_RACE_LOGGING && payload.raceTestId) {
+        const participants = await arriveAtCheckoutRaceBarrier({
+          raceTestId: payload.raceTestId,
+          requestId: payload.requestId
+        });
+        this.logger.log(JSON.stringify({
+          marker: "CHECKOUT_TX_RACE",
+          phase: "barrier_arrived",
+          batchId: options?.batchId ?? "",
+          recordIndex: options?.recordIndex,
+          raceTestId: payload.raceTestId,
+          requestId: payload.requestId,
+          participantCount: participants.size
+        }));
+
+        const releasedParticipants = await waitForCheckoutRaceBarrier({
+          raceTestId: payload.raceTestId,
+          expectedParticipants: 2,
+          timeoutMs: 5_000
+        });
+        this.logger.log(JSON.stringify({
+          marker: "CHECKOUT_TX_RACE",
+          phase: "barrier_released",
+          batchId: options?.batchId ?? "",
+          recordIndex: options?.recordIndex,
+          raceTestId: payload.raceTestId,
+          requestId: payload.requestId,
+          participantCount: releasedParticipants.size
+        }));
+      }
+
       const reservation = await createCheckoutReservations({
         requestId: payload.requestId,
         email: payload.email,
         items: normalizedItems,
-        holdSeconds: 5 * 60
+        holdSeconds: 5 * 60,
+        trace: {
+          batchId: options?.batchId,
+          recordIndex: options?.recordIndex,
+          enabled: env.CHECKOUT_TX_RACE_LOGGING && Boolean(payload.raceTestId)
+        }
       });
       await updateCheckoutGateRequestStatus({
         requestId: payload.requestId,

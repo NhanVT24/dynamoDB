@@ -36,8 +36,9 @@ export function createQueueHandler(config: QueueHandlerConfig) {
   const appContextPromise = createStandaloneContext();
   const logger = new Logger(`QueueLambda:${config.lambdaName}`);
 
-  return async (event: any) => {
+  return async (event: any, context?: { awsRequestId?: string }) => {
     const records = normalizeSqsRecords(event);
+    const batchId = String(context?.awsRequestId ?? records.map((record) => record.messageId).filter(Boolean).join(":"));
     const firstPayload = (() => {
       try {
         return JSON.parse(String(records[0]?.body ?? ""));
@@ -68,6 +69,7 @@ export function createQueueHandler(config: QueueHandlerConfig) {
       requestId: correlationId,
       recordCount: records.length,
       details: {
+        batchId,
         payloadShape: Array.isArray(event) ? "array" : "records",
         queueArns: [...new Set(records.map((record: any) => String(record.eventSourceARN ?? ""))).values()]
       }
@@ -77,7 +79,8 @@ export function createQueueHandler(config: QueueHandlerConfig) {
       const result = config.worker === "checkoutGate"
         ? await appContext.get(StorefrontService).processCheckoutGateRecords(records, {
           queueName: config.queueName,
-          workerName: config.lambdaName
+          workerName: config.lambdaName,
+          batchId
         })
         : config.worker === "storefront"
           ? await appContext.get(StorefrontService).processQueueRecords(records, {

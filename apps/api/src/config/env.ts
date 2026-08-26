@@ -46,6 +46,10 @@ export const env = z.object({
     .transform((value) => value === "true"),
   CHECKOUT_GATE_PROCESSING_DELAY_MS: z.coerce.number().int().min(0).max(15000).default(0),
   CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS: z.coerce.number().int().min(0).max(15000).default(0),
+  CHECKOUT_TX_RACE_LOGGING: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((value) => value === "true"),
   SNS_ADMIN_ALERTS_TOPIC_ARN: z.string().optional(),
   SES_FROM_EMAIL: z.string().email().optional(),
   SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME: z.string().min(1).optional(),
