@@ -21,6 +21,7 @@ const tableDefinition: CreateTableCommandInput = {
     { AttributeName: "status", AttributeType: "S" },
     { AttributeName: "searchName", AttributeType: "S" },
     { AttributeName: "searchField", AttributeType: "S" },
+    { AttributeName: "entityType", AttributeType: "S" },
     { AttributeName: "updatedAt", AttributeType: "S" }
   ],
   KeySchema: [
@@ -54,6 +55,14 @@ const tableDefinition: CreateTableCommandInput = {
         { AttributeName: "searchField", KeyType: "HASH" },
         { AttributeName: "searchName", KeyType: "RANGE" },
         { AttributeName: "PK", KeyType: "RANGE" }
+      ],
+      Projection: { ProjectionType: "ALL" }
+    },
+    {
+      IndexName: "EntityUpdatedAtIndex",
+      KeySchema: [
+        { AttributeName: "entityType", KeyType: "HASH" },
+        { AttributeName: "updatedAt", KeyType: "RANGE" }
       ],
       Projection: { ProjectionType: "ALL" }
     }

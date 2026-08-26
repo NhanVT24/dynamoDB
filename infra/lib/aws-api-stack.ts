@@ -125,6 +125,7 @@ export class AwsApiStack extends Stack {
         { attributeName: "status", attributeType: "S" },
         { attributeName: "searchName", attributeType: "S" },
         { attributeName: "searchField", attributeType: "S" },
+        { attributeName: "entityType", attributeType: "S" },
         { attributeName: "updatedAt", attributeType: "S" }
       ],
       keySchema: [
@@ -158,6 +159,14 @@ export class AwsApiStack extends Stack {
             { attributeName: "searchField", keyType: "HASH" },
             { attributeName: "searchName", keyType: "RANGE" },
             { attributeName: "PK", keyType: "RANGE" }
+          ],
+          projection: { projectionType: "ALL" }
+        },
+        {
+          indexName: "EntityUpdatedAtIndex",
+          keySchema: [
+            { attributeName: "entityType", keyType: "HASH" },
+            { attributeName: "updatedAt", keyType: "RANGE" }
           ],
           projection: { projectionType: "ALL" }
         }
@@ -866,6 +875,18 @@ exports.handler = async (event) => {
       20,
       256
     );
+    const dataCleanupFunction = createApplicationLambda(
+      "SupermarketDataCleanupFunction",
+      "supermarket-data-cleanup-aws",
+      "src/lambda/handlers/data-cleanup.handler",
+      120,
+      512
+    );
+    new lambda.EventInvokeConfig(this, "DataCleanupInvokeConfig", {
+      function: dataCleanupFunction,
+      maxEventAge: Duration.hours(1),
+      retryAttempts: 0
+    });
 
     const orderWorkflowTask = new tasks.LambdaInvoke(this, "OrderWorkflowTask", {
       lambdaFunction: orderWorkflowStepFunction,
@@ -1324,6 +1345,44 @@ exports.handler = async (event) => {
         },
         input: JSON.stringify({
           source: "scheduler.release-expired-checkouts"
+        })
+      }
+    });
+
+    const dataCleanupSchedulerRole = new iam.Role(this, "DataCleanupSchedulerRole", {
+      assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+      description: "Allows EventBridge Scheduler to invoke the scheduled data cleanup Lambda"
+    });
+    dataCleanupSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["lambda:InvokeFunction"],
+      resources: [dataCleanupFunction.functionArn]
+    }));
+    dataCleanupSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["sqs:SendMessage"],
+      resources: [eventBridgeTargetDlq.queueArn]
+    }));
+
+    new scheduler.CfnSchedule(this, "DataCleanupSchedule", {
+      name: "supermarket-data-cleanup",
+      description: "Checks cleanup eligibility at midnight Vietnam time and deletes short-lived operational data after three days.",
+      groupName: "default",
+      scheduleExpression: "cron(0 0 * * ? *)",
+      scheduleExpressionTimezone: "Asia/Ho_Chi_Minh",
+      flexibleTimeWindow: {
+        mode: "OFF"
+      },
+      target: {
+        arn: dataCleanupFunction.functionArn,
+        roleArn: dataCleanupSchedulerRole.roleArn,
+        deadLetterConfig: {
+          arn: eventBridgeTargetDlq.queueArn
+        },
+        retryPolicy: {
+          maximumEventAgeInSeconds: 60,
+          maximumRetryAttempts: 0
+        },
+        input: JSON.stringify({
+          source: "scheduler.data-cleanup"
         })
       }
     });
