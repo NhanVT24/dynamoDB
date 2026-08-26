@@ -1259,11 +1259,19 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
   );
 }
 
+function getDiscountTone(discountPercent: number) {
+  if (discountPercent >= 50) return { badge: "bg-rose-600 text-white" };
+  if (discountPercent >= 30) return { badge: "bg-violet-600 text-white" };
+  if (discountPercent >= 15) return { badge: "bg-amber-400 text-amber-950" };
+  return { badge: "bg-cyan-600 text-white" };
+}
+
 function ProductCard({ product }: { product: StoreProduct }) {
   const { addCatalogItem, theme } = useStorefront();
   const imageRef = useRef<HTMLImageElement | null>(null);
   const isDark = theme === "dark";
   const discountPercent = Math.max(0, Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100));
+  const discountTone = getDiscountTone(discountPercent);
   const isUnavailable = product.status === "out_of_stock" || product.isLocked;
 
   function handleDragStart(event: DragEvent<HTMLElement>) {
@@ -1284,7 +1292,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
       <div className="relative overflow-hidden">
         <img ref={imageRef} src={product.imageUrl} alt={product.name} className="h-64 w-full object-cover transition duration-500 group-hover:scale-105" draggable={false} />
         <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-4 pt-4 transition duration-300 group-hover:opacity-0">
-          <span className="rounded-full bg-orange-500 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white">-{discountPercent}%</span>
+          <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${discountTone.badge}`}>-{discountPercent}%</span>
           <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "bg-white/10 text-slate-200" : "bg-white/90 text-slate-700"}`}>{product.category}</span>
         </div>
         <div className="absolute inset-0 z-20 bg-slate-950/0 transition duration-300 group-hover:bg-slate-950/72" />
@@ -1322,7 +1330,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
         </div>
         <div className="mt-4">
           <div className="text-[13px] text-slate-400 line-through">{formatCurrency(product.originalPrice)}</div>
-          <strong className="text-2xl font-bold text-orange-500">{formatCurrency(product.price)}</strong>
+          <strong className="text-2xl font-bold text-rose-600">{formatCurrency(product.price)}</strong>
         </div>
         {product.isLocked ? (
           <p className="mt-3 text-sm font-medium text-amber-600">This product is temporarily reserved. Please try again later.</p>
@@ -1335,6 +1343,8 @@ function ProductCard({ product }: { product: StoreProduct }) {
 export function StorefrontShell({ children }: { children: ReactNode }) {
   const { theme, toggleTheme, count, toggleDrawer, addCatalogItem, theme: currentTheme, openAuthModal } = useStorefront();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const isDark = theme === "dark";
   const [isCartDropActive, setIsCartDropActive] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -1351,6 +1361,16 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
       window.removeEventListener(authSessionChangedEvent, syncSession);
     };
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get("auth") !== "login") {
+      return;
+    }
+
+    // /admin sends unauthenticated visitors here so the existing modal handles login in place.
+    openAuthModal("/admin");
+    router.replace("/store", { scroll: false });
+  }, [openAuthModal, router, searchParams]);
 
   function handleCartDragOver(event: DragEvent<HTMLButtonElement>) {
     if (!event.dataTransfer.types.includes("application/x-store-product-id")) return;
@@ -1471,6 +1491,9 @@ export function HomeSections() {
 
   const bestSellerProducts = [...products].sort((a, b) => b.soldCount - a.soldCount).slice(0, 8);
   const flashSaleProducts = [...products].sort((a, b) => (b.originalPrice - b.price) - (a.originalPrice - a.price)).slice(0, 4);
+  const activeSaleProducts = products
+    .filter((product) => Boolean(product.saleCampaignId) && product.status !== "out_of_stock")
+    .sort((left, right) => Number(right.saleDiscountPercent ?? 0) - Number(left.saleDiscountPercent ?? 0));
   const newArrivals = [...products].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 8);
 
   if (isLoading) {
@@ -1611,6 +1634,8 @@ export function HomeSections() {
         </div>
       </section>
 
+      {activeSaleProducts.length > 0 ? <SaleSpotlight products={activeSaleProducts} /> : null}
+
       <section className="px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
           <SectionTitle title="Featured categories" description="Jump into the main shopping groups faster." />
@@ -1635,6 +1660,70 @@ export function HomeSections() {
       <ProductShowcase title="Flash Pick" products={flashSaleProducts} />
       <ProductShowcase title="Newest" products={newArrivals} />
     </>
+  );
+}
+
+function SaleSpotlight({ products }: { products: StoreProduct[] }) {
+  const { theme } = useStorefront();
+  const isDark = theme === "dark";
+
+  return (
+    <section className="px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl overflow-hidden rounded-[2rem] bg-gradient-to-r from-rose-600 via-red-500 to-orange-400 p-[1px] shadow-[0_28px_80px_-40px_rgba(225,29,72,0.78)]">
+        <div className={`rounded-[calc(2rem-1px)] py-7 sm:py-8 ${isDark ? "bg-[#1b1018]" : "bg-[#fff7f5]"}`}>
+          <div className="flex flex-wrap items-end justify-between gap-3 px-6 sm:px-8">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.32em] text-rose-500">Live Sale</p>
+              <h2 className={`mt-2 text-2xl font-bold tracking-tight sm:text-3xl ${isDark ? "text-white" : "text-slate-950"}`}>Deals đang diễn ra</h2>
+            </div>
+            <p className={`text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Tự động áp giá sale khi checkout</p>
+          </div>
+
+          <div className="sale-marquee mt-7 overflow-hidden px-6 sm:px-8" aria-label="Sản phẩm đang sale">
+            <div className="sale-marquee-track flex w-max gap-4">
+              {[0, 1].map((copy) => (
+                <div key={copy} className="flex gap-4" aria-hidden={copy === 1}>
+                  {products.map((product) => <SaleMarqueeCard key={`${copy}-${product.id}`} product={product} isDark={isDark} />)}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      <style jsx>{`
+        .sale-marquee-track {
+          animation: sale-marquee 24s linear infinite;
+        }
+        .sale-marquee:hover .sale-marquee-track {
+          animation-play-state: paused;
+        }
+        @keyframes sale-marquee {
+          to { transform: translateX(calc(-50% - 0.5rem)); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .sale-marquee-track { animation: none; }
+        }
+      `}</style>
+    </section>
+  );
+}
+
+function SaleMarqueeCard({ product, isDark }: { product: StoreProduct; isDark: boolean }) {
+  const discount = Math.max(0, Number(product.saleDiscountPercent ?? 0));
+  const discountTone = getDiscountTone(discount);
+  return (
+    <Link href={`/store/products/${product.slug}`} className={`group flex w-80 shrink-0 gap-4 rounded-2xl border p-4 transition hover:-translate-y-1 ${isDark ? "border-white/10 bg-white/5 hover:bg-white/10" : "border-white bg-white shadow-sm"}`}>
+      <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-xl">
+        <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-110" />
+        <span className={`absolute inset-x-1 bottom-1 rounded-md px-1 py-0.5 text-center text-[10px] font-bold ${discountTone.badge}`}>-{discount}%</span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-500">Campaign deal</p>
+        <h3 className={`mt-1 truncate text-sm font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{product.name}</h3>
+        <p className="mt-2 text-xs text-slate-400 line-through">{formatCurrency(product.originalPrice)}</p>
+        <p className="text-sm font-bold text-rose-600">{formatCurrency(product.price)}</p>
+      </div>
+    </Link>
   );
 }
 
@@ -1930,7 +2019,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
               {product.specs.map((spec) => <span key={spec} className={`rounded-full px-4 py-2 text-sm font-medium ${isDark ? "bg-white/8 text-slate-200" : "bg-slate-100 text-slate-600"}`}>{spec}</span>)}
             </div>
             <div className="mt-8 flex items-end gap-4">
-              <strong className="text-4xl font-bold text-orange-500">{formatCurrency(product.price)}</strong>
+              <strong className="text-4xl font-bold text-rose-600">{formatCurrency(product.price)}</strong>
               <span className="pb-1 text-lg text-slate-400 line-through">{formatCurrency(product.originalPrice)}</span>
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-3">

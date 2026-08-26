@@ -34,6 +34,14 @@ export class AwsApiStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
 
+    const gsiDeploymentPhase = this.node.tryGetContext("dynamodbGsiDeploymentPhase");
+    if (gsiDeploymentPhase && gsiDeploymentPhase !== "entity-only") {
+      throw new Error("dynamodbGsiDeploymentPhase must be 'entity-only' when provided.");
+    }
+    // DynamoDB permits only one GSI create/delete operation per table update.
+    // Use entity-only for the first deployment, then deploy normally to add the sale index.
+    const includeSaleCampaignTimelineIndex = gsiDeploymentPhase !== "entity-only";
+
     const callbackUrl = new CfnParameter(this, "CallbackUrl", {
       type: "String",
       default: "http://localhost:3000/auth/callback",
@@ -126,6 +134,10 @@ export class AwsApiStack extends Stack {
         { attributeName: "searchName", attributeType: "S" },
         { attributeName: "searchField", attributeType: "S" },
         { attributeName: "entityType", attributeType: "S" },
+        ...(includeSaleCampaignTimelineIndex ? [
+          { attributeName: "campaignStatus", attributeType: "S" },
+          { attributeName: "startAt", attributeType: "S" }
+        ] : []),
         { attributeName: "updatedAt", attributeType: "S" }
       ],
       keySchema: [
@@ -169,7 +181,15 @@ export class AwsApiStack extends Stack {
             { attributeName: "updatedAt", keyType: "RANGE" }
           ],
           projection: { projectionType: "ALL" }
-        }
+        },
+        ...(includeSaleCampaignTimelineIndex ? [{
+          indexName: "SaleCampaignTimelineIndex",
+          keySchema: [
+            { attributeName: "campaignStatus", keyType: "HASH" },
+            { attributeName: "startAt", keyType: "RANGE" }
+          ],
+          projection: { projectionType: "ALL" }
+        }] : [])
       ]
     });
     table.applyRemovalPolicy(RemovalPolicy.DESTROY);
@@ -307,6 +327,9 @@ export class AwsApiStack extends Stack {
     const platformEventBus = new events.EventBus(this, "SupermarketPlatformEventBus", {
       eventBusName: "supermarket-platform-bus"
     });
+    const saleSchedulerGroup = new scheduler.CfnScheduleGroup(this, "SaleSchedulerGroup", {
+      name: "supermarket-sales"
+    });
     const commerceArchive = new events.CfnArchive(this, "SupermarketCommerceArchive", {
       archiveName: "supermarket-commerce-archive",
       description: "Lưu lịch sử event commerce để replay khi cần.",
@@ -328,7 +351,7 @@ export class AwsApiStack extends Stack {
 
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
       functionName: "supermarket-cognito-trigger",
-      runtime: lambda.Runtime.NODEJS_20_X,
+      runtime: lambda.Runtime.NODEJS_24_X,
       architecture: lambda.Architecture.X86_64,
       handler: "index.handler",
       timeout: Duration.seconds(10),
@@ -740,7 +763,7 @@ exports.handler = async (event) => {
     ) => {
       const fn = new lambda.Function(this, id, {
         functionName,
-        runtime: lambda.Runtime.NODEJS_20_X,
+        runtime: lambda.Runtime.NODEJS_24_X,
         architecture: lambda.Architecture.X86_64,
         handler,
         timeout: Duration.seconds(timeoutSeconds),
@@ -882,6 +905,35 @@ exports.handler = async (event) => {
       120,
       512
     );
+    const saleCampaignWorkerFunction = createApplicationLambda(
+      "SupermarketSaleCampaignWorkerFunction",
+      "supermarket-sale-campaign-worker-aws",
+      "src/lambda/handlers/sale-campaign-worker.handler",
+      20,
+      256
+    );
+    const saleSchedulerRole = new iam.Role(this, "SaleSchedulerRole", {
+      assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+      description: "Allows EventBridge Scheduler to activate and end sale campaigns"
+    });
+    saleSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["lambda:InvokeFunction"],
+      resources: [saleCampaignWorkerFunction.functionArn]
+    }));
+    httpApiFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["scheduler:CreateSchedule", "scheduler:DeleteSchedule", "scheduler:GetSchedule", "scheduler:UpdateSchedule"],
+      resources: [
+        saleSchedulerGroup.attrArn,
+        `arn:aws:scheduler:${this.region}:${this.account}:schedule/${saleSchedulerGroup.name}/*`
+      ]
+    }));
+    httpApiFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["iam:PassRole"],
+      resources: [saleSchedulerRole.roleArn]
+    }));
+    httpApiFunction.addEnvironment("SALE_SCHEDULER_ROLE_ARN", saleSchedulerRole.roleArn);
+    httpApiFunction.addEnvironment("SALE_SCHEDULER_GROUP_NAME", saleSchedulerGroup.ref);
+    httpApiFunction.addEnvironment("SALE_SCHEDULER_TARGET_ARN", saleCampaignWorkerFunction.functionArn);
     new lambda.EventInvokeConfig(this, "DataCleanupInvokeConfig", {
       function: dataCleanupFunction,
       maxEventAge: Duration.hours(1),

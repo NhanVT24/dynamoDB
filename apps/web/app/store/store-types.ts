@@ -26,6 +26,8 @@ export type StoreProduct = {
   updatedAt: string;
   isLocked?: boolean;
   lockedUntil?: string;
+  saleCampaignId?: string;
+  saleDiscountPercent?: number;
   badge?: string;
   specs: string[];
 };

@@ -10,6 +10,7 @@ import {
   confirmForgotPassword,
   confirmSignUpWithCognito,
   consumePostLoginRedirect,
+  rememberPostLoginRedirect,
   authSessionChangedEvent,
   resolvePostLoginRoute,
   type AuthSession,
@@ -472,6 +473,16 @@ export default function Home() {
       setMessage("The current account is logged in but does not belong to the admin group, so it cannot access the admin panel.");
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!ready || session) {
+      return;
+    }
+
+    // Keep authentication in the storefront modal instead of rendering a standalone admin login page.
+    rememberPostLoginRedirect("/admin");
+    router.replace("/store?auth=login");
+  }, [ready, router, session]);
 
   useEffect(() => {
     if (!ready || !session) return;

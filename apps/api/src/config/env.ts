@@ -37,6 +37,9 @@ export const env = z.object({
   EVENTBRIDGE_COMMERCE_ARCHIVE_ARN: z.string().optional(),
   EVENTBRIDGE_PAYMENT_ARCHIVE_ARN: z.string().optional(),
   EVENTBRIDGE_PLATFORM_ARCHIVE_ARN: z.string().optional(),
+  SALE_SCHEDULER_ROLE_ARN: z.string().optional(),
+  SALE_SCHEDULER_GROUP_NAME: z.string().default("supermarket-sales"),
+  SALE_SCHEDULER_TARGET_ARN: z.string().optional(),
   STOREFRONT_SYNC_QUEUE_PROCESSING: z
     .enum(["true", "false"])
     .optional()

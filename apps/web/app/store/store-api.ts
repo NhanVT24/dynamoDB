@@ -24,6 +24,8 @@ type StorefrontApiItem = {
   rating?: number;
   isLocked?: boolean;
   lockedUntil?: string;
+  saleCampaignId?: string;
+  saleDiscountPercent?: number;
   attributes?: Record<string, unknown>;
 };
 
@@ -116,6 +118,8 @@ export function toStoreProduct(item: StorefrontApiItem): StoreProduct {
     updatedAt: item.updatedAt ?? item.createdAt ?? new Date().toISOString(),
     isLocked: Boolean(item.isLocked),
     lockedUntil: item.lockedUntil,
+    saleCampaignId: item.saleCampaignId,
+    saleDiscountPercent: item.saleDiscountPercent == null ? undefined : Number(item.saleDiscountPercent),
     badge: status === "out_of_stock" ? "Out of stock" : item.isLocked ? "Reserved" : stock <= 10 ? "Low stock" : "Recently updated",
     specs: getCategorySpecs(category, brand, item.attributes)
   };

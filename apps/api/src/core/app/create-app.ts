@@ -65,6 +65,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const url = String(request.url || "");
     const isPublicStorefrontRead = isReadOnlyMethod && url.startsWith("/api/storefront/");
     const isPublicProductsRead = isReadOnlyMethod && url.startsWith("/api/products");
+    const isSalesRequest = url.startsWith("/api/sales");
     const isNotificationsMeRead = isReadOnlyMethod && url.startsWith("/api/notifications/me");
     const isNotificationReadMutation = method === "PATCH" && /^\/api\/notifications\/[^/]+\/read(?:\?|$)/.test(url);
     const isNotificationDeleteMutation = method === "DELETE" && /^\/api\/notifications\/[^/]+(?:\?|$)/.test(url);
@@ -80,7 +81,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       url.startsWith("/api/payments/vnpay/") ||
       url.startsWith("/api/payments/vnpay?");
 
-    if (isReadOnlyMethod || isPublicStorefrontRead || isPublicProductsRead || isPublicVnpayRequest || isNotificationsMeRead) {
+    if ((!isSalesRequest && isReadOnlyMethod) || isPublicStorefrontRead || isPublicProductsRead || isPublicVnpayRequest || isNotificationsMeRead) {
       return;
     }
 

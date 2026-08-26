@@ -11,6 +11,8 @@ import { publishEventBridgeEvent } from "../../integrations/eventbridge/publishe
 import { sqsClient } from "../../integrations/sqs/client.js";
 import { sendOrderConfirmationEmail, sendOrderFailureEmail } from "../../integrations/ses/order-mailer.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
+import { resolveSalePrice } from "../sales/sale-pricing.js";
+import { listActiveSaleCampaigns } from "../sales/sales.repository.js";
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
 import { VnpayService } from "../vnpay/vnpay.service.js";
 import {
@@ -116,7 +118,7 @@ function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T):
     : payload;
 }
 
-function toPublicProductSummary(item: ProductRecord): PublicProductSummary {
+function toPublicProductSummary(item: ProductRecord, saleCampaigns = [] as Awaited<ReturnType<typeof listActiveSaleCampaigns>>): PublicProductSummary {
   const stock = Number(item.stock ?? 0);
   const reservedStock = Number(item.reservedStock ?? 0);
   const availableStock = Math.max(0, stock - reservedStock);
@@ -126,8 +128,7 @@ function toPublicProductSummary(item: ProductRecord): PublicProductSummary {
     name: String(item.name ?? ""),
     category: String(item.category ?? ""),
     brand: String(item.brand ?? ""),
-    price: Number(item.price ?? 0),
-    originalPrice: Number(item.originalPrice ?? item.price ?? 0),
+    ...resolveSalePrice(item, saleCampaigns),
     status,
     stock: availableStock,
     imageUrl: item.imageUrl ? String(item.imageUrl) : undefined,
@@ -141,7 +142,7 @@ function toPublicProductSummary(item: ProductRecord): PublicProductSummary {
   };
 }
 
-function toPublicProductDetail(item: ProductRecord): PublicProductDetail {
+function toPublicProductDetail(item: ProductRecord, saleCampaigns = [] as Awaited<ReturnType<typeof listActiveSaleCampaigns>>): PublicProductDetail {
   const {
     PK: _pk,
     SK: _sk,
@@ -178,8 +179,7 @@ function toPublicProductDetail(item: ProductRecord): PublicProductDetail {
     name: String(name ?? ""),
     category: String(category ?? ""),
     brand: String(brand ?? ""),
-    price: Number(price ?? 0),
-    originalPrice: Number(originalPrice ?? price ?? 0),
+    ...resolveSalePrice(item, saleCampaigns),
     status: publicStatus,
     stock: availableStock,
     imageUrl: imageUrl ? String(imageUrl) : undefined,
@@ -236,10 +236,11 @@ export class StorefrontService {
   async listProducts(rawQuery: Record<string, unknown>) {
     const query = shoppingListQuerySchema.parse(rawQuery);
     const result = await listStorefrontProducts(query);
+    const saleCampaigns = await listActiveSaleCampaigns();
 
     const shaped = {
       // Sold-out products remain available to admin tools but not shoppers.
-      items: result.items.filter(hasPhysicalStock).map((item) => toPublicProductSummary(item)),
+      items: result.items.filter(hasPhysicalStock).map((item) => toPublicProductSummary(item, saleCampaigns)),
       pageInfo: {
         limit: result.limit,
         cursor: result.cursor,
@@ -257,7 +258,7 @@ export class StorefrontService {
       throw new NotFoundException("Không tìm thấy sản phẩm.");
     }
 
-    const shaped = toPublicProductDetail(item);
+    const shaped = toPublicProductDetail(item, await listActiveSaleCampaigns());
     return shaped;
   }
 

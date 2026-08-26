@@ -23,6 +23,28 @@ type ProductItem = {
   imageUrl?: string;
   version?: number;
 };
+type PanelMode = "product" | "sale";
+type SaleCampaignStatus = "scheduled" | "active" | "ended" | "cancelled";
+
+type SaleCampaign = {
+  id: string;
+  name: string;
+  campaignStatus: SaleCampaignStatus;
+  discountPercent: number;
+  productIds: string[];
+  startAt: string;
+  endAt: string;
+};
+
+type SaleCampaignProductsResponse = {
+  campaign: SaleCampaign;
+  items: ProductItem[];
+};
+
+type SaleCampaignProductRemovalResponse = {
+  campaign: SaleCampaign;
+  closed: boolean;
+};
 
 type FormState = {
   name: string;
@@ -113,6 +135,7 @@ const emptyForm: FormState = {
   description: "",
   imageUrl: "",
 };
+const toLocalDateTimeInput = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 
 const statusLabels = {
   active: "Active",
@@ -125,14 +148,6 @@ const searchFieldLabels = {
   brand: "Brand"
 };
 
-const commandNotes = [
-  ["Create", "PutItemCommand"],
-  ["Pagination", "ScanCommand + LastEvaluatedKey"],
-  ["Stock Update", "UpdateItemCommand"],
-  ["Edit", "UpdateItemCommand"],
-  ["Delete", "DeleteItemCommand"]
-];
-
 const panelStyle: CSSProperties = {
   border: "1px solid rgba(255, 255, 255, 0.7)",
   background: "rgba(255, 255, 255, 0.92)",
@@ -141,40 +156,27 @@ const panelStyle: CSSProperties = {
 
 const pageGridStyle: CSSProperties = {
   display: "grid",
-  gap: "20px"
-};
-
-const heroStyle: CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "16px",
-  padding: "20px",
-  borderRadius: "28px",
-  border: "1px solid rgba(255, 255, 255, 0.7)",
-  background: "rgba(255, 255, 255, 0.82)",
-  backdropFilter: "blur(12px)"
+  gap: "12px"
 };
 
 const statsGridStyle: CSSProperties = {
   display: "grid",
-  gap: "16px",
+  gap: "12px",
   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))"
 };
 
 const filterGridStyle: CSSProperties = {
   display: "grid",
-  gap: "12px",
+  gap: "8px",
   alignItems: "center",
-  padding: "16px",
-  borderRadius: "24px",
+  padding: "10px",
+  borderRadius: "20px",
   gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))"
 };
 
 const inputStyle: CSSProperties = {
   width: "100%",
-  height: "44px",
+  height: "40px",
   padding: "0 12px",
   borderRadius: "12px",
   border: "1px solid #cbd5e1",
@@ -236,39 +238,30 @@ const secondaryButtonStyle: CSSProperties = {
   fontWeight: 600
 };
 
-const deleteOverlayStyle: CSSProperties = {
-  animation: "deleteOverlayFade 180ms ease-out"
-};
-
-const deleteModalStyle: CSSProperties = {
-  boxShadow: "0 24px 80px rgba(15, 23, 42, 0.22)",
-  animation: "deleteModalPop 220ms cubic-bezier(0.22, 1, 0.36, 1)"
-};
-
 const gridPanelsStyle: CSSProperties = {
   display: "grid",
-  gap: "20px",
+  gap: "12px",
   alignItems: "stretch",
-  gridTemplateColumns: "minmax(0, 1fr) 380px"
+  gridTemplateColumns: "minmax(0, 1fr) 360px"
 };
 
-const panelHeight = 760;
+const panelHeight = "clamp(440px, calc(100dvh - 250px), 640px)";
 
 const tablePanelStyle: CSSProperties = {
   ...panelStyle,
   display: "flex",
   flexDirection: "column",
-  height: `${panelHeight}px`,
-  minHeight: `${panelHeight}px`
+  height: panelHeight,
+  minHeight: panelHeight
 };
 
 const formPanelStyle: CSSProperties = {
   ...panelStyle,
   display: "grid",
-  gap: "16px",
-  padding: "20px",
-  height: `${panelHeight}px`,
-  minHeight: `${panelHeight}px`,
+  gap: "12px",
+  padding: "16px",
+  height: panelHeight,
+  minHeight: panelHeight,
   overflow: "auto"
 };
 
@@ -282,7 +275,7 @@ const columnStyles: Record<string, CSSProperties> = {
   actions: { width: "10%" }
 };
 
-const inputClassName = "h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
+const inputClassName = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100";
 const actionButtonClassName = "inline-flex h-9 items-center justify-center rounded-lg px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50";
 
 function currency(value: number | string | undefined | null) {
@@ -425,9 +418,9 @@ function Field({ children, className = "" }: { children: ReactNode; className?: 
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <article className="rounded-2xl border border-white/70 bg-white/90 p-5 backdrop-blur" style={panelStyle}>
-      <span className="text-sm text-slate-500">{label}</span>
-      <strong className="mt-2 block text-2xl font-semibold tracking-tight text-slate-900">{value}</strong>
+    <article className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3 backdrop-blur" style={panelStyle}>
+      <span className="text-xs text-slate-500">{label}</span>
+      <strong className="mt-1 block text-xl font-semibold tracking-tight text-slate-900">{value}</strong>
     </article>
   );
 }
@@ -436,22 +429,21 @@ function SkeletonBlock({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse rounded-2xl bg-slate-200/80 ${className}`} />;
 }
 
-function ShoppingManagerSkeleton({ headerActions }: { headerActions?: ReactNode }) {
+function ShoppingManagerSkeleton() {
   return (
     <div style={pageGridStyle}>
-      <section className="flex flex-col gap-4 rounded-[28px] border border-white/70 bg-white/80 p-5 backdrop-blur md:flex-row md:items-center md:justify-between" style={heroStyle}>
-        <div className="grid gap-3">
-          <SkeletonBlock className="h-4 w-28" />
-          <SkeletonBlock className="h-10 w-72 max-w-[80vw]" />
+      <section className="flex justify-center rounded-2xl border border-white/70 bg-white/80 px-4 py-3 backdrop-blur" style={panelStyle}>
+        <div className="grid justify-items-center gap-2">
+          <SkeletonBlock className="h-5 w-32" />
+          <SkeletonBlock className="h-3 w-56" />
         </div>
-        {headerActions}
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" style={statsGridStyle}>
         {Array.from({ length: 4 }).map((_, index) => (
-          <article key={index} className="rounded-2xl border border-white/70 bg-white/90 p-5 backdrop-blur" style={panelStyle}>
+          <article key={index} className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3 backdrop-blur" style={panelStyle}>
             <SkeletonBlock className="h-4 w-24" />
-            <SkeletonBlock className="mt-3 h-8 w-24" />
+            <SkeletonBlock className="mt-2 h-6 w-24" />
           </article>
         ))}
       </section>
@@ -466,8 +458,8 @@ function ShoppingManagerSkeleton({ headerActions }: { headerActions?: ReactNode 
       </section>
 
       <section className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_380px]" style={gridPanelsStyle}>
-        <div className="flex h-full min-h-full flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/90" style={tablePanelStyle}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #e2e8f0" }}>
+        <div className="product-manager-panel flex h-full min-h-full flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/90" style={tablePanelStyle}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #e2e8f0" }}>
             <SkeletonBlock className="h-7 w-36" />
             <SkeletonBlock className="h-4 w-40" />
           </div>
@@ -492,7 +484,7 @@ function ShoppingManagerSkeleton({ headerActions }: { headerActions?: ReactNode 
           </div>
         </div>
 
-        <div className="grid h-full gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
+        <div className="product-manager-panel grid h-full gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
           <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "16px" }} className="grid gap-3">
             <SkeletonBlock className="h-7 w-40" />
             <SkeletonBlock className="h-4 w-56" />
@@ -533,7 +525,19 @@ export default function ShoppingManager({
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState("");
   const [editingVersion, setEditingVersion] = useState(0);
-  const [deleteTarget, setDeleteTarget] = useState<ProductItem | null>(null);
+  const [panelMode, setPanelMode] = useState<PanelMode>("product");
+  const [saleName, setSaleName] = useState("");
+  const [saleDiscountPercent, setSaleDiscountPercent] = useState("10");
+  const [saleStartAt, setSaleStartAt] = useState(() => toLocalDateTimeInput(new Date(Date.now() + 10 * 60_000)));
+  const [saleEndAt, setSaleEndAt] = useState(() => toLocalDateTimeInput(new Date(Date.now() + 70 * 60_000)));
+  const [saleProductIds, setSaleProductIds] = useState<string[]>([]);
+  const [saleCampaigns, setSaleCampaigns] = useState<SaleCampaign[]>([]);
+  const [saleCampaignsLoading, setSaleCampaignsLoading] = useState(false);
+  const [cancellingSaleId, setCancellingSaleId] = useState("");
+  const [selectedSaleCampaign, setSelectedSaleCampaign] = useState<SaleCampaign | null>(null);
+  const [selectedSaleProducts, setSelectedSaleProducts] = useState<ProductItem[]>([]);
+  const [saleProductsLoading, setSaleProductsLoading] = useState(false);
+  const [removingSaleProductId, setRemovingSaleProductId] = useState("");
   const [message, setMessage] = useState("Loading product data...");
   const [busy, setBusy] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
@@ -548,6 +552,9 @@ export default function ShoppingManager({
   const previewSalePrice = computeSalePrice(previewBasePrice, previewDiscount);
   const isViewerOnly = !canManageProducts;
   const isInitialLoading = busy && items.length === 0 && allItems.length === 0;
+  const liveOrUpcomingSaleCampaigns = saleCampaigns.filter((campaign) => campaign.campaignStatus === "scheduled" || campaign.campaignStatus === "active");
+  const displayedProducts = selectedSaleCampaign ? selectedSaleProducts : items;
+  const isSaleProductSelectionMode = panelMode === "sale" && !selectedSaleCampaign;
 
   const summary = useMemo(() => {
     const totalProducts = allItems.length;
@@ -981,110 +988,148 @@ export default function ShoppingManager({
     }
   }
 
-  function requestDelete(item: ProductItem) {
-    if (isViewerOnly) {
-      setMessage("account does not have permission to delete products");
-      return;
+  function toggleSaleProduct(productId: string) {
+    setSaleProductIds((current) => current.includes(productId)
+      ? current.filter((id) => id !== productId)
+      : [...current, productId]);
+  }
+
+  async function loadSaleCampaigns() {
+    setSaleCampaignsLoading(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/sales`, {
+        headers: buildRequestHeaders()
+      });
+      if (!response.ok) throw new Error(await logApiFailure(response, "Failed to load sale campaigns", "loadSaleCampaigns"));
+      const campaigns = (await response.json()) as SaleCampaign[];
+      setSaleCampaigns(campaigns);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to load sale campaigns.");
+    } finally {
+      setSaleCampaignsLoading(false);
     }
-
-    setDeleteTarget(item);
   }
 
-  function cancelDelete() {
-    if (busy) return;
-    setDeleteTarget(null);
+  async function cancelSaleCampaign(campaign: SaleCampaign) {
+    setCancellingSaleId(campaign.id);
+    try {
+      const response = await fetch(`${apiUrl}/api/sales/${campaign.id}/cancel`, {
+        method: "POST",
+        headers: buildRequestHeaders()
+      });
+      if (!response.ok) throw new Error(await logApiFailure(response, "Failed to cancel sale campaign", "cancelSaleCampaign"));
+      setMessage(`Cancelled sale campaign \"${campaign.name}\".`);
+      await loadSaleCampaigns();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to cancel sale campaign.");
+    } finally {
+      setCancellingSaleId("");
+    }
   }
 
-  async function removeItem(item: ProductItem) {
-    if (isViewerOnly) {
-      setMessage("Account does not have permission to delete products");
+  async function viewSaleCampaignProducts(campaign: SaleCampaign) {
+    setSelectedSaleCampaign(campaign);
+    setSelectedSaleProducts([]);
+    setSaleProductsLoading(true);
+    try {
+      const response = await fetch(`${apiUrl}/api/sales/${campaign.id}/products`, {
+        headers: buildRequestHeaders()
+      });
+      if (!response.ok) throw new Error(await logApiFailure(response, "Failed to load sale campaign products", "viewSaleCampaignProducts"));
+      const data = (await response.json()) as SaleCampaignProductsResponse;
+      setSelectedSaleCampaign(data.campaign);
+      setSelectedSaleProducts(data.items);
+    } catch (error) {
+      setSelectedSaleCampaign(null);
+      setMessage(error instanceof Error ? error.message : "Failed to load sale campaign products.");
+    } finally {
+      setSaleProductsLoading(false);
+    }
+  }
+
+  async function removeProductFromSaleCampaign(product: ProductItem) {
+    if (!selectedSaleCampaign) return;
+
+    setRemovingSaleProductId(product.id);
+    try {
+      const response = await fetch(`${apiUrl}/api/sales/${selectedSaleCampaign.id}/products/${product.id}/remove`, {
+        method: "POST",
+        headers: buildRequestHeaders()
+      });
+      if (!response.ok) throw new Error(await logApiFailure(response, "Failed to remove product from sale campaign", "removeProductFromSaleCampaign"));
+      const result = (await response.json()) as SaleCampaignProductRemovalResponse;
+      if (result.closed) {
+        clearSaleCampaignProducts();
+        setMessage(`Removed \"${product.name}\" and closed the empty sale campaign.`);
+      } else {
+        setSelectedSaleCampaign(result.campaign);
+        setSelectedSaleProducts((current) => current.filter((item) => item.id !== product.id));
+        setMessage(`Removed \"${product.name}\" from \"${result.campaign.name}\".`);
+      }
+      await loadSaleCampaigns();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to remove product from sale campaign.");
+    } finally {
+      setRemovingSaleProductId("");
+    }
+  }
+
+  function clearSaleCampaignProducts() {
+    setSelectedSaleCampaign(null);
+    setSelectedSaleProducts([]);
+  }
+
+  async function submitSale(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saleProductIds.length === 0) {
+      setMessage("Choose at least one product for the sale campaign.");
       return;
     }
 
     setBusy(true);
     try {
-      const response = await fetch(`${apiUrl}/api/shopping-items/${item.id}`, {
-        method: "DELETE",
-        headers: buildRequestHeaders()
+      const response = await fetch(`${apiUrl}/api/sales`, {
+        method: "POST",
+        headers: buildRequestHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          name: saleName,
+          discountPercent: Number(saleDiscountPercent),
+          startAt: new Date(saleStartAt).toISOString(),
+          endAt: new Date(saleEndAt).toISOString(),
+          productIds: saleProductIds
+        })
       });
-      if (!response.ok) throw new Error(await logApiFailure(response, "Failed to delete product", "removeItem"));
-      if (editingId === item.id) resetForm();
-      setMessage(`Deleted "${item.name}"`);
-      setDeleteTarget(null);
-      const history = resetPagination();
-      await loadItems(null, filters, 0, history);
-      await loadSummary(filters);
+      if (!response.ok) throw new Error(await logApiFailure(response, "Failed to schedule sale", "submitSale"));
+      setSaleName("");
+      setSaleProductIds([]);
+      setMessage("Sale campaign scheduled successfully.");
+      await loadSaleCampaigns();
     } catch (error) {
-      setMessage(error.message);
+      setMessage(error instanceof Error ? error.message : "Failed to schedule sale.");
     } finally {
       setBusy(false);
     }
   }
 
   if (isInitialLoading) {
-    return <ShoppingManagerSkeleton headerActions={headerActions} />;
+    return <ShoppingManagerSkeleton />;
   }
 
   return (
     <div className="grid gap-5" style={pageGridStyle}>
-      {deleteTarget ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-sm"
-          style={deleteOverlayStyle}
-          onClick={cancelDelete}
-        >
-          <div
-            className="w-full max-w-md rounded-3xl border border-white/70 bg-white p-6 shadow-2xl"
-            style={deleteModalStyle}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-xl font-bold text-rose-600">
-              !
-            </div>
-            <h2 className="mt-4 text-xl font-semibold text-slate-900">Delete product?</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              You are about to delete <strong>{deleteTarget.name}</strong>. This action cannot be undone.
-            </p>
-            <div className="mt-6 flex flex-wrap justify-end gap-3">
-              <button
-                type="button"
-                onClick={cancelDelete}
-                disabled={busy}
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ ...secondaryButtonStyle, height: "44px", padding: "0 20px" }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => removeItem(deleteTarget)}
-                disabled={busy}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-rose-600 px-5 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {busy ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      <section className="flex flex-col gap-4 rounded-[28px] border border-white/70 bg-white/80 p-5 backdrop-blur md:flex-row md:items-center md:justify-between" style={heroStyle}>
-        <div>
-          <p className="m-0 text-sm uppercase tracking-[0.25em] text-slate-500" style={{ margin: 0, fontSize: "13px", letterSpacing: "0.25em", color: "#64748b" }}>
-            Product Admin
-          </p>
-          <h1 className="mt-2 text-3xl bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent font-semibold tracking-tight text-slate-900" style={{ margin: "8px 0 0", fontSize: "32px", fontWeight: 600, color: "#0f172a" }}>
-            Product List
-          </h1>
-        </div>
-        {headerActions}
+      <section className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-center backdrop-blur" style={panelStyle}>
+        <p className="m-0 text-base font-semibold text-slate-900">Product Admin</p>
+        <p className="mt-1 text-xs text-slate-500">Manage products, inventory, and scheduled sales from one workspace.</p>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" style={statsGridStyle}>
-        <StatCard label="Total Products" value={summary.totalProducts} />
-        <StatCard label="Low Stock" value={summary.lowStock} />
-        <StatCard label="Out of Stock" value={summary.outOfStock} />
-        <StatCard label="Inventory Value" value={currency(summary.inventoryValue)} />
+      <section className="flex flex-wrap items-center gap-3">
+        <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4" style={statsGridStyle}>
+          <StatCard label="Total Products" value={summary.totalProducts} />
+          <StatCard label="Low Stock" value={summary.lowStock} />
+          <StatCard label="Out of Stock" value={summary.outOfStock} />
+          <StatCard label="Inventory Value" value={currency(summary.inventoryValue)} />
+        </div>
+        {headerActions}
       </section>
 
       {isViewerOnly ? (
@@ -1177,13 +1222,13 @@ export default function ShoppingManager({
       </section>
 
       <section className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_380px]" style={gridPanelsStyle}>
-        <div className="flex h-full min-h-full flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/90" style={tablePanelStyle}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #e2e8f0" }}>
+        <div className="product-manager-panel flex h-full min-h-full flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/90" style={tablePanelStyle}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #e2e8f0" }}>
             <div>
-              <h2 className="text-xl font-semibold text-slate-900" style={{ margin: 0, fontSize: "20px", fontWeight: 600 }}>Products</h2>
-            
+              <h2 className="text-base font-semibold text-slate-900" style={{ margin: 0, fontSize: "16px", fontWeight: 600 }}>{selectedSaleCampaign ? selectedSaleCampaign.name : "Products"}</h2>
+              {selectedSaleCampaign ? <button type="button" onClick={clearSaleCampaignProducts} className="mt-1 text-xs font-semibold text-orange-700 hover:text-orange-800">All products</button> : null}
             </div>
-            <span className="max-w-xs text-sm text-slate-500 md:text-right" style={{ maxWidth: "320px", fontSize: "14px", color: "#64748b" }}>
+            <span className="max-w-xs text-xs text-slate-500 md:text-right" style={{ maxWidth: "320px", fontSize: "12px", color: "#64748b" }}>
               {message}
             </span>
           </div>
@@ -1192,36 +1237,40 @@ export default function ShoppingManager({
             <table className="min-w-full border-separate border-spacing-0" style={{ width: "100%", minWidth: "1080px", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" }}>
               <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
                 <tr>
+                  {isSaleProductSelectionMode ? <th className="w-12 border-b border-slate-200 text-center text-xs font-bold uppercase tracking-[0.2em] text-orange-600">Add</th> : null}
                   <th style={{ ...columnStyles.product, padding: "12px 16px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Product</th>
                   <th style={{ ...columnStyles.category, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Category</th>
                   <th style={{ ...columnStyles.price, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Price</th>
                   <th style={{ ...columnStyles.stock, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Inventory</th>
                   <th style={{ ...columnStyles.updatedAt, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Updated</th>
                   <th style={{ ...columnStyles.status, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Status</th>
-                  <th style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Actions</th>
+                  {panelMode === "product" || selectedSaleCampaign ? <th style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Actions</th> : null}
                 </tr>
               </thead>
               <tbody>
-                {items.length === 0 ? (
+                {saleProductsLoading ? (
+                  <tr><td colSpan={7} style={{ padding: "64px 20px", textAlign: "center", fontSize: "14px", color: "#64748b" }}>Loading sale campaign products...</td></tr>
+                ) : displayedProducts.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: "64px 20px", textAlign: "center", fontSize: "14px", color: "#64748b" }}>
-                      No products match the current filters.
+                    <td colSpan={isSaleProductSelectionMode || panelMode === "product" || selectedSaleCampaign ? 7 : 6} style={{ padding: "64px 20px", textAlign: "center", fontSize: "14px", color: "#64748b" }}>
+                      {selectedSaleCampaign ? "This campaign has no available product records." : "No products match the current filters."}
                     </td>
                   </tr>
-                ) : items.map((item) => {
+                ) : displayedProducts.map((item) => {
                   const discountPercent = computeDiscountPercent(Number(item.originalPrice ?? item.price), Number(item.price));
 
                   return (
                     <tr
                       key={item.id}
                       onDoubleClick={() => {
-                        if (!isViewerOnly) {
+                        if (!isViewerOnly && !selectedSaleCampaign) {
                           startEdit(item);
                         }
                       }}
                       className={`cursor-pointer transition hover:bg-slate-50/80 ${editingId === item.id ? "bg-blue-50/80" : ""}`}
                       style={{ height: "68px" }}
                     >
+                      {isSaleProductSelectionMode ? <td className="border-b border-slate-100 text-center"><input type="checkbox" aria-label={`Add ${item.name} to sale`} checked={saleProductIds.includes(item.id)} onChange={() => toggleSaleProduct(item.id)} disabled={busy} /></td> : null}
                       <td style={{ ...columnStyles.product, padding: "12px 16px" }} className="border-b border-slate-100 align-middle">
                         <div className="group relative" style={{ minWidth: 0, display: "flex", alignItems: "center", gap: "10px" }}>
                           <img src={item.imageUrl} alt={item.name} style={{ width: "40px", height: "40px", borderRadius: "12px", border: "1px solid #e2e8f0", objectFit: "cover", flexShrink: 0 }} />
@@ -1286,7 +1335,9 @@ export default function ShoppingManager({
                           {statusLabel(item.status)}
                         </span>
                       </td>
-                      <td style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-100">
+                      {selectedSaleCampaign ? <td style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-100">
+                        <button type="button" onClick={() => void removeProductFromSaleCampaign(item)} disabled={removingSaleProductId === item.id} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ minWidth: "92px", padding: "0 10px" }}>{removingSaleProductId === item.id ? "Removing..." : "Remove"}</button>
+                      </td> : panelMode === "product" ? <td style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-100">
                         {isViewerOnly ? (
                           <span className="inline-flex h-9 items-center rounded-lg bg-slate-100 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                             View only
@@ -1294,10 +1345,9 @@ export default function ShoppingManager({
                         ) : (
                           <div style={{ display: "flex", flexWrap: "nowrap", gap: "6px", width: "100%" }}>
                             <button type="button" onClick={() => startEdit(item)} disabled={busy} className={`${actionButtonClassName} bg-blue-50 text-blue-700 hover:bg-blue-100`} style={{ flex: "1 1 0", minWidth: "48px", padding: "0 8px" }}>Edit</button>
-                            <button type="button" onClick={() => requestDelete(item)} disabled={busy} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ flex: "1 1 0", minWidth: "58px", padding: "0 8px" }}>Delete</button>
                           </div>
                         )}
-                      </td>
+                      </td> : null}
                     </tr>
                   );
                 })}
@@ -1305,7 +1355,7 @@ export default function ShoppingManager({
             </table>
           </div>
 
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", justifyContent: "flex-end", padding: "16px 20px", borderTop: "1px solid #e2e8f0" }}>
+          {!selectedSaleCampaign ? <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "flex-end", padding: "10px 16px", borderTop: "1px solid #e2e8f0" }}>
             <button type="button" onClick={goPreviousPage} disabled={busy || cursorIndex === 0} className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" style={secondaryButtonStyle}>
               Previous
             </button>
@@ -1328,11 +1378,11 @@ export default function ShoppingManager({
             <button type="button" onClick={goNextPage} disabled={busy || !hasNextPage} className="inline-flex h-10 items-center justify-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50" style={{ ...darkButtonStyle, height: "40px", padding: "0 16px" }}>
               {hasNextPage ? "Next" : "Last Page"}
             </button>
-          </div>
+          </div> : null}
         </div>
 
         {isViewerOnly ? (
-          <section className="grid h-full content-start gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
+          <section className="product-manager-panel grid h-full content-start gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
             <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "16px" }}>
               <h2 className="text-xl font-semibold text-slate-900" style={{ margin: 0, fontSize: "20px", fontWeight: 600 }}>
                 Viewer Mode
@@ -1343,16 +1393,21 @@ export default function ShoppingManager({
             </div>
           </section>
         ) : (
-        <form onSubmit={submitForm} className="grid h-full gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
+        <form onSubmit={panelMode === "product" ? submitForm : submitSale} className="product-manager-panel grid h-full gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
           <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "16px" }}>
+            <div className="mb-4 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
+              <button type="button" onClick={() => { clearSaleCampaignProducts(); setPanelMode("product"); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${panelMode === "product" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>Add Product</button>
+              <button type="button" onClick={() => { resetForm(); clearSaleCampaignProducts(); setPanelMode("sale"); void loadSaleCampaigns(); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${panelMode === "sale" ? "bg-orange-600 text-white shadow-sm" : "text-slate-500"}`}>Schedule Sale</button>
+            </div>
             <h2 className="text-xl font-semibold text-slate-900" style={{ margin: 0, fontSize: "20px", fontWeight: 600 }}>
-              {editingId ? "Edit Product" : "Add Product"}
+              {panelMode === "sale" ? "Schedule Sale Campaign" : editingId ? "Edit Product" : "Add Product"}
             </h2>
             <p className="mt-1 text-sm text-slate-500" style={{ margin: "4px 0 0", fontSize: "14px", color: "#64748b" }}>
-              Only keep the fields admins actually need to edit often.
+              {panelMode === "sale" ? `Choose products from the left table, then set the sale timeline here.` : "Only keep the fields admins actually need to edit often."}
             </p>
           </div>
 
+          {panelMode === "product" ? <>
           <Field>
             <span>Product Name</span>
             <input className={inputClassName} style={inputStyle} value={form.name} onChange={(event) => updateField("name", event.target.value)} required />
@@ -1492,37 +1547,52 @@ export default function ShoppingManager({
               </button>
             ) : null}
           </div>
+          </> : <>
+            <Field><span>Campaign Name</span><input className={inputClassName} style={inputStyle} value={saleName} onChange={(event) => setSaleName(event.target.value)} placeholder="Weekend Sale" required /></Field>
+            <Field><span>Discount (%)</span><input className={inputClassName} style={inputStyle} type="number" min="1" max="95" value={saleDiscountPercent} onChange={(event) => setSaleDiscountPercent(event.target.value)} required /></Field>
+            <Field><span>Start Time</span><input className={inputClassName} style={inputStyle} type="datetime-local" value={saleStartAt} onChange={(event) => setSaleStartAt(event.target.value)} required /></Field>
+            <Field><span>End Time</span><input className={inputClassName} style={inputStyle} type="datetime-local" value={saleEndAt} onChange={(event) => setSaleEndAt(event.target.value)} required /></Field>
+            <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4"><div className="flex items-center justify-between"><span className="text-sm font-semibold text-orange-900">Selected products</span><strong className="text-lg text-orange-700">{saleProductIds.length}</strong></div><p className="mt-2 text-xs leading-5 text-orange-800">Tick products from the table on the left. The highest active campaign percentage is applied automatically.</p></div>
+            <button type="submit" disabled={busy || saleProductIds.length === 0} className="mt-auto inline-flex h-11 items-center justify-center rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Scheduling..." : "Schedule Sale"}</button>
+            <section className="rounded-2xl border border-orange-200 bg-[linear-gradient(135deg,#fff7ed_0%,#fff_58%,#fef3c7_100%)] p-3 shadow-[0_12px_28px_rgba(234,88,12,0.08)]">
+              <div className="flex items-center justify-between gap-3 border-b border-orange-200/80 pb-3">
+                <div>
+                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700">Sale Board</p>
+                  <h3 className="mt-1 text-sm font-semibold text-slate-900">Live & Upcoming</h3>
+                </div>
+                <button type="button" onClick={() => void loadSaleCampaigns()} disabled={saleCampaignsLoading} className="text-xs font-semibold text-orange-700 hover:text-orange-800 disabled:opacity-50">Refresh</button>
+              </div>
+              <div className="mt-3 grid gap-2">
+                {saleCampaignsLoading ? <p className="m-0 text-xs text-slate-500">Loading campaigns...</p> : null}
+                {!saleCampaignsLoading && liveOrUpcomingSaleCampaigns.length === 0 ? <p className="m-0 rounded-xl border border-dashed border-orange-200 bg-white/70 px-3 py-3 text-xs text-slate-500">No active or scheduled sale campaigns.</p> : null}
+                {liveOrUpcomingSaleCampaigns.map((campaign) => (
+                  <article key={campaign.id} className={`rounded-xl border px-3 py-3 ${selectedSaleCampaign?.id === campaign.id ? "ring-2 ring-orange-400" : ""} ${campaign.campaignStatus === "active" ? "border-rose-300 bg-rose-50 shadow-[0_8px_18px_rgba(225,29,72,0.1)]" : "border-amber-200 bg-white/85"}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <button type="button" onClick={() => void viewSaleCampaignProducts(campaign)} className="min-w-0 text-left">
+                        <p className="truncate text-sm font-semibold text-slate-900">{campaign.name}</p>
+                        <p className="mt-1 text-xs font-medium text-slate-600">{campaign.discountPercent}% off <span className="px-1 text-orange-300">|</span> {campaign.productIds.length} products</p>
+                        <span className="mt-2 inline-block text-xs font-semibold text-orange-700 hover:text-orange-800">View products</span>
+                      </button>
+                      <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${campaign.campaignStatus === "active" ? "bg-rose-600 text-white" : "bg-amber-100 text-amber-800"}`}>{campaign.campaignStatus === "active" ? "Live now" : "Up next"}</span>
+                    </div>
+                    <div className={`mt-3 h-1.5 overflow-hidden rounded-full ${campaign.campaignStatus === "active" ? "bg-rose-100" : "bg-amber-100"}`}>
+                      <div className={`h-full rounded-full ${campaign.campaignStatus === "active" ? "w-2/3 bg-rose-500" : "w-1/4 bg-amber-400"}`} />
+                    </div>
+                    <p className="mt-2 text-[11px] leading-4 text-slate-500">{formatDateTime(campaign.startAt)} - {formatDateTime(campaign.endAt)}</p>
+                    {campaign.campaignStatus === "scheduled" ? <button type="button" onClick={() => void cancelSaleCampaign(campaign)} disabled={cancellingSaleId === campaign.id} className="mt-2 text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">{cancellingSaleId === campaign.id ? "Cancelling..." : "Cancel schedule"}</button> : null}
+                  </article>
+                ))}
+              </div>
+            </section>
+          </>}
         </form>
         )}
       </section>
-
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" style={{ display: "grid", gap: "12px", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-        {commandNotes.map(([label, command]) => (
-          <div key={label} className="rounded-2xl border border-white/70 bg-white/90 p-4" style={panelStyle}>
-            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{label}</span>
-            <code className="mt-2 block text-sm text-slate-700">{command}</code>
-          </div>
-        ))}
-      </section>
-
       <style jsx>{`
-        @keyframes deleteOverlayFade {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
-        }
-
-        @keyframes deleteModalPop {
-          from {
-            opacity: 0;
-            transform: translateY(16px) scale(0.96);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
+        @media (max-width: 1279px) {
+          .product-manager-panel {
+            height: auto !important;
+            min-height: 0 !important;
           }
         }
       `}</style>

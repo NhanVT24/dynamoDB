@@ -5,6 +5,8 @@ import { env } from "../../config/env.js";
 import { keys } from "../../database/dynamodb/keys.js";
 import { rawDb } from "../../database/dynamodb/client.js";
 import { getShoppingItem, listShoppingItems } from "../shopping/shopping.repository.js";
+import { resolveSalePrice } from "../sales/sale-pricing.js";
+import { listActiveSaleCampaigns } from "../sales/sales.repository.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 
@@ -253,6 +255,7 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
   const now = new Date().toISOString();
   const orderId = crypto.randomUUID();
   const productSnapshots = new Map<string, Record<string, any>>();
+  const saleCampaigns = await listActiveSaleCampaigns();
 
   for (const item of normalizedItems) {
     const product = await getShoppingItem(item.productId);
@@ -265,7 +268,7 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
       throw new Error(`Insufficient stock for ${product.name}`);
     }
 
-    const price = Number(product.price ?? 0);
+    const price = resolveSalePrice(product, saleCampaigns).price;
     const lineTotal = price * item.quantity;
     totalAmount += lineTotal;
     productSnapshots.set(item.productId, product);
@@ -534,6 +537,7 @@ export async function createCheckoutReservations(input: {
   const expiresAt = new Date(now.getTime() + input.holdSeconds * 1000).toISOString();
   const normalizedItems = normalizeOrderItems(input.items);
   const createdReservations: CheckoutReservationRecord[] = [];
+  const saleCampaigns = await listActiveSaleCampaigns();
 
   try {
     for (const item of normalizedItems) {
@@ -560,7 +564,7 @@ export async function createCheckoutReservations(input: {
           productId: item.productId,
           customerEmail: input.email,
           quantity: item.quantity,
-          unitPrice: Number(product.price ?? 0),
+          unitPrice: resolveSalePrice(product, saleCampaigns).price,
           productName: String(product.name ?? ""),
           expiresAt,
           status: "reserved",
