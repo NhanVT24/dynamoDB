@@ -188,16 +188,16 @@ export default function StoreOrdersPage() {
               isDark ? "bg-[#101826] text-white" : "bg-white text-slate-950"
             }`}
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Lịch sử mua hàng</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Order History</p>
             <h1 className={`mt-4 text-3xl font-semibold tracking-tight sm:text-4xl ${isDark ? "text-white" : "text-slate-950"}`}>
-              Theo dõi toàn bộ đơn đã đặt
+              Follow your orders
             </h1>
             <p className={`mt-4 max-w-3xl text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-              Xem lại các đơn đã tạo, thời điểm mua, trạng thái hiện tại và chi tiết từng sản phẩm trong đơn hàng của bạn.
+              Review your placed orders, purchase times, current status, and detailed information about each product in your order.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">
               <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-                Tiếp tục mua sắm
+                Continue Shopping
               </Link>
               <Link
                 href="/store/checkout"
@@ -205,7 +205,7 @@ export default function StoreOrdersPage() {
                   isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
                 }`}
               >
-                Tới thanh toán
+                Proceed to Checkout
               </Link>
             </div>
           </div>
@@ -221,17 +221,17 @@ export default function StoreOrdersPage() {
               isDark ? "border-white/10 bg-white/5 text-slate-300" : "border-slate-200 bg-white text-slate-500"
             }`}
           >
-            Bạn chưa có đơn hàng nào trong lịch sử mua sắm.
+            You have no orders in your purchase history.
           </div>
         ) : (
           <div className="mt-8">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                Hiển thị <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{paginatedOrders.length}</span> /{" "}
-                <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{orders.length}</span> đơn hàng
+                Displaying <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{paginatedOrders.length}</span> /{" "}
+                <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{orders.length}</span> orders
               </p>
               <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                Trang <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{safePage}</span> /{" "}
+                Page <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{safePage}</span> /{" "}
                 <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{totalPages}</span>
               </p>
             </div>
@@ -246,12 +246,12 @@ export default function StoreOrdersPage() {
                 >
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Mã đơn {order.id.slice(0, 8)}</p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500"> Order Id: {order.id.slice(0, 8)}</p>
                       <h2 className={`mt-3 text-2xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>
-                        {order.items.length} dòng sản phẩm
+                        {order.items.length} product lines
                       </h2>
                       <p className={`mt-2 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                        Đặt lúc {formatDateTime(order.createdAt)}
+                        Order at {formatDateTime(order.createdAt)}
                       </p>
                     </div>
                     <div className="text-right">
@@ -299,7 +299,7 @@ export default function StoreOrdersPage() {
                       : "bg-white text-slate-950 shadow-sm"
                 }`}
               >
-                Trang trước
+                Previous pages
               </button>
 
               {paginationTokens.map((token, index) =>
@@ -337,7 +337,7 @@ export default function StoreOrdersPage() {
                     : "bg-gradient-to-r from-orange-500 to-red-500 text-white"
                 }`}
               >
-                Trang sau
+                Next page
               </button>
             </div>
           </div>

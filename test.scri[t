@@ -12,3 +12,7 @@ fields @timestamp, @message
 | filter @message like /CHECKOUT_TX_RACE/
 | sort @timestamp asc
 | limit 100
+
+await fetch(`/browser-test-parallel-stock-race.js?v=${Date.now()}`, { cache: "no-store" })
+  .then((response) => response.text())
+  .then((code) => eval(code));

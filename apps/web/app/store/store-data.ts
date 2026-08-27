@@ -3,45 +3,45 @@ import type { StoreCategory, StoreProduct } from "./store-types";
 const categoryConfigs = [
   {
     id: "dien-tu",
-    label: "Điện tử",
+    label: "Electronics",
     accent: "linear-gradient(90deg, #38bdf8 0%, #22d3ee 50%, #2dd4bf 100%)",
     imageUrl: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=80",
-    description: "Thiết bị công nghệ và phụ kiện flagship cho nhịp sống hiện đại."
+    description: "Products and gadgets for your tech-savvy lifestyle, from audio to smart home devices."
   },
   {
     id: "gia-dung",
-    label: "Gia dụng",
+    label: "Home Appliances",
     accent: "linear-gradient(90deg, #fb923c 0%, #fbbf24 50%, #fde047 100%)",
     imageUrl: "https://images.unsplash.com/photo-1556911220-bff31c812dba?auto=format&fit=crop&w=1200&q=80",
-    description: "Những món đồ thông minh giúp không gian sống gọn và hiệu quả hơn."
+    description: "Smart products that make your living space more efficient and convenient."
   },
   {
     id: "thoi-trang",
-    label: "Thời trang",
+    label: "Fashion",
     accent: "linear-gradient(90deg, #f472b6 0%, #fb7185 50%, #fda4af 100%)",
     imageUrl: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=1200&q=80",
-    description: "Phụ kiện, balo và đồ wearable cho phong cách sống công nghệ."
+    description: "Accessories, backpacks, and wearable tech for the modern lifestyle."
   },
   {
     id: "lam-dep",
-    label: "Làm đẹp",
+    label: "Beauty",
     accent: "linear-gradient(90deg, #a78bfa 0%, #c084fc 50%, #f9a8d4 100%)",
     imageUrl: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=1200&q=80",
-    description: "Thiết bị chăm sóc cá nhân và routine beauty cho người bận rộn."
+    description: "Personal care devices and beauty routines for the busy lifestyle."
   },
   {
     id: "me-va-be",
-    label: "Mẹ và bé",
+    label: "Parenting",
     accent: "linear-gradient(90deg, #34d399 0%, #a3e635 50%, #4ade80 100%)",
     imageUrl: "https://images.unsplash.com/photo-1515488764276-beab7607c1e6?auto=format&fit=crop&w=1200&q=80",
-    description: "Các lựa chọn gọn nhẹ, an toàn và tiện lợi cho gia đình trẻ."
+    description: "Lightweight, safe, and convenient options for modern families."
   },
   {
     id: "bach-hoa",
-    label: "Bách hóa",
+    label: "Convenience",
     accent: "linear-gradient(90deg, #f87171 0%, #fb923c 50%, #fbbf24 100%)",
     imageUrl: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=80",
-    description: "Nhóm sản phẩm mua nhanh, tiêu dùng thường xuyên và dễ quay lại."
+    description: "Quick-buy products, everyday essentials, and items you'll want to repurchase."
   }
 ] as const;
 

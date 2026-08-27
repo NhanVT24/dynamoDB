@@ -24,6 +24,33 @@ function normalizeVietnameseText(value: string | undefined) {
     .trim();
 }
 
+function isAllCategory(value: string | undefined) {
+  const normalizedCategory = normalizeVietnameseText(value);
+  return !normalizedCategory || normalizedCategory === normalizeVietnameseText("Tất cả") || normalizedCategory === "all";
+}
+
+const legacyCategoryIds: Record<string, string> = {
+  "dien tu": "dien-tu",
+  "gia dung": "gia-dung",
+  "thoi trang": "thoi-trang",
+  "lam dep": "lam-dep",
+  "me va be": "me-va-be",
+  "bach hoa": "bach-hoa"
+};
+
+function toCategoryId(value: string | undefined) {
+  if (isAllCategory(value)) {
+    return "all";
+  }
+
+  const normalizedValue = normalizeVietnameseText(value);
+  const configuredCategory = storeCategories.find((item) =>
+    normalizeVietnameseText(item.id) === normalizedValue || normalizeVietnameseText(item.label) === normalizedValue
+  );
+
+  return configuredCategory?.id ?? legacyCategoryIds[normalizedValue] ?? normalizedValue;
+}
+
 function buildPaginationTokens(currentPage: number, totalPages: number): PaginationToken[] {
   if (totalPages <= 7) {
     return Array.from({ length: totalPages }, (_, index) => index + 1);
@@ -199,7 +226,8 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const activeCategory = category ?? "Tất cả";
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const activeCategory = toCategoryId(category);
   const activeSort: SortMode =
     sort === "oldest" || sort === "price-asc" || sort === "price-desc" || sort === "best-seller"
       ? sort
@@ -220,7 +248,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
         }
       } catch (fetchError) {
         if (!cancelled) {
-          setError(fetchError instanceof Error ? fetchError.message : "Không thể tải danh sách sản phẩm.");
+          setError(fetchError instanceof Error ? fetchError.message : "An unknown error occurred while fetching products.");
         }
       } finally {
         if (!cancelled) {
@@ -233,15 +261,28 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
     return () => {
       cancelled = true;
     };
+  }, [refreshVersion]);
+
+  useEffect(() => {
+    function refreshProductsWhenReturningToStorefront() {
+      if (document.visibilityState === "visible") {
+        setRefreshVersion((current) => current + 1);
+      }
+    }
+
+    window.addEventListener("focus", refreshProductsWhenReturningToStorefront);
+    document.addEventListener("visibilitychange", refreshProductsWhenReturningToStorefront);
+    return () => {
+      window.removeEventListener("focus", refreshProductsWhenReturningToStorefront);
+      document.removeEventListener("visibilitychange", refreshProductsWhenReturningToStorefront);
+    };
   }, []);
 
   const filteredProducts = useMemo(() => {
     const normalizedKeyword = normalizeVietnameseText(keyword);
-    const normalizedActiveCategory = normalizeVietnameseText(activeCategory);
-    const normalizedAllCategory = normalizeVietnameseText("Tất cả");
 
     return [...products]
-      .filter((product) => normalizedActiveCategory === normalizedAllCategory || normalizeVietnameseText(product.category) === normalizedActiveCategory)
+      .filter((product) => activeCategory === "all" || toCategoryId(product.category) === activeCategory)
       .filter((product) =>
         normalizedKeyword.length === 0
           ? true
@@ -262,10 +303,10 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
 
   function updateFilters(next: Partial<{ category: string; sort: SortMode }>) {
     const draft = new URLSearchParams(searchParams.toString());
-    const nextCategory = next.category ?? activeCategory;
+    const nextCategory = toCategoryId(next.category ?? activeCategory);
     const nextSort = next.sort ?? activeSort;
 
-    if (normalizeVietnameseText(nextCategory) === normalizeVietnameseText("Tất cả")) {
+    if (nextCategory === "all") {
       draft.delete("category");
     } else {
       draft.set("category", nextCategory);
@@ -289,17 +330,17 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
     <section className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <SectionTitle
-          title="Danh sách sản phẩm"
-          description="Chọn nhanh món bạn yêu thích, lọc theo nhu cầu và khám phá những ưu đãi nổi bật đang có trong cửa hàng."
+          title="Products Store"
+          description="Explore our wide range of products, from the latest gadgets to everyday essentials. Use the filters below to find exactly what you're looking for."
         />
         <div className={`mt-8 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
           <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr_1fr]">
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Tìm sản phẩm</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Search Products</span>
               <input
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
-                placeholder="Nhập tên, thương hiệu hoặc mô tả bạn muốn tìm..."
+                placeholder="Enter product name, brand, or description..."
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${
                   isDark
                     ? "border-white/10 bg-slate-900 text-white placeholder:text-slate-500 focus:border-orange-500"
@@ -308,7 +349,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
               />
             </label>
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Danh mục</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Category</span>
               <select
                 value={activeCategory}
                 onChange={(event) => updateFilters({ category: event.target.value })}
@@ -316,16 +357,16 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
                   isDark ? "border-white/10 bg-slate-900 text-white focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 focus:border-orange-500"
                 }`}
               >
-                <option value="Tất cả">Tất cả</option>
+                <option value="all">All Categories</option>
                 {storeCategories.map((item) => (
-                  <option key={item.id} value={item.label}>
+                  <option key={item.id} value={item.id}>
                     {item.label}
                   </option>
                 ))}
               </select>
             </label>
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Sắp xếp</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Sort By</span>
               <select
                 value={activeSort}
                 onChange={(event) => updateFilters({ sort: event.target.value as SortMode })}
@@ -333,11 +374,11 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
                   isDark ? "border-white/10 bg-slate-900 text-white focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 focus:border-orange-500"
                 }`}
               >
-                <option value="newest">Mới cập nhật</option>
-                <option value="oldest">Cũ hơn</option>
-                <option value="price-asc">Giá tăng dần</option>
-                <option value="price-desc">Giá giảm dần</option>
-                <option value="best-seller">Bán chạy</option>
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="price-asc">Price: Low to High</option>
+                <option value="price-desc">Price: High to Low</option>
+                <option value="best-seller">Best Sellers</option>
               </select>
             </label>
           </div>
@@ -364,7 +405,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
                     : "bg-white text-slate-950 shadow-sm hover:bg-slate-50"
               }`}
             >
-              Trang trước
+              Previous page
             </button>
             {paginationTokens.map((token, index) =>
               token === "ellipsis" ? (
@@ -400,7 +441,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
                     : "bg-white text-slate-950 shadow-sm hover:bg-slate-50"
               }`}
             >
-              Trang sau
+              Next page
             </button>
           </div>
         ) : null}

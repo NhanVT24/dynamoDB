@@ -1674,9 +1674,9 @@ function SaleSpotlight({ products }: { products: StoreProduct[] }) {
           <div className="flex flex-wrap items-end justify-between gap-3 px-6 sm:px-8">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.32em] text-rose-500">Live Sale</p>
-              <h2 className={`mt-2 text-2xl font-bold tracking-tight sm:text-3xl ${isDark ? "text-white" : "text-slate-950"}`}>Deals đang diễn ra</h2>
+              <h2 className={`mt-2 text-2xl font-bold tracking-tight sm:text-3xl ${isDark ? "text-white" : "text-slate-950"}`}>Deals is Living</h2>
             </div>
-            <p className={`text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Tự động áp giá sale khi checkout</p>
+            <p className={`text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Automatically apply sale prices at checkout</p>
           </div>
 
           <div className="sale-marquee mt-7 overflow-hidden px-6 sm:px-8" aria-label="Sản phẩm đang sale">

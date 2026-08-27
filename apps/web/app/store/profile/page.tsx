@@ -280,16 +280,16 @@ export default function StoreProfilePage() {
             }`}
           >
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Hồ sơ khách hàng</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Your Profile</p>
               <h1 className={`mt-4 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl ${isDark ? "text-white" : "text-slate-950"}`}>
-                {session.name || "Người dùng NovaX"}, tài khoản của bạn đã sẵn sàng cho lần mua sắm tiếp theo.
+                {session.name || "Người dùng NovaX"}, welcome back!
               </h1>
               <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-                Trang này tổng hợp thông tin đăng nhập từ Cognito cùng với thống kê mua hàng thực tế từ storefront để bạn xem nhanh tình hình tài khoản của mình.
+                This page aggregates login information from Cognito along with actual purchase statistics from the storefront so you can quickly view the status of your account.
               </p>
               <div className="mt-7 flex flex-wrap gap-3">
                 <Link href="/store/orders" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-                  Xem lịch sử mua
+                  View Order History
                 </Link>
                 <Link
                   href="/store/products"
@@ -297,7 +297,7 @@ export default function StoreProfilePage() {
                     isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
                   }`}
                 >
-                  Tiếp tục mua sắm
+                  Continue Shopping
                 </Link>
               </div>
             </div>
@@ -340,20 +340,20 @@ export default function StoreProfilePage() {
 
               <div className="mt-6 grid gap-3">
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
-                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Nguồn đăng nhập</p>
-                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Phiên đăng nhập Cognito</p>
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Login Source</p>
+                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Cognito Login Session</p>
                 </div>
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
-                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Phiên hiện tại</p>
-                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Hết hạn lúc {formatDateTime(new Date(session.expiresAt).toISOString())}</p>
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Current Session</p>
+                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Expires at {formatDateTime(new Date(session.expiresAt).toISOString())}</p>
                 </div>
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
-                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Trạng thái</p>
-                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Đang hoạt động và sẵn sàng đặt hàng</p>
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Status</p>
+                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Active and ready to place orders</p>
                 </div>
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
-                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Dấu mốc thành viên</p>
-                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Bản tóm tắt hiện tại, cập nhật đến {memberSince}</p>
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Member Since</p>
+                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Current summary, updated until {memberSince}</p>
                 </div>
               </div>
             </aside>
@@ -361,35 +361,35 @@ export default function StoreProfilePage() {
         </section>
 
         <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <ProfileMetricCard label="Tổng đơn hàng" value={String(stats.totalOrders)} tone="warm" isDark={isDark} />
-          <ProfileMetricCard label="Tổng chi tiêu" value={formatCurrency(stats.totalSpend)} tone="cool" isDark={isDark} />
-          <ProfileMetricCard label="Tổng sản phẩm đã mua" value={String(stats.totalItems)} tone="neutral" isDark={isDark} />
-          <ProfileMetricCard label="Đơn gần nhất" value={stats.lastOrder ? formatShortDate(stats.lastOrder.createdAt) : "Chưa có"} tone="neutral" isDark={isDark} />
+          <ProfileMetricCard label="Total Orders" value={String(stats.totalOrders)} tone="warm" isDark={isDark} />
+          <ProfileMetricCard label="Total Spent" value={formatCurrency(stats.totalSpend)} tone="cool" isDark={isDark} />
+          <ProfileMetricCard label="Total Products Purchased" value={String(stats.totalItems)} tone="neutral" isDark={isDark} />
+          <ProfileMetricCard label="Latest Order" value={stats.lastOrder ? formatShortDate(stats.lastOrder.createdAt) : "None"} tone="neutral" isDark={isDark} />
         </section>
 
         <section className="mt-8 grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
           <div className={`rounded-[1.75rem] border p-6 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.24)] ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Bản tóm tắt</p>
-            <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Chân dung tài khoản</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Summary</p>
+            <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Account Profile</h2>
             <div className="mt-6 grid gap-4">
               <article className={`rounded-[1.5rem] border px-4 py-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Tên hiển thị</p>
+                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Display Name</p>
                 <p className={`mt-2 text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{session.name}</p>
               </article>
               <article className={`rounded-[1.5rem] border px-4 py-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Email đăng nhập</p>
+                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Email login</p>
                 <p className={`mt-2 text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{session.email}</p>
               </article>
               <article className={`rounded-[1.5rem] border px-4 py-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Vai trò hiện tại</p>
-                <p className={`mt-2 text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{session.role === "admin" ? "Quản trị viên" : "Khách hàng"}</p>
+                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Current Role</p>
+                <p className={`mt-2 text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{session.role === "admin" ? "Administrator" : "Customer"}</p>
               </article>
               <article className={`rounded-[1.5rem] border px-4 py-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Thói quen mua sắm</p>
+                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Shopping Habits</p>
                 <p className={`mt-2 text-base leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
                   {stats.totalOrders >= 5
-                    ? "Bạn đã có tần suất mua khá ổn định, rất phù hợp để theo dõi ưu đãi và cập nhật đơn hàng ngay trong storefront."
-                    : "Bạn đang ở giai đoạn bắt đầu, nên trang hồ sơ này ưu tiên hiển thị thông tin gọn, dễ đọc và quay lại mua sắm nhanh."}
+                    ? "You have a fairly stable purchase frequency, making you a great candidate for tracking deals and updating orders directly in the storefront."
+                    : "You are in the initial stage, so this profile page prioritizes displaying concise, easy-to-read information and encourages quick return visits for shopping."}
                 </p>
               </article>
             </div>
@@ -398,8 +398,8 @@ export default function StoreProfilePage() {
           <div className={`rounded-[1.75rem] border p-6 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.24)] ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Đơn hàng gần đây</p>
-                <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Hoạt động mua hàng mới nhất</h2>
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Recent Orders</p>
+                <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Latest Purchase Activity</h2>
               </div>
               <Link
                 href="/store/orders"
@@ -407,7 +407,7 @@ export default function StoreProfilePage() {
                   isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
                 }`}
               >
-                Mở lịch sử mua
+                View Order History
               </Link>
             </div>
 
@@ -421,7 +421,7 @@ export default function StoreProfilePage() {
                   isDark ? "border-white/10 bg-white/5 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-500"
                 }`}
               >
-                Bạn chưa có đơn hàng nào tính đến ngày 18 tháng 8 năm 2026. Hãy mua thử một vài sản phẩm để hồ sơ này trở nên sống động hơn.
+                You haven't placed any orders yet as of August 18, 2026. Try purchasing a few products to make this profile more dynamic.
               </div>
             ) : (
               <div className="mt-6 grid gap-4">
@@ -434,9 +434,9 @@ export default function StoreProfilePage() {
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-500">Mã đơn {order.id.slice(0, 8)}</p>
-                        <h3 className={`mt-2 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{order.items.length} dòng sản phẩm</h3>
-                        <p className={`mt-1 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Tạo lúc {formatDateTime(order.createdAt)}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-500">Order ID {order.id.slice(0, 8)}</p>
+                        <h3 className={`mt-2 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{order.items.length} product lines</h3>
+                        <p className={`mt-1 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Created at {formatDateTime(order.createdAt)}</p>
                       </div>
                       <div className="text-right">
                         <p className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{formatCurrency(order.totalAmount)}</p>
