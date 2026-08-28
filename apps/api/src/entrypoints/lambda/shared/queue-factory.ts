@@ -4,6 +4,7 @@ import {
   logQueueSummary,
   logQueueWarn
 } from "../../../common/logging/queue-logger.js";
+import { env } from "../../../config/env.js";
 import { createStandaloneContext } from "../../../core/app/create-standalone-context.js";
 import { NotificationsService } from "../../../modules/notifications/notifications.service.js";
 import { StorefrontService } from "../../../modules/storefront/storefront.service.js";
@@ -113,6 +114,14 @@ export function createQueueHandler(config: QueueHandlerConfig) {
           .filter(Boolean)
           .slice(0, 5)
       });
+
+      // SQS acknowledges the FIFO message only after this handler returns.
+      // Logging "processed" first makes the sequence visible in CloudWatch:
+      // processed -> cooldown -> next FIFO message received.
+      if (config.worker === "checkoutGate" && env.CHECKOUT_GATE_WORKER_COOLDOWN_MS > 0) {
+        logger.log(`[checkout-fifo] cooldown_started batchId=${batchId} delayMs=${env.CHECKOUT_GATE_WORKER_COOLDOWN_MS}`);
+        await new Promise((resolve) => setTimeout(resolve, env.CHECKOUT_GATE_WORKER_COOLDOWN_MS));
+      }
 
       return { batchItemFailures };
     } catch (error) {

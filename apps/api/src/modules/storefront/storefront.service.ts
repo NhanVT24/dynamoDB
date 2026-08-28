@@ -299,9 +299,14 @@ export class StorefrontService {
       await this.resolveCheckoutGate(payload);
     } else {
       const processingDelayMs = getCheckoutGateProcessingDelayMs(input.processingMode);
-      const queueUrl = input.processingMode === "interactive"
-        ? env.SQS_CHECKOUT_GATE_INTERACTIVE_QUEUE_URL ?? env.SQS_CHECKOUT_GATE_QUEUE_URL
-        : env.SQS_CHECKOUT_GATE_QUEUE_URL;
+
+
+
+
+
+      // Every checkout uses one FIFO lane. Splitting interactive and trigger
+      // requests across two queues would break the global ordering guarantee.
+      const queueUrl = env.SQS_CHECKOUT_GATE_QUEUE_URL;
 
       if (processingDelayMs > 0) {
         this.logger.log(`[queue-delay] checkout_gate_pre_enqueue_delay requestId=${requestId} delayMs=${processingDelayMs}`);
@@ -310,7 +315,9 @@ export class StorefrontService {
 
       const sendResult = await sqsClient.send(new SendMessageCommand({
         QueueUrl: queueUrl,
-        MessageBody: JSON.stringify(payload)
+        MessageBody: JSON.stringify(payload),
+        MessageGroupId: "checkout-gate-serial",
+        MessageDeduplicationId: requestId
       }));
       this.logger.log(`[checkout-gate] request_enqueued requestId=${requestId} queueUrl=${queueUrl} messageId=${sendResult.MessageId ?? ""}`);
     }
@@ -507,49 +514,38 @@ export class StorefrontService {
     records: Array<{ body?: string; messageId?: string }>,
     options?: { queueName?: string; workerName?: string; batchId?: string }
   ) {
-    const settled = await Promise.allSettled(records.map(async (record, recordIndex) => ({
-      messageId: String(record.messageId ?? ""),
-      item: await this.processCheckoutGateRecord(record.body, {
-        skipWorkerDelay: true,
-        batchId: options?.batchId,
-        recordIndex
-      })
-    })));
+    const processedItems: unknown[] = [];
+    const failedMessageIds: string[] = [];
 
-    const processedItems = settled
-      .filter((result) => result.status === "fulfilled")
-      .map((result) => (result as PromiseFulfilledResult<{ messageId: string; item: unknown }>).value.item)
-      .filter(Boolean);
-
-    const failedMessageIds = settled
-      .flatMap((result, index) => result.status === "rejected" ? [String(records[index]?.messageId ?? "")] : [])
-      .filter(Boolean);
-
-    settled.forEach((result, index) => {
-      if (result.status !== "rejected") {
-        return;
+    for (const [recordIndex, record] of records.entries()) {
+      const messageId = String(record.messageId ?? "");
+      this.logger.log(`[checkout-fifo] processing_started batchId=${options?.batchId ?? ""} recordIndex=${recordIndex} messageId=${messageId}`);
+      try {
+        const item = await this.processCheckoutGateRecord(record.body, {
+          skipWorkerDelay: true,
+          batchId: options?.batchId,
+          recordIndex
+        });
+        if (item) {
+          processedItems.push(item);
+        }
+      } catch (error) {
+        failedMessageIds.push(messageId);
+        const reason = error instanceof Error
+          ? { name: error.name, message: error.message, stack: error.stack }
+          : { message: String(error ?? "unknown") };
+        this.logger.error(JSON.stringify({
+          scope: "queue",
+          kind: "error",
+          queue: "checkoutGate",
+          status: "record_failed",
+          messageId,
+          reason
+        }));
       }
 
-      const messageId = String(records[index]?.messageId ?? "");
-      const reason = result.reason instanceof Error
-        ? {
-            name: result.reason.name,
-            message: result.reason.message,
-            stack: result.reason.stack
-          }
-        : {
-            message: String(result.reason ?? "unknown")
-          };
-
-      this.logger.error(JSON.stringify({
-        scope: "queue",
-        kind: "error",
-        queue: "checkoutGate",
-        status: "record_failed",
-        messageId,
-        reason
-      }));
-    });
+      this.logger.log(`[checkout-fifo] processing_finished batchId=${options?.batchId ?? ""} recordIndex=${recordIndex} messageId=${messageId}`);
+    }
 
     return {
       processed: processedItems.length,

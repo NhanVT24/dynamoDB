@@ -97,13 +97,43 @@ function writeManifest(manifest) {
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 }
 
+function getLockedAwsSdkOverrides() {
+  if (!existsSync(packageLockPath)) {
+    return {};
+  }
+
+  try {
+    const lockfile = JSON.parse(readFileSync(packageLockPath, "utf8"));
+    return Object.fromEntries(
+      Object.entries(lockfile.packages ?? {})
+        .filter(([packagePath, metadata]) =>
+          /^node_modules\/(?:@aws-sdk|@smithy)\/[^/]+$/.test(packagePath) &&
+          typeof metadata?.version === "string"
+        )
+        .map(([packagePath, metadata]) => [
+          packagePath.slice("node_modules/".length),
+          metadata.version
+        ])
+    );
+  } catch {
+    // The package manifest remains usable when a lockfile is temporarily absent.
+    return {};
+  }
+}
+
 function ensureLambdaPackageJson() {
   const lambdaPackageJson = {
     name: `${packageJson.name}-lambda`,
     private: true,
     type: "module",
     dependencies: packageJson.dependencies,
-    overrides: packageJson.overrides
+    // npm install runs outside the workspace, so it cannot use the root lockfile.
+    // Pin AWS SDK/Smithy transitives from that lockfile to avoid resolving a
+    // non-existent future version from a stale registry response.
+    overrides: {
+      ...getLockedAwsSdkOverrides(),
+      ...packageJson.overrides
+    }
   };
 
   writeFileSync(join(lambdaRoot, "package.json"), JSON.stringify(lambdaPackageJson, null, 2));

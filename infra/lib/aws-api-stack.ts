@@ -43,14 +43,9 @@ export class AwsApiStack extends Stack {
     // Use entity-only for the first deployment, then deploy normally to add the sale index.
     const includeSaleCampaignTimelineIndex = gsiDeploymentPhase !== "entity-only";
 
-    const checkoutGateRaceBatchWindowSeconds = Number(this.node.tryGetContext("checkoutGateRaceBatchWindowSeconds") ?? 0);
-    if (!Number.isInteger(checkoutGateRaceBatchWindowSeconds) || checkoutGateRaceBatchWindowSeconds < 0 || checkoutGateRaceBatchWindowSeconds > 300) {
-      throw new Error("checkoutGateRaceBatchWindowSeconds must be an integer between 0 and 300.");
-    }
-    // Opt-in only for the concurrency demo. Production keeps immediate checkout processing.
-    const checkoutGatePipeParameters = checkoutGateRaceBatchWindowSeconds > 0
-      ? { batchSize: 2, maximumBatchingWindowInSeconds: checkoutGateRaceBatchWindowSeconds }
-      : { batchSize: 10 };
+    // A single FIFO group intentionally serializes checkout reservations.
+    // Do not increase this batch size unless the worker is changed accordingly.
+    const checkoutGatePipeParameters = { batchSize: 1 };
 
     const callbackUrl = new CfnParameter(this, "CallbackUrl", {
       type: "String",
@@ -261,13 +256,15 @@ export class AwsApiStack extends Stack {
     });
 
     const checkoutGateDlq = new sqs.Queue(this, "CheckoutGateDlq", {
-      queueName: "supermarket-checkout-gate-dlq",
+      queueName: "supermarket-checkout-gate-dlq.fifo",
+      fifo: true,
       visibilityTimeout: Duration.seconds(30),
       retentionPeriod: Duration.days(14)
     });
 
     const checkoutGateQueue = new sqs.Queue(this, "CheckoutGateQueue", {
-      queueName: "supermarket-checkout-gate",
+      queueName: "supermarket-checkout-gate.fifo",
+      fifo: true,
       visibilityTimeout: Duration.seconds(30),
       retentionPeriod: Duration.days(4),
       deadLetterQueue: {
@@ -276,12 +273,21 @@ export class AwsApiStack extends Stack {
       }
     });
 
+    // Kept only to drain messages created before checkout moved to the FIFO lane.
+    // A Standard source requires a Standard DLQ, even though new checkouts no
+    // longer use this queue.
+    const checkoutGateInteractiveDlq = new sqs.Queue(this, "CheckoutGateInteractiveDlq", {
+      queueName: "supermarket-checkout-gate-interactive-dlq",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14)
+    });
+
     const checkoutGateInteractiveQueue = new sqs.Queue(this, "CheckoutGateInteractiveQueue", {
       queueName: "supermarket-checkout-gate-interactive",
       visibilityTimeout: Duration.seconds(30),
       retentionPeriod: Duration.days(4),
       deadLetterQueue: {
-        queue: checkoutGateDlq,
+        queue: checkoutGateInteractiveDlq,
         maxReceiveCount: 3
       }
     });
@@ -678,10 +684,11 @@ exports.handler = async (event) => {
       EVENTBRIDGE_COMMERCE_ARCHIVE_ARN: commerceArchive.attrArn,
       EVENTBRIDGE_PAYMENT_ARCHIVE_ARN: paymentArchive.attrArn,
       EVENTBRIDGE_PLATFORM_ARCHIVE_ARN: platformArchive.attrArn,
-      // The API waits briefly before handing a checkout to SQS.
-      CHECKOUT_GATE_PROCESSING_DELAY_MS: "2000",
+      // FIFO acknowledgement happens after this cooldown, spacing each checkout.
+      CHECKOUT_GATE_PROCESSING_DELAY_MS: "0",
       CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS: "0",
-      CHECKOUT_TX_RACE_LOGGING: String(checkoutGateRaceBatchWindowSeconds > 0),
+      CHECKOUT_GATE_WORKER_COOLDOWN_MS: "5000",
+      CHECKOUT_TX_RACE_LOGGING: "false",
       SNS_ADMIN_ALERTS_TOPIC_ARN: adminAlertsTopic.topicArn,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
       SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME: inventoryReportConfigurationSet.ref,
@@ -1110,7 +1117,10 @@ exports.handler = async (event) => {
     });
 
     new pipes.CfnPipe(this, "CheckoutGatePipe", {
-      name: "supermarket-checkout-gate-pipe",
+      // FIFO changes the Pipe source type, which requires a replacement.
+      // A new physical name lets CloudFormation create it before deleting
+      // the Standard-SQS Pipe from the previous checkout implementation.
+      name: "supermarket-checkout-gate-fifo-pipe",
       roleArn: checkoutGatePipeRole.roleArn,
       source: checkoutGateQueue.queueArn,
       target: checkoutGateWorkerFunction.functionArn,
@@ -1218,7 +1228,8 @@ exports.handler = async (event) => {
         detailType: ["storefront.checkout.gate.requested"]
       },
       targets: [new eventsTargets.SqsQueue(checkoutGateQueue, {
-        deadLetterQueue: eventBridgeTargetDlq
+        deadLetterQueue: eventBridgeTargetDlq,
+        messageGroupId: "checkout-gate-serial"
       })]
     });
 
@@ -1475,7 +1486,7 @@ exports.handler = async (event) => {
     ];
     const allPipes = [
       "supermarket-storefront-orders-pipe",
-      "supermarket-checkout-gate-pipe",
+      "supermarket-checkout-gate-fifo-pipe",
       "supermarket-checkout-gate-interactive-pipe",
       "supermarket-notifications-pipe",
       "supermarket-payment-events-pipe",
@@ -1625,6 +1636,7 @@ exports.handler = async (event) => {
 
     createDlqAlarm("NotificationsDlqAlarm", notificationsDlq, "supermarket-notifications-dlq");
     createDlqAlarm("CheckoutGateDlqAlarm", checkoutGateDlq, "supermarket-checkout-gate-dlq");
+    createDlqAlarm("CheckoutGateInteractiveDlqAlarm", checkoutGateInteractiveDlq, "supermarket-checkout-gate-interactive-dlq");
     createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
     createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");
