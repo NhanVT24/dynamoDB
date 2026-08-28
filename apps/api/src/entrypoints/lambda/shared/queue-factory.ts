@@ -62,7 +62,6 @@ export function createQueueHandler(config: QueueHandlerConfig) {
       return { batchItemFailures: [] };
     }
 
-    const appContext = await appContextPromise;
     logQueueSummary(logger, {
       queue: config.queueName,
       worker: config.lambdaName,
@@ -75,6 +74,15 @@ export function createQueueHandler(config: QueueHandlerConfig) {
         queueArns: [...new Set(records.map((record: any) => String(record.eventSourceARN ?? ""))).values()]
       }
     });
+
+    // Keep the FIFO message in flight while waiting, so the next message in the
+    // shared checkout lane cannot begin its business processing first.
+    if (config.worker === "checkoutGate" && env.CHECKOUT_GATE_WORKER_START_DELAY_MS > 0) {
+      logger.log(`[checkout-fifo] start_delay batchId=${batchId} delayMs=${env.CHECKOUT_GATE_WORKER_START_DELAY_MS}`);
+      await new Promise((resolve) => setTimeout(resolve, env.CHECKOUT_GATE_WORKER_START_DELAY_MS));
+    }
+
+    const appContext = await appContextPromise;
 
     try {
       const result = config.worker === "checkoutGate"
@@ -114,14 +122,6 @@ export function createQueueHandler(config: QueueHandlerConfig) {
           .filter(Boolean)
           .slice(0, 5)
       });
-
-      // SQS acknowledges the FIFO message only after this handler returns.
-      // Logging "processed" first makes the sequence visible in CloudWatch:
-      // processed -> cooldown -> next FIFO message received.
-      if (config.worker === "checkoutGate" && env.CHECKOUT_GATE_WORKER_COOLDOWN_MS > 0) {
-        logger.log(`[checkout-fifo] cooldown_started batchId=${batchId} delayMs=${env.CHECKOUT_GATE_WORKER_COOLDOWN_MS}`);
-        await new Promise((resolve) => setTimeout(resolve, env.CHECKOUT_GATE_WORKER_COOLDOWN_MS));
-      }
 
       return { batchItemFailures };
     } catch (error) {

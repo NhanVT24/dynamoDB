@@ -63,6 +63,9 @@ type PublicProductSummary = {
   updatedAt?: string;
   isLocked?: boolean;
   lockedUntil?: string;
+  saleCampaignId?: string;
+  saleDiscountPercent?: number;
+  saleEndsAt?: string;
 };
 
 type PublicProductDetail = PublicProductSummary & {
@@ -214,18 +217,6 @@ function shouldProcessCommerceQueuesInline() {
   return Boolean(env.DYNAMODB_ENDPOINT) && process.env.NODE_ENV !== "production";
 }
 
-function getCheckoutGateProcessingDelayMs(processingMode?: "interactive" | "trigger") {
-  if (env.CHECKOUT_GATE_PROCESSING_DELAY_MS > 0) {
-    return env.CHECKOUT_GATE_PROCESSING_DELAY_MS;
-  }
-
-  return Boolean(env.DYNAMODB_ENDPOINT) && process.env.NODE_ENV !== "production" ? 1500 : 0;
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 @Injectable()
 export class StorefrontService {
   private readonly logger = new Logger(StorefrontService.name);
@@ -298,20 +289,9 @@ export class StorefrontService {
       this.logger.log(`[eventbridge-commerce] inline_checkout_gate requestId=${requestId} customer=${email} itemCount=${normalizedItems.length}`);
       await this.resolveCheckoutGate(payload);
     } else {
-      const processingDelayMs = getCheckoutGateProcessingDelayMs(input.processingMode);
-
-
-
-
-
       // Every checkout uses one FIFO lane. Splitting interactive and trigger
       // requests across two queues would break the global ordering guarantee.
       const queueUrl = env.SQS_CHECKOUT_GATE_QUEUE_URL;
-
-      if (processingDelayMs > 0) {
-        this.logger.log(`[queue-delay] checkout_gate_pre_enqueue_delay requestId=${requestId} delayMs=${processingDelayMs}`);
-        await sleep(processingDelayMs);
-      }
 
       const sendResult = await sqsClient.send(new SendMessageCommand({
         QueueUrl: queueUrl,
@@ -522,7 +502,6 @@ export class StorefrontService {
       this.logger.log(`[checkout-fifo] processing_started batchId=${options?.batchId ?? ""} recordIndex=${recordIndex} messageId=${messageId}`);
       try {
         const item = await this.processCheckoutGateRecord(record.body, {
-          skipWorkerDelay: true,
           batchId: options?.batchId,
           recordIndex
         });
@@ -588,7 +567,6 @@ export class StorefrontService {
   }
 
   private async processCheckoutGateRecord(body: string | undefined, options?: {
-    skipWorkerDelay?: boolean;
     batchId?: string;
     recordIndex?: number;
   }) {
@@ -631,19 +609,13 @@ export class StorefrontService {
   }
 
   private async resolveCheckoutGate(payload: CheckoutGateQueuePayload, options?: {
-    skipWorkerDelay?: boolean;
     batchId?: string;
     recordIndex?: number;
   }) {
     const normalizedItems = normalizeOrderItems(payload.items);
 
     try {
-      if (!options?.skipWorkerDelay && env.CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS > 0) {
-        this.logger.log(`[queue-delay] checkout_gate_worker_sleep requestId=${payload.requestId} delayMs=${env.CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS}`);
-        await sleep(env.CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS);
-      }
-
-      if (env.CHECKOUT_TX_RACE_LOGGING && payload.raceTestId) {
+        if (env.CHECKOUT_TX_RACE_LOGGING && payload.raceTestId) {
         const participants = await arriveAtCheckoutRaceBarrier({
           raceTestId: payload.raceTestId,
           requestId: payload.requestId

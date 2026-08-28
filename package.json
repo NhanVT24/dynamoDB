@@ -13,6 +13,7 @@
     "cdk:aws:bootstrap": "cdk bootstrap --app \"npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts\"",
     "cdk:aws:synth": "npm run build:lambda && cdk synth --app \"npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts\"",
     "cdk:aws:deploy": "npm run build:lambda && cdk deploy --app \"npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts\" --require-approval never",
+    "deploy:aws": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\deploy-aws.ps1",
     "cdk:aws:destroy": "cdk destroy --app \"npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts\" --force",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "db:init": "npm run db:init -w @supermarket/api",

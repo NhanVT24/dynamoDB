@@ -684,10 +684,8 @@ exports.handler = async (event) => {
       EVENTBRIDGE_COMMERCE_ARCHIVE_ARN: commerceArchive.attrArn,
       EVENTBRIDGE_PAYMENT_ARCHIVE_ARN: paymentArchive.attrArn,
       EVENTBRIDGE_PLATFORM_ARCHIVE_ARN: platformArchive.attrArn,
-      // FIFO acknowledgement happens after this cooldown, spacing each checkout.
-      CHECKOUT_GATE_PROCESSING_DELAY_MS: "0",
-      CHECKOUT_GATE_WORKER_PROCESSING_DELAY_MS: "0",
-      CHECKOUT_GATE_WORKER_COOLDOWN_MS: "5000",
+      // Delay each FIFO checkout before its business processing begins.
+      CHECKOUT_GATE_WORKER_START_DELAY_MS: "5000",
       CHECKOUT_TX_RACE_LOGGING: "false",
       SNS_ADMIN_ALERTS_TOPIC_ARN: adminAlertsTopic.topicArn,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
