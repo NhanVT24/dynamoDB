@@ -1,6 +1,12 @@
 import type { SaleCampaign } from "./sales.repository.js";
 
-export type SalePrice = { price: number; originalPrice: number; saleCampaignId?: string; saleDiscountPercent?: number };
+export type SalePrice = {
+  price: number;
+  originalPrice: number;
+  saleCampaignId?: string;
+  saleDiscountPercent?: number;
+  saleEndsAt?: string;
+};
 
 export function resolveSalePrice(product: Record<string, unknown>, campaigns: SaleCampaign[]): SalePrice {
   const currentPrice = Number(product.price ?? 0);
@@ -22,6 +28,7 @@ export function resolveSalePrice(product: Record<string, unknown>, campaigns: Sa
     price: Math.min(currentPrice, campaignPrice),
     originalPrice: basePrice,
     saleCampaignId: campaign.id,
-    saleDiscountPercent: Math.max(existingDiscountPercent, campaign.discountPercent)
+    saleDiscountPercent: Math.max(existingDiscountPercent, campaign.discountPercent),
+    saleEndsAt: campaign.endAt
   };
 }

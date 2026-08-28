@@ -85,6 +85,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
   const imageRef = useRef<HTMLImageElement | null>(null);
   const isDark = theme === "dark";
   const discountPercent = Math.max(0, Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100));
+  const hasDiscount = discountPercent > 0;
   const isUnavailable = product.status === "out_of_stock" || product.isLocked;
 
   function handleDragStart(event: DragEvent<HTMLElement>) {
@@ -120,9 +121,11 @@ function ProductCard({ product }: { product: StoreProduct }) {
           draggable={false}
         />
         <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-4 pt-4 transition duration-300 group-hover:opacity-0">
-          <span className="rounded-full bg-orange-500 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white">
-            -{discountPercent}%
-          </span>
+          {hasDiscount ? (
+            <span className="rounded-full bg-orange-500 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white">
+              -{discountPercent}%
+            </span>
+          ) : <span />}
           <span
             className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
               isDark ? "bg-white/10 text-slate-200" : "bg-white/90 text-slate-700"
@@ -135,7 +138,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
         <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center px-6 text-center opacity-0 transition duration-300 group-hover:opacity-100">
           <p className="line-clamp-4 text-sm font-medium leading-6 text-white/90">{product.description}</p>
           <div className="mt-5">
-            <div className="text-sm text-white/70 line-through">{formatCurrency(product.originalPrice)}</div>
+            {hasDiscount ? <div className="text-sm text-white/70 line-through">{formatCurrency(product.originalPrice)}</div> : null}
             <strong className="mt-1 block text-3xl font-bold text-white">{formatCurrency(product.price)}</strong>
           </div>
           <button
@@ -171,11 +174,13 @@ function ProductCard({ product }: { product: StoreProduct }) {
           </span>
         </div>
         <div className="mt-4">
-          <div className="text-[13px] text-slate-400 line-through">{formatCurrency(product.originalPrice)}</div>
+          {hasDiscount ? <div className="text-[13px] text-slate-400 line-through">{formatCurrency(product.originalPrice)}</div> : null}
           <strong className="text-2xl font-bold text-orange-500">{formatCurrency(product.price)}</strong>
         </div>
         {product.isLocked ? (
-          <p className="mt-3 text-sm font-medium text-amber-600">Sản phẩm này đang được giữ tạm thời, vui lòng thử lại sau.</p>
+          <p className="mt-3 text-sm font-medium text-amber-600">this product is currently reserved and cannot be purchased.</p>
+        ) : product.status === "out_of_stock" ? (
+          <p className="mt-3 text-sm font-medium text-rose-500">this product is currently out of stock and cannot be purchased.</p>
         ) : null}
       </div>
     </article>

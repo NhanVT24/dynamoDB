@@ -1266,11 +1266,60 @@ function getDiscountTone(discountPercent: number) {
   return { badge: "bg-cyan-600 text-white" };
 }
 
+function getCountdownParts(endsAt: string | undefined, now = Date.now()) {
+  const endsAtMs = endsAt ? new Date(endsAt).getTime() : Number.NaN;
+  const remainingMs = Math.max(0, endsAtMs - now);
+  if (!Number.isFinite(endsAtMs) || remainingMs <= 0) {
+    return null;
+  }
+
+  const totalSeconds = Math.floor(remainingMs / 1_000);
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return { days, hours, minutes, seconds };
+}
+
+function SaleCountdown({ endsAt, isDark }: { endsAt?: string; isDark: boolean }) {
+  const [now, setNow] = useState<number | null>(null);
+  const parts = now === null ? undefined : getCountdownParts(endsAt, now);
+
+  useEffect(() => {
+    setNow(Date.now());
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [endsAt]);
+
+  if (now === null) {
+    return <p className="mt-3 text-xs font-semibold text-slate-400">Ends in --</p>;
+  }
+
+  if (!parts) {
+    return <p className="mt-3 text-xs font-semibold text-slate-400">Offer ended</p>;
+  }
+
+  const values = [
+    ...(parts.days > 0 ? [{ label: "d", value: String(parts.days) }] : []),
+    { label: "h", value: String(parts.hours).padStart(2, "0") },
+    { label: "m", value: String(parts.minutes).padStart(2, "0") },
+    { label: "s", value: String(parts.seconds).padStart(2, "0") }
+  ];
+
+  return (
+    <div className={`mt-3 flex items-center gap-1.5 text-[11px] font-bold tabular-nums ${isDark ? "text-rose-200" : "text-rose-700"}`} aria-label={`Sale ends in ${values.map((item) => `${item.value}${item.label}`).join(" ")}`}>
+      <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]">Ends in</span>
+      {values.map((item) => <span key={item.label} className={`rounded-md px-1.5 py-1 ${isDark ? "bg-rose-500/15" : "bg-rose-100"}`}>{item.value}{item.label}</span>)}
+    </div>
+  );
+}
+
 function ProductCard({ product }: { product: StoreProduct }) {
   const { addCatalogItem, theme } = useStorefront();
   const imageRef = useRef<HTMLImageElement | null>(null);
   const isDark = theme === "dark";
   const discountPercent = Math.max(0, Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100));
+  const hasDiscount = discountPercent > 0;
   const discountTone = getDiscountTone(discountPercent);
   const isUnavailable = product.status === "out_of_stock" || product.isLocked;
 
@@ -1292,14 +1341,14 @@ function ProductCard({ product }: { product: StoreProduct }) {
       <div className="relative overflow-hidden">
         <img ref={imageRef} src={product.imageUrl} alt={product.name} className="h-64 w-full object-cover transition duration-500 group-hover:scale-105" draggable={false} />
         <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-4 pt-4 transition duration-300 group-hover:opacity-0">
-          <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${discountTone.badge}`}>-{discountPercent}%</span>
+          {hasDiscount ? <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${discountTone.badge}`}>-{discountPercent}%</span> : <span />}
           <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "bg-white/10 text-slate-200" : "bg-white/90 text-slate-700"}`}>{product.category}</span>
         </div>
         <div className="absolute inset-0 z-20 bg-slate-950/0 transition duration-300 group-hover:bg-slate-950/72" />
         <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center px-6 text-center opacity-0 transition duration-300 group-hover:opacity-100">
           <p className="line-clamp-4 text-sm font-medium leading-6 text-white/90">{product.description}</p>
           <div className="mt-5">
-            <div className="text-sm text-white/70 line-through">{formatCurrency(product.originalPrice)}</div>
+            {hasDiscount ? <div className="text-sm text-white/70 line-through">{formatCurrency(product.originalPrice)}</div> : null}
             <strong className="mt-1 block text-3xl font-bold text-white">{formatCurrency(product.price)}</strong>
           </div>
           <button
@@ -1329,7 +1378,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
           <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>Sold {product.soldCount}</span>
         </div>
         <div className="mt-4">
-          <div className="text-[13px] text-slate-400 line-through">{formatCurrency(product.originalPrice)}</div>
+          {hasDiscount ? <div className="text-[13px] text-slate-400 line-through">{formatCurrency(product.originalPrice)}</div> : null}
           <strong className="text-2xl font-bold text-rose-600">{formatCurrency(product.price)}</strong>
         </div>
         {product.isLocked ? (
@@ -1347,6 +1396,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const isDark = theme === "dark";
   const [isCartDropActive, setIsCartDropActive] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
 
   useEffect(() => {
@@ -1371,6 +1421,25 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
     openAuthModal("/admin");
     router.replace("/store", { scroll: false });
   }, [openAuthModal, router, searchParams]);
+
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsMobileMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [isMobileMenuOpen]);
 
   function handleCartDragOver(event: DragEvent<HTMLButtonElement>) {
     if (!event.dataTransfer.types.includes("application/x-store-product-id")) return;
@@ -1398,7 +1467,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
 
   return (
     <div className={`${isDark ? "bg-[#0b1220] text-slate-100" : "bg-[linear-gradient(180deg,_#f6f8fc_0%,_#eef3ff_26%,_#ffffff_100%)] text-slate-950"} min-h-screen transition-colors duration-300`}>
-      <header className={`sticky top-0 z-40 border-b backdrop-blur-xl ${isDark ? "border-white/10 bg-slate-950/85" : "border-slate-200 bg-white/92"}`}>
+      <header className={`relative sticky top-0 z-40 border-b backdrop-blur-xl ${isDark ? "border-white/10 bg-slate-950/85" : "border-slate-200 bg-white/92"}`}>
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex items-center gap-4">
             <Link href="/store" className="flex min-w-0 items-center gap-3">
@@ -1415,7 +1484,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
               <Link href="/store/profile" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Profile</Link>
             </nav>
             <div className="ml-auto flex items-center gap-2">
-              <NotificationBell session={session} isDark={isDark} />
+              <div className="hidden sm:block"><NotificationBell session={session} isDark={isDark} /></div>
               {session ? (
                 <div className="hidden items-center gap-2 lg:flex">
                   <Link href="/store/profile" className={`rounded-2xl px-4 py-2 text-right no-underline ${isDark ? "bg-white/5 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
@@ -1452,9 +1521,50 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
                 🛒
                 {count > 0 ? <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-orange-500 px-1 text-[11px] font-bold text-white">{count}</span> : null}
               </button>
+              <button
+                type="button"
+                onClick={() => setIsMobileMenuOpen((current) => !current)}
+                aria-expanded={isMobileMenuOpen}
+                aria-controls="storefront-mobile-navigation"
+                aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+                className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border lg:hidden ${isDark ? "border-white/10 bg-white/5 text-slate-100" : "border-slate-200 bg-white text-slate-700"}`}
+              >
+                {isMobileMenuOpen ? (
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current stroke-2">
+                    <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-none stroke-current stroke-2">
+                    <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
+                  </svg>
+                )}
+              </button>
             </div>
           </div>
         </div>
+        {isMobileMenuOpen ? (
+          <div id="storefront-mobile-navigation" className={`absolute inset-x-0 top-full border-b px-4 py-4 shadow-2xl lg:hidden ${isDark ? "border-white/10 bg-slate-950" : "border-slate-200 bg-white"}`}>
+            <nav aria-label="Storefront navigation" className="grid gap-2">
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname === "/store" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Home</Link>
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/products" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Products</Link>
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/orders" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Orders</Link>
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/profile" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Profile</Link>
+            </nav>
+            <div className={`mt-4 border-t pt-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+              {session ? (
+                <div className="flex items-center justify-between gap-3">
+                  <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/profile" className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{session.name}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-500">{session.role === "admin" ? "Admin" : "Customer"}</p>
+                  </Link>
+                  <button type="button" onClick={() => { handleStorefrontLogout(); setIsMobileMenuOpen(false); }} className={`rounded-xl border px-3 py-2 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}>Sign out</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => { setIsMobileMenuOpen(false); openAuthModal(pathname.startsWith("/store/checkout") ? "/store/checkout" : "/store"); }} className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}>Sign in</button>
+              )}
+            </div>
+          </div>
+        ) : null}
         <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 px-4 py-2 text-center text-xs font-medium text-white">The storefront client runs on /store, while the admin area lives on /admin.</div>
       </header>
       <CartDrawer session={session} />
@@ -1469,6 +1579,7 @@ export function HomeSections() {
   const isDark = theme === "dark";
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [saleRefreshVersion, setSaleRefreshVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1487,14 +1598,28 @@ export function HomeSections() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [saleRefreshVersion]);
 
   const bestSellerProducts = [...products].sort((a, b) => b.soldCount - a.soldCount).slice(0, 8);
   const flashSaleProducts = [...products].sort((a, b) => (b.originalPrice - b.price) - (a.originalPrice - a.price)).slice(0, 4);
   const activeSaleProducts = products
-    .filter((product) => Boolean(product.saleCampaignId) && product.status !== "out_of_stock")
+    .filter((product) => Boolean(product.saleCampaignId) && product.price < product.originalPrice && product.status !== "out_of_stock")
     .sort((left, right) => Number(right.saleDiscountPercent ?? 0) - Number(left.saleDiscountPercent ?? 0));
   const newArrivals = [...products].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(0, 8);
+
+  useEffect(() => {
+    const nextEndAt = activeSaleProducts
+      .map((product) => new Date(product.saleEndsAt ?? "").getTime())
+      .filter((value) => Number.isFinite(value) && value > Date.now())
+      .sort((left, right) => left - right)[0];
+
+    if (!nextEndAt) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setSaleRefreshVersion((version) => version + 1), Math.max(1_000, nextEndAt - Date.now() + 1_000));
+    return () => window.clearTimeout(timeout);
+  }, [activeSaleProducts]);
 
   if (isLoading) {
     return (
@@ -1710,18 +1835,20 @@ function SaleSpotlight({ products }: { products: StoreProduct[] }) {
 
 function SaleMarqueeCard({ product, isDark }: { product: StoreProduct; isDark: boolean }) {
   const discount = Math.max(0, Number(product.saleDiscountPercent ?? 0));
+  const hasDiscount = product.price < product.originalPrice;
   const discountTone = getDiscountTone(discount);
   return (
     <Link href={`/store/products/${product.slug}`} className={`group flex w-80 shrink-0 gap-4 rounded-2xl border p-4 transition hover:-translate-y-1 ${isDark ? "border-white/10 bg-white/5 hover:bg-white/10" : "border-white bg-white shadow-sm"}`}>
       <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-xl">
         <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-110" />
-        <span className={`absolute inset-x-1 bottom-1 rounded-md px-1 py-0.5 text-center text-[10px] font-bold ${discountTone.badge}`}>-{discount}%</span>
+        {hasDiscount ? <span className={`absolute inset-x-1 bottom-1 rounded-md px-1 py-0.5 text-center text-[10px] font-bold ${discountTone.badge}`}>-{discount}%</span> : null}
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-500">Campaign deal</p>
         <h3 className={`mt-1 truncate text-sm font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{product.name}</h3>
-        <p className="mt-2 text-xs text-slate-400 line-through">{formatCurrency(product.originalPrice)}</p>
+        {hasDiscount ? <p className="mt-2 text-xs text-slate-400 line-through">{formatCurrency(product.originalPrice)}</p> : null}
         <p className="text-sm font-bold text-rose-600">{formatCurrency(product.price)}</p>
+        <SaleCountdown endsAt={product.saleEndsAt} isDark={isDark} />
       </div>
     </Link>
   );
@@ -2020,7 +2147,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
             </div>
             <div className="mt-8 flex items-end gap-4">
               <strong className="text-4xl font-bold text-rose-600">{formatCurrency(product.price)}</strong>
-              <span className="pb-1 text-lg text-slate-400 line-through">{formatCurrency(product.originalPrice)}</span>
+              {product.price < product.originalPrice ? <span className="pb-1 text-lg text-slate-400 line-through">{formatCurrency(product.originalPrice)}</span> : null}
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
               <InfoTile isDark={isDark} label="Rating" value={`${product.rating} / 5`} />

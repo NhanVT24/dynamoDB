@@ -26,6 +26,7 @@ type StorefrontApiItem = {
   lockedUntil?: string;
   saleCampaignId?: string;
   saleDiscountPercent?: number;
+  saleEndsAt?: string;
   attributes?: Record<string, unknown>;
 };
 
@@ -120,6 +121,7 @@ export function toStoreProduct(item: StorefrontApiItem): StoreProduct {
     lockedUntil: item.lockedUntil,
     saleCampaignId: item.saleCampaignId,
     saleDiscountPercent: item.saleDiscountPercent == null ? undefined : Number(item.saleDiscountPercent),
+    saleEndsAt: item.saleEndsAt,
     badge: status === "out_of_stock" ? "Out of stock" : item.isLocked ? "Reserved" : stock <= 10 ? "Low stock" : "Recently updated",
     specs: getCategorySpecs(category, brand, item.attributes)
   };

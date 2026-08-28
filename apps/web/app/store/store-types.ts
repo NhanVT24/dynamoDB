@@ -28,6 +28,7 @@ export type StoreProduct = {
   lockedUntil?: string;
   saleCampaignId?: string;
   saleDiscountPercent?: number;
+  saleEndsAt?: string;
   badge?: string;
   specs: string[];
 };
