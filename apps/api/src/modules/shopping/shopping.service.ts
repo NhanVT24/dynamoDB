@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable } from "@nestjs/common";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import {
   createShoppingItem,
@@ -84,6 +84,7 @@ export class ShoppingService {
 
   async update(id: string, patch: Record<string, any>, version: number) {
     const current = await getShoppingItem(id);
+    this.ensureStockCanCoverReservations(current, patch.stock);
     const updated = await updateShoppingItem(id, patch, version);
     await this.publishInventoryAlertIfNeeded(current, updated, "admin.update");
     return updated;
@@ -91,6 +92,10 @@ export class ShoppingService {
 
   async increment(id: string, field: string, incrementBy: number) {
     const current = await getShoppingItem(id);
+    if (field === "stock") {
+      const nextStock = Math.max(0, Number(current?.stock ?? 0) + incrementBy);
+      this.ensureStockCanCoverReservations(current, nextStock);
+    }
     const updated = await incrementItemValue(id, field, incrementBy);
     await this.publishInventoryAlertIfNeeded(current, updated, "admin.increment");
     return updated;
@@ -98,6 +103,20 @@ export class ShoppingService {
 
   remove(id: string) {
     return deleteShoppingItem(id);
+  }
+
+  private ensureStockCanCoverReservations(current: Record<string, any> | null, requestedStock: unknown) {
+    if (!current || requestedStock === undefined) {
+      return;
+    }
+
+    const stock = Number(requestedStock);
+    const reservedStock = Number(current.reservedStock ?? 0);
+    if (Number.isFinite(stock) && stock < reservedStock) {
+      throw new ConflictException(
+        `Cannot set stock to ${stock} because ${reservedStock} unit(s) are reserved by active checkouts.`
+      );
+    }
   }
 
   private async publishInventoryAlertIfNeeded(

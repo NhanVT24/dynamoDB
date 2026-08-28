@@ -257,7 +257,7 @@ export class StorefrontService {
   async getProductById(id: string) {
     const item = await getStorefrontProductById(id);
     if (!item || !hasPhysicalStock(item)) {
-      throw new NotFoundException("Không tìm thấy sản phẩm.");
+      throw new NotFoundException("Not found product.");
     }
 
     const shaped = toPublicProductDetail(item, await listActiveSaleCampaigns());
@@ -277,8 +277,7 @@ export class StorefrontService {
       email,
       items: normalizedItems,
       locale: input.locale,
-      bankCode: input.bankCode
-      ,
+      bankCode: input.bankCode,
       processingMode: input.processingMode
     });
     this.logger.log(`[checkout-gate] request_created requestId=${requestId} customer=${email} itemCount=${normalizedItems.length} mode=${input.processingMode}`);

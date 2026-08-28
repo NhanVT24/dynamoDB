@@ -11,6 +11,7 @@ import {
   StackProps
 } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
+import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
@@ -1445,6 +1446,166 @@ exports.handler = async (event) => {
           source: "scheduler.data-cleanup"
         })
       }
+    });
+
+    // AWS Budgets data is delayed, so $70 is a deliberately early protective threshold.
+    // The CostGuard function itself and the Cognito trigger are deliberately excluded from
+    // the $100 Lambda throttle list: the former is needed for audit/recovery and the latter
+    // avoids permanently breaking account sign-in.
+    const costGuardStateParameterName = "/supermarket/cost-guard/state";
+    const allApplicationLambdaNames = [
+      httpApiFunction.functionName,
+      orderWorkerFunction.functionName,
+      checkoutGateWorkerFunction.functionName,
+      notificationWorkerFunction.functionName,
+      paymentWorkerFunction.functionName,
+      weeklyAdminReportFunction.functionName,
+      dailyInventoryReportFunction.functionName,
+      sesInventoryEventFunction.functionName,
+      orderWorkflowStepFunction.functionName,
+      paymentWorkflowStepFunction.functionName,
+      imageWorkflowStepFunction.functionName,
+      buildWeeklyReportFunction.functionName,
+      sendMailWorkflowStepFunction.functionName,
+      imageUploadWorkerFunction.functionName,
+      auditEventWorkerFunction.functionName,
+      releaseExpiredCheckoutsFunction.functionName,
+      dataCleanupFunction.functionName,
+      saleCampaignWorkerFunction.functionName
+    ];
+    const allPipes = [
+      "supermarket-storefront-orders-pipe",
+      "supermarket-checkout-gate-pipe",
+      "supermarket-checkout-gate-interactive-pipe",
+      "supermarket-notifications-pipe",
+      "supermarket-payment-events-pipe",
+      "supermarket-image-uploads-pipe"
+    ];
+    const allRules = [
+      { name: "supermarket-commerce-order-requested-rule", eventBusName: commerceEventBus.eventBusName },
+      { name: "supermarket-commerce-checkout-gate-rule", eventBusName: commerceEventBus.eventBusName },
+      { name: "supermarket-commerce-lifecycle-audit-rule", eventBusName: commerceEventBus.eventBusName },
+      { name: "supermarket-payment-lifecycle-queue-rule", eventBusName: paymentEventBus.eventBusName },
+      { name: "supermarket-payment-lifecycle-audit-rule", eventBusName: paymentEventBus.eventBusName },
+      { name: "supermarket-platform-notifications-rule", eventBusName: platformEventBus.eventBusName },
+      { name: "supermarket-inventory-admin-alerts-rule", eventBusName: platformEventBus.eventBusName },
+      { name: "supermarket-platform-audit-rule", eventBusName: platformEventBus.eventBusName }
+    ];
+    const staticSchedules = [
+      { name: "supermarket-weekly-admin-revenue-report", groupName: "default" },
+      { name: "supermarket-daily-inventory-report", groupName: "default" },
+      { name: "supermarket-release-expired-checkouts", groupName: "default" },
+      { name: "supermarket-data-cleanup", groupName: "default" }
+    ];
+    const partialSchedules = staticSchedules.filter((schedule) => [
+      "supermarket-weekly-admin-revenue-report",
+      "supermarket-daily-inventory-report",
+      "supermarket-data-cleanup"
+    ].includes(schedule.name));
+    const partialLambdas = [
+      weeklyAdminReportFunction.functionName,
+      dailyInventoryReportFunction.functionName,
+      imageWorkflowStepFunction.functionName,
+      buildWeeklyReportFunction.functionName,
+      sendMailWorkflowStepFunction.functionName,
+      imageUploadWorkerFunction.functionName,
+      auditEventWorkerFunction.functionName,
+      dataCleanupFunction.functionName,
+      saleCampaignWorkerFunction.functionName
+    ];
+    const partialRules = allRules.filter((rule) => rule.name.endsWith("-audit-rule"));
+
+    const costGuardBudgetTopic = new sns.Topic(this, "CostGuardBudgetTopic", {
+      topicName: "supermarket-cost-guard-budget-events",
+      displayName: "Supermarket CostGuard budget events"
+    });
+    costGuardBudgetTopic.addToResourcePolicy(new iam.PolicyStatement({
+      principals: [new iam.ServicePrincipal("budgets.amazonaws.com")],
+      actions: ["sns:Publish"],
+      resources: [costGuardBudgetTopic.topicArn],
+      conditions: { StringEquals: { "AWS:SourceAccount": this.account } }
+    }));
+
+    const costGuardFunction = new lambda.Function(this, "CostGuardFunction", {
+      functionName: "supermarket-cost-guard",
+      runtime: lambda.Runtime.PYTHON_3_12,
+      architecture: lambda.Architecture.ARM_64,
+      handler: "cost_guard.handler",
+      timeout: Duration.minutes(5),
+      memorySize: 256,
+      code: lambda.Code.fromAsset(path.resolve(__dirname, "../lambda")),
+      environment: {
+        ALERT_EMAIL: adminReportEmail.valueAsString,
+        SES_FROM_EMAIL: sesFromEmail.valueAsString,
+        STATE_PARAMETER_NAME: costGuardStateParameterName,
+        SALE_SCHEDULE_GROUP: saleSchedulerGroup.ref,
+        ALL_APPLICATION_LAMBDAS: JSON.stringify(allApplicationLambdaNames),
+        PARTIAL_LAMBDAS: JSON.stringify(partialLambdas),
+        ALL_PIPES: JSON.stringify(allPipes),
+        PARTIAL_PIPES: JSON.stringify([
+          "supermarket-notifications-pipe",
+          "supermarket-image-uploads-pipe"
+        ]),
+        ALL_RULES: JSON.stringify(allRules),
+        PARTIAL_RULES: JSON.stringify(partialRules),
+        STATIC_SCHEDULES: JSON.stringify(staticSchedules),
+        PARTIAL_SCHEDULES: JSON.stringify(partialSchedules),
+        STATE_MACHINES: JSON.stringify([
+          orderPaymentWorkflow.stateMachineArn,
+          imageUploadWorkflow.stateMachineArn,
+          weeklyReportMailWorkflow.stateMachineArn
+        ])
+      }
+    });
+    costGuardFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        "lambda:PutFunctionConcurrency",
+        "events:DisableRule",
+        "pipes:UpdatePipe",
+        "scheduler:GetSchedule",
+        "scheduler:ListSchedules",
+        "scheduler:UpdateSchedule",
+        "states:ListExecutions",
+        "states:StopExecution",
+        "ssm:PutParameter",
+        "ses:SendEmail"
+      ],
+      resources: ["*"]
+    }));
+    costGuardBudgetTopic.addSubscription(new subscriptions.LambdaSubscription(costGuardFunction));
+
+    new budgets.CfnBudget(this, "MonthlyCostGuardBudget", {
+      budget: {
+        budgetName: "supermarket-monthly-cost-guard-usd",
+        budgetType: "COST",
+        timeUnit: "MONTHLY",
+        budgetLimit: { amount: 100, unit: "USD" },
+        costTypes: {
+          includeCredit: true,
+          includeDiscount: true,
+          includeOtherSubscription: true,
+          includeRecurring: true,
+          includeRefund: false,
+          includeSubscription: true,
+          includeSupport: true,
+          includeTax: true,
+          includeUpfront: true,
+          useAmortized: false,
+          useBlended: false
+        }
+      },
+      notificationsWithSubscribers: [5, 10, 15, 20, 50, 70, 100].map((threshold) => ({
+        notification: {
+          comparisonOperator: "GREATER_THAN",
+          notificationType: "ACTUAL",
+          threshold,
+          thresholdType: "ABSOLUTE_VALUE"
+        },
+        subscribers: [{
+          address: costGuardBudgetTopic.topicArn,
+          subscriptionType: "SNS"
+        }]
+      }))
     });
 
     const createDlqAlarm = (id: string, queue: sqs.Queue, queueName: string) => {
