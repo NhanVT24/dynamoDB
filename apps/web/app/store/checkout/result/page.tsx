@@ -220,6 +220,17 @@ function CheckoutResultPageContent() {
   }, [clearCart, result]);
 
   useEffect(() => {
+    if (!result || (result.transactionStatus === "success" && result.isValidSignature)) {
+      return;
+    }
+
+    // Keep the cart so the customer can start a fresh checkout, but never keep
+    // a reference to the expired or failed reservation/payment attempt.
+    window.localStorage.removeItem(pendingCheckoutStorageKey);
+    window.sessionStorage.removeItem(getPendingOrderRequestKey(result.txnRef));
+  }, [result]);
+
+  useEffect(() => {
     if (!requestId || !result?.txnRef || queueState === "done" || queueState === "failed") {
       return;
     }
@@ -330,6 +341,22 @@ function CheckoutResultPageContent() {
   }, [queueState, requestId, result?.txnRef]);
 
   const isSuccess = result?.transactionStatus === "success" && result.isValidSignature;
+  const isExpired = result?.transactionStatus === "expired";
+  const canStartNewCheckout = Boolean(result) && !isSuccess;
+  const resultHeading = isSuccess
+    ? "Thanh toán thành công"
+    : isExpired
+      ? "Phiên thanh toán đã hết hạn"
+      : result
+        ? "Giao dịch chưa hoàn tất"
+        : "Đang xác minh giao dịch";
+  const resultDescription = isSuccess
+    ? "Hệ thống đang đồng bộ đơn hàng từ checkout đã được giữ hàng."
+    : isExpired
+      ? "Stock hold của giao dịch cũ đã được giải phóng. Bạn có thể tạo một giao dịch mới từ giỏ hàng hiện tại."
+      : result
+        ? "Không có đơn hàng nào được tạo từ giao dịch này. Bạn có thể kiểm tra lại giỏ hàng và bắt đầu một giao dịch mới."
+        : error || "Đang nhận kết quả thanh toán từ VNPay.";
   const shouldShowQueueNotification =
     Boolean(matchedNotification) &&
     (queueState !== "done" || matchedNotification?.message !== queueMessage);
@@ -381,17 +408,32 @@ function CheckoutResultPageContent() {
           isDark ? "border-white/10 bg-[#101826] text-white" : "border-slate-200 bg-white text-slate-950"
         }`}
       >
-        <p className={`text-xs font-semibold uppercase tracking-[0.28em] ${isSuccess ? "text-emerald-500" : "text-orange-500"}`}>
-          {isSuccess ? "Payment successful" : "Transaction result"}
+        <p className={`text-xs font-semibold uppercase tracking-[0.28em] ${isSuccess ? "text-emerald-500" : isExpired ? "text-rose-500" : "text-orange-500"}`}>
+          {isSuccess ? "Payment confirmed" : isExpired ? "Payment expired" : "Payment not completed"}
         </p>
         <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>
-          {result ? result.message : error || "Verifying payment..."}
+          {resultHeading}
         </h1>
         <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-          {isSuccess
-            ? "After VNPay sandbox confirms success, the system pushes the order request into the queue and keeps checking the status until the order is completed."
-            : "If you just cancelled the payment or hit an error, you can return to the store and try again at any time."}
+          {resultDescription}
         </p>
+
+        {result && !isSuccess ? (
+          <div className={`mt-6 rounded-[1.5rem] border p-5 ${
+            isExpired
+              ? isDark
+                ? "border-rose-500/25 bg-rose-500/10 text-rose-100"
+                : "border-rose-200 bg-rose-50 text-rose-900"
+              : isDark
+                ? "border-amber-500/25 bg-amber-500/10 text-amber-100"
+                : "border-amber-200 bg-amber-50 text-amber-900"
+          }`}>
+            <p className="text-sm font-semibold">{result.message}</p>
+            <p className="mt-2 text-sm leading-6 opacity-90">
+              Mã giao dịch cũ không thể được dùng lại. Khi tiếp tục, hệ thống sẽ kiểm tra tồn kho và tạo một payment session VNPay hoàn toàn mới.
+            </p>
+          </div>
+        ) : null}
 
         {queuePanel ? (
           <div className={`mt-7 rounded-[1.75rem] border p-5 shadow-[0_18px_50px_-38px_rgba(15,23,42,0.45)] ${queuePanel.tone}`}>
@@ -457,17 +499,29 @@ function CheckoutResultPageContent() {
         ) : null}
 
         <div className="mt-8 flex flex-wrap gap-3">
-          <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-            Continue shopping
-          </Link>
+          {canStartNewCheckout ? (
+            <Link href="/store/checkout" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
+              Tạo giao dịch mới
+            </Link>
+          ) : null}
           <Link
-            href="/store/orders"
+            href={canStartNewCheckout ? "/store" : "/store/products"}
             className={`rounded-full px-5 py-3 text-sm font-semibold ${
               isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
             }`}
           >
-            View order history
+            {canStartNewCheckout ? "Quay lại giỏ hàng" : "Tiếp tục mua sắm"}
           </Link>
+          {isSuccess ? (
+            <Link
+              href="/store/orders"
+              className={`rounded-full px-5 py-3 text-sm font-semibold ${
+                isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
+              }`}
+            >
+              Xem lịch sử đơn hàng
+            </Link>
+          ) : null}
         </div>
       </div>
     </main>

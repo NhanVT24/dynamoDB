@@ -63,7 +63,6 @@ export type CheckoutReservationRecord = {
   quantity: number;
   unitPrice: number;
   productName: string;
-  expiresAt: string;
   status: "reserved" | "released" | "committed";
   productVersionAtReserve: number;
   createdAt: string;
@@ -356,9 +355,10 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
               UpdateExpression: [
                 "SET #stock = #stock - :quantity",
                 "#soldCount = if_not_exists(#soldCount, :zero) + :quantity",
+                "inventoryAlertSent = :inventoryAlertSent",
                 "updatedAt = :updatedAt",
                 "#version = if_not_exists(#version, :zero) + :one"
-              ].join(", "),
+              ].join(", ") + " REMOVE inventoryAlertSentAt",
               ConditionExpression: "#stock >= :quantity AND if_not_exists(#reservedStock, :zero) = :zero",
               ExpressionAttributeNames: {
                 "#stock": "stock",
@@ -370,7 +370,8 @@ export async function createStorefrontOrder(input: CreateOrderPayload): Promise<
                 ":updatedAt": now,
                 ":quantity": item.quantity,
                 ":zero": 0,
-                ":one": 1
+                ":one": 1,
+                ":inventoryAlertSent": false
               })
             }
           };
@@ -634,7 +635,6 @@ export async function createCheckoutReservations(input: {
           quantity: item.quantity,
           unitPrice: resolveSalePrice(product, saleCampaigns).price,
           productName: String(product.name ?? ""),
-          expiresAt,
           status: "reserved",
           productVersionAtReserve: Number(product.version ?? 0),
           createdAt: now.toISOString(),
@@ -907,7 +907,7 @@ export async function commitCheckoutReservationsToOrder(input: {
           TableName,
           Key: toDynamoItem(keys.product(reservation.productId)),
           ConditionExpression: "attribute_exists(PK) AND #stock >= :quantity AND attribute_exists(#reservedStock) AND #reservedStock >= :quantity",
-          UpdateExpression: "SET #stock = #stock - :quantity, #reservedStock = if_not_exists(#reservedStock, :zero) - :quantity, #soldCount = if_not_exists(#soldCount, :zero) + :quantity, updatedAt = :updatedAt, #version = if_not_exists(#version, :zero) + :one",
+          UpdateExpression: "SET #stock = #stock - :quantity, #reservedStock = if_not_exists(#reservedStock, :zero) - :quantity, #soldCount = if_not_exists(#soldCount, :zero) + :quantity, inventoryAlertSent = :inventoryAlertSent, updatedAt = :updatedAt, #version = if_not_exists(#version, :zero) + :one REMOVE inventoryAlertSentAt",
           ExpressionAttributeNames: {
             "#stock": "stock",
             "#reservedStock": "reservedStock",
@@ -918,7 +918,8 @@ export async function commitCheckoutReservationsToOrder(input: {
             ":quantity": reservation.quantity,
             ":updatedAt": now,
             ":zero": 0,
-            ":one": 1
+            ":one": 1,
+            ":inventoryAlertSent": false
           })
         }
       })),
@@ -949,7 +950,7 @@ export async function commitCheckoutReservationsToOrder(input: {
         Update: {
           TableName,
           Key: toDynamoItem(buildCheckoutGateKey(input.requestId)),
-          ConditionExpression: "attribute_exists(PK) AND #status = :allowedStatus",
+          ConditionExpression: "attribute_exists(PK) AND #status = :allowedStatus AND lockedUntil > :now",
           UpdateExpression: "SET #status = :completedStatus, orderId = :orderId, message = :message, updatedAt = :updatedAt",
           ExpressionAttributeNames: {
             "#status": "status"
@@ -959,7 +960,8 @@ export async function commitCheckoutReservationsToOrder(input: {
             ":completedStatus": "completed",
             ":orderId": orderId,
             ":message": "Payment confirmed and order committed.",
-            ":updatedAt": now
+            ":updatedAt": now,
+            ":now": now
           })
         }
       }

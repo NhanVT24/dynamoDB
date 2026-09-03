@@ -4,7 +4,6 @@ import {
   logQueueSummary,
   logQueueWarn
 } from "../../../common/logging/queue-logger.js";
-import { env } from "../../../config/env.js";
 import { createStandaloneContext } from "../../../core/app/create-standalone-context.js";
 import { NotificationsService } from "../../../modules/notifications/notifications.service.js";
 import { StorefrontService } from "../../../modules/storefront/storefront.service.js";
@@ -77,9 +76,9 @@ export function createQueueHandler(config: QueueHandlerConfig) {
 
     // Keep the FIFO message in flight while waiting, so the next message in the
     // shared checkout lane cannot begin its business processing first.
-    if (config.worker === "checkoutGate" && env.CHECKOUT_GATE_WORKER_START_DELAY_MS > 0) {
-      logger.log(`[checkout-fifo] start_delay batchId=${batchId} delayMs=${env.CHECKOUT_GATE_WORKER_START_DELAY_MS}`);
-      await new Promise((resolve) => setTimeout(resolve, env.CHECKOUT_GATE_WORKER_START_DELAY_MS));
+    if (config.worker === "checkoutGate") {
+      logger.log(`[checkout-fifo] start_delay batchId=${batchId} delayMs=5000`);
+      await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
     }
 
     const appContext = await appContextPromise;

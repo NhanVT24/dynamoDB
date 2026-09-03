@@ -359,7 +359,8 @@ export class StorefrontService {
         : `Payment for reserved items ${gate.requestId}`,
       bankCode: gate.bankCode,
       locale: gate.locale,
-      ipAddress
+      ipAddress,
+      expiresAt: gate.lockedUntil
     });
 
     await updateCheckoutGateRequestStatus({

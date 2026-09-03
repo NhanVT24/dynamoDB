@@ -42,7 +42,7 @@ type ShoppingFilters = {
 };
 
 export type InventoryReportProduct = Pick<ProductRecord,
-  "id" | "name" | "sku" | "stock" | "status" | "updatedAt"
+  "id" | "name" | "sku" | "stock" | "status" | "updatedAt" | "inventoryAlertSent"
 >;
 
 function normalizeText(value: unknown) {
@@ -501,6 +501,8 @@ export async function createShoppingItem(input: ProductRecord) {
       id: crypto.randomUUID(),
       entityType: "PRODUCT",
       searchName: normalizeText(input.name),
+      // A new low-stock product has not been included in an inventory alert yet.
+      inventoryAlertSent: false,
       version: 1,
       createdAt: input.createdAt ?? now,
       updatedAt: input.updatedAt ?? now
@@ -556,8 +558,9 @@ export async function incrementItemValue(id: string, field: string, incrementBy 
       "#status = :status",
       "#searchName = :searchName",
       "updatedAt = :updatedAt",
-      "#version = #version + :one"
-    ].join(", "),
+      "#version = #version + :one",
+      ...(field === "stock" ? ["#inventoryAlertSent = :inventoryAlertSent"] : [])
+    ].join(", ") + (field === "stock" ? " REMOVE inventoryAlertSentAt" : ""),
     // Stock decrements must leave enough physical units for active checkout holds.
     ConditionExpression: field === "stock"
       ? "attribute_exists(PK) AND (attribute_not_exists(#reservedStock) OR #reservedStock <= :fieldValue)"
@@ -567,14 +570,16 @@ export async function incrementItemValue(id: string, field: string, incrementBy 
       "#status": "status",
       "#searchName": "searchName",
       "#version": "version",
-      "#reservedStock": "reservedStock"
+      "#reservedStock": "reservedStock",
+      "#inventoryAlertSent": "inventoryAlertSent"
     },
     ExpressionAttributeValues: toDynamoItem({
       ":fieldValue": nextValue,
       ":status": nextRecord.status,
       ":searchName": nextRecord.searchName,
       ":updatedAt": nextRecord.updatedAt,
-      ":one": 1
+      ":one": 1,
+      ...(field === "stock" ? { ":inventoryAlertSent": false } : {})
     }),
     ReturnValues: "ALL_NEW"
   }));
@@ -711,13 +716,15 @@ export async function listInventoryReportProducts(): Promise<InventoryReportProd
       products.push(...(result.Items ?? [])
         .map((item) => fromDynamoItem(item))
         .filter(isProductItem)
+        .filter((item) => item?.inventoryAlertSent !== true)
         .map((item) => ({
           id: String(item?.id ?? ""),
           name: String(item?.name ?? ""),
           sku: item?.sku ? String(item.sku) : undefined,
           stock: Number(item?.stock ?? 0),
           status: String(item?.status ?? status),
-          updatedAt: String(item?.updatedAt ?? item?.createdAt ?? "")
+          updatedAt: String(item?.updatedAt ?? item?.createdAt ?? ""),
+          inventoryAlertSent: item?.inventoryAlertSent === true
         })));
 
       lastKey = result.LastEvaluatedKey;
@@ -725,6 +732,42 @@ export async function listInventoryReportProducts(): Promise<InventoryReportProd
   }
 
   return products;
+}
+
+export async function markInventoryReportProductsAlerted(products: InventoryReportProduct[]) {
+  let markedCount = 0;
+
+  for (const product of products) {
+    try {
+      await rawDb.send(new UpdateItemCommand({
+        TableName,
+        Key: toDynamoItem(keys.product(product.id)),
+        // Do not mark a product as alerted if its inventory changed after the
+        // digest snapshot was created. It must remain eligible for the next run.
+        ConditionExpression: "attribute_exists(PK) AND #stock = :stock AND #status = :status AND (attribute_not_exists(#inventoryAlertSent) OR #inventoryAlertSent = :false)",
+        UpdateExpression: "SET #inventoryAlertSent = :true, inventoryAlertSentAt = :alertedAt",
+        ExpressionAttributeNames: {
+          "#stock": "stock",
+          "#status": "status",
+          "#inventoryAlertSent": "inventoryAlertSent"
+        },
+        ExpressionAttributeValues: toDynamoItem({
+          ":stock": product.stock,
+          ":status": product.status,
+          ":false": false,
+          ":true": true,
+          ":alertedAt": new Date().toISOString()
+        })
+      }));
+      markedCount += 1;
+    } catch (error) {
+      if ((error as { name?: string }).name !== "ConditionalCheckFailedException") {
+        throw error;
+      }
+    }
+  }
+
+  return markedCount;
 }
 
 async function getShoppingItemAllBase(pageLimit = 50, maxPages = 20, filters: ShoppingFilters = {}) {
@@ -781,6 +824,7 @@ export async function updateShoppingItem(id: string, patch: ProductRecord, versi
     "#searchName = :searchName",
     "#searchField = :searchField"
   ];
+  const stockChanged = Object.hasOwn(patch, "stock") && Number(merged.stock ?? 0) !== Number(current.stock ?? 0);
 
   for (const [field, value] of Object.entries(patch)) {
     names[`#${field}`] = field;
@@ -794,10 +838,16 @@ export async function updateShoppingItem(id: string, patch: ProductRecord, versi
     setters.push("#originalPrice = :originalPrice");
   }
 
+  if (stockChanged) {
+    names["#inventoryAlertSent"] = "inventoryAlertSent";
+    values[":inventoryAlertSent"] = false;
+    setters.push("#inventoryAlertSent = :inventoryAlertSent");
+  }
+
   const result = await rawDb.send(new UpdateItemCommand({
     TableName,
     Key: toDynamoItem(keys.product(id)),
-    UpdateExpression: `SET ${setters.join(", ")}`,
+    UpdateExpression: `SET ${setters.join(", ")}${stockChanged ? " REMOVE inventoryAlertSentAt" : ""}`,
     // This is evaluated atomically with the update, including reservations made
     // after the admin read the product but before this write.
     ConditionExpression: "attribute_exists(PK) AND #version = :expectedVersion AND (attribute_not_exists(#reservedStock) OR #reservedStock <= :resultingStock)",

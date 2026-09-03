@@ -684,8 +684,6 @@ exports.handler = async (event) => {
       EVENTBRIDGE_COMMERCE_ARCHIVE_ARN: commerceArchive.attrArn,
       EVENTBRIDGE_PAYMENT_ARCHIVE_ARN: paymentArchive.attrArn,
       EVENTBRIDGE_PLATFORM_ARCHIVE_ARN: platformArchive.attrArn,
-      // Delay each FIFO checkout before its business processing begins.
-      CHECKOUT_GATE_WORKER_START_DELAY_MS: "5000",
       CHECKOUT_TX_RACE_LOGGING: "false",
       SNS_ADMIN_ALERTS_TOPIC_ARN: adminAlertsTopic.topicArn,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
@@ -1359,9 +1357,9 @@ exports.handler = async (event) => {
 
     new scheduler.CfnSchedule(this, "DailyInventoryReportSchedule", {
       name: "supermarket-daily-inventory-report",
-      description: "Sends the daily low-stock and out-of-stock digest at 08:00 in Vietnam.",
+      description: "Invokes the inventory alert check at 22:00 in Vietnam; the worker sends on alternating calendar days.",
       groupName: "default",
-      scheduleExpression: "cron(0 8 * * ? *)",
+      scheduleExpression: "cron(0 22 * * ? *)",
       scheduleExpressionTimezone: "Asia/Ho_Chi_Minh",
       flexibleTimeWindow: {
         mode: "OFF"

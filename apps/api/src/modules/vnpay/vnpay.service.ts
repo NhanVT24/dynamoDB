@@ -9,6 +9,7 @@ import { env } from "../../config/env.js";
 import { RuntimeConfigService } from "../../config/runtime-config.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import {
+  getCheckoutGateRequestById,
   getStorefrontProductById,
   releaseCheckoutGateReservation
 } from "../storefront/storefront.repository.js";
@@ -23,7 +24,7 @@ import type { CreateVnpayFailureTestInput, CreateVnpayPaymentInput } from "./vnp
 
 const PAYMENT_TIMEOUT_MINUTES = 5;
 const PAYMENT_TIMEOUT_MS = PAYMENT_TIMEOUT_MINUTES * 60 * 1000;
-const PAYMENT_TIMEOUT_MESSAGE = `Phiên thanh toán đã hết hạn sau ${PAYMENT_TIMEOUT_MINUTES} phút.`;
+const PAYMENT_TIMEOUT_MESSAGE = "Phiên thanh toán hoặc thời gian giữ hàng đã hết hạn.";
 const VIETNAM_UTC_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 type VnpayReturnPayload = {
@@ -96,7 +97,11 @@ export class VnpayService {
     private readonly runtimeConfigService: RuntimeConfigService
   ) {}
 
-  async createPaymentUrl(input: CreateVnpayPaymentInput, ipAddress: string, options?: { skipStockValidation?: boolean }) {
+  async createPaymentUrl(
+    input: CreateVnpayPaymentInput,
+    ipAddress: string,
+    options?: { skipStockValidation?: boolean; expiresAt?: string }
+  ) {
     const paymentConfig = this.runtimeConfigService.getPaymentConfig();
     let totalAmount = 0;
 
@@ -115,7 +120,11 @@ export class VnpayService {
 
     const txnRef = `NX${Date.now()}`;
     const createdAt = new Date();
-    const expiresAt = new Date(createdAt.getTime() + PAYMENT_TIMEOUT_MS);
+    const configuredExpiry = options?.expiresAt ? new Date(options.expiresAt) : null;
+    if (configuredExpiry && (!Number.isFinite(configuredExpiry.getTime()) || configuredExpiry.getTime() <= createdAt.getTime())) {
+      throw new Error("Checkout reservation expired before the VNPay session could be created.");
+    }
+    const expiresAt = configuredExpiry ?? new Date(createdAt.getTime() + PAYMENT_TIMEOUT_MS);
     const createDate = formatVnpDate(createdAt);
     const expireDate = formatVnpDate(expiresAt);
     const orderInfo = input.orderDescription?.trim() || `Thanh toán đơn hàng ${txnRef}`;
@@ -293,6 +302,7 @@ export class VnpayService {
     locale?: "vn" | "en";
     ipAddress?: string;
     skipStockValidation?: boolean;
+    expiresAt?: string;
   }) {
     return this.createPaymentUrl({
       email: input.email,
@@ -301,7 +311,8 @@ export class VnpayService {
       bankCode: input.bankCode,
       locale: input.locale
     }, input.ipAddress?.trim() || "127.0.0.1", {
-      skipStockValidation: input.skipStockValidation
+      skipStockValidation: input.skipStockValidation,
+      expiresAt: input.expiresAt
     });
   }
 
@@ -358,6 +369,18 @@ export class VnpayService {
 
     const resolvedOrderInfo = session.orderInfo || result.orderInfo;
     const requestId = extractCheckoutGateRequestId(resolvedOrderInfo);
+
+    if (requestId) {
+      const gate = await getCheckoutGateRequestById(requestId);
+      const lockedUntilMs = new Date(String(gate?.lockedUntil ?? "")).getTime();
+      if (!gate || gate.status !== "allowed" || !Number.isFinite(lockedUntilMs) || lockedUntilMs <= Date.now()) {
+        await this.finalizeExpiredPayment(session, result, source);
+        return {
+          transactionStatus: "expired" as const,
+          message: PAYMENT_TIMEOUT_MESSAGE
+        };
+      }
+    }
 
     try {
       await updatePaymentSessionStatus({

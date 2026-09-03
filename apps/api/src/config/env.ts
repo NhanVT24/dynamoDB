@@ -44,7 +44,6 @@ export const env = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((value) => value === "true"),
-  CHECKOUT_GATE_WORKER_START_DELAY_MS: z.coerce.number().int().min(0).max(15000).default(0),
   CHECKOUT_TX_RACE_LOGGING: z
     .enum(["true", "false"])
     .optional()

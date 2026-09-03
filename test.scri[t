@@ -16,3 +16,11 @@ fields @timestamp, @message
 await fetch(`/browser-test-parallel-stock-race.js?v=${Date.now()}`, { cache: "no-store" })
   .then((response) => response.text())
   .then((code) => eval(code));
+
+
+$env:AWS_PROFILE="nhandev"
+aws sts get-caller-identity
+Remove-Item -Recurse -Force cdk.out -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force apps/api/dist -ErrorAction SilentlyContinue
+npm run build:lambda
+npm run cdk:aws:deploy
