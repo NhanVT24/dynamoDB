@@ -1,4 +1,4 @@
-import { getShoppingItemAll, updateShoppingItem } from "../modules/shopping/shopping.repository.js";
+import { listAllShoppingItems, updateShoppingItem } from "../modules/shopping/shopping.repository.js";
 
 const localizedProductsBySku: Record<string, { name: string; location: string; description: string }> = {
   "FW-TS-001": {
@@ -33,7 +33,7 @@ const localizedProductsBySku: Record<string, { name: string; location: string; d
   }
 };
 
-const { items } = await getShoppingItemAll(100, 10);
+const { items } = await listAllShoppingItems(100, 10);
 let updatedCount = 0;
 
 for (const item of items) {

@@ -3,10 +3,10 @@ import { NotificationsService } from "../notifications/notifications.service.js"
 import {
   createShoppingItem,
   deleteShoppingItem,
-  getCursorForPage,
+  getShoppingItemsPageCursor,
   getMockShoppingItem,
   getShoppingItem,
-  getShoppingItemAll,
+  listAllShoppingItems,
   incrementItemValue,
   listMockShoppingItems,
   listShoppingItems,
@@ -22,15 +22,15 @@ import {
 export class ShoppingService {
   constructor(private readonly notificationsService: NotificationsService) {}
 
-  listMockItems() {
+  listDemoShoppingItems() {
     return listMockShoppingItems();
   }
 
-  getMockItem(id: string) {
+  getDemoShoppingItemById(id: string) {
     return getMockShoppingItem(id);
   }
 
-  getMeta() {
+  getShoppingItemMetadata() {
     return {
       categories: shoppingCategories,
       statuses: shoppingStatuses,
@@ -38,7 +38,7 @@ export class ShoppingService {
     };
   }
 
-  list(query: Record<string, any>) {
+  listShoppingItems(query: Record<string, any>) {
     return listShoppingItems(query.limit, query.cursor, {
       category: normalizeCategory(query.category) as string | undefined,
       status: query.status,
@@ -50,8 +50,8 @@ export class ShoppingService {
     });
   }
 
-  listAll(query: Record<string, any>) {
-    return getShoppingItemAll(query.pageLimit, query.maxPages, {
+  listAllShoppingItems(query: Record<string, any>) {
+    return listAllShoppingItems(query.pageLimit, query.maxPages, {
       category: normalizeCategory(query.category) as string | undefined,
       status: query.status,
       updatedAtFrom: query.updatedAtFrom,
@@ -62,8 +62,8 @@ export class ShoppingService {
     });
   }
 
-  getPageCursor(query: Record<string, any>) {
-    return getCursorForPage(query.page, query.limit, {
+  getShoppingItemsPageCursor(query: Record<string, any>) {
+    return getShoppingItemsPageCursor(query.page, query.limit, {
       category: normalizeCategory(query.category) as string | undefined,
       status: query.status,
       updatedAtFrom: query.updatedAtFrom,
@@ -74,15 +74,15 @@ export class ShoppingService {
     });
   }
 
-  getById(id: string) {
+  getShoppingItemById(id: string) {
     return getShoppingItem(id);
   }
 
-  create(input: Record<string, any>) {
+  createShoppingItem(input: Record<string, any>) {
     return createShoppingItem(input);
   }
 
-  async update(id: string, patch: Record<string, any>, version: number) {
+  async updateShoppingItem(id: string, patch: Record<string, any>, version: number) {
     const current = await getShoppingItem(id);
     this.ensureStockCanCoverReservations(current, patch.stock);
     const updated = await updateShoppingItem(id, patch, version);
@@ -90,7 +90,7 @@ export class ShoppingService {
     return updated;
   }
 
-  async increment(id: string, field: string, incrementBy: number) {
+  async incrementShoppingItemField(id: string, field: string, incrementBy: number) {
     const current = await getShoppingItem(id);
     if (field === "stock") {
       const nextStock = Math.max(0, Number(current?.stock ?? 0) + incrementBy);
@@ -101,7 +101,7 @@ export class ShoppingService {
     return updated;
   }
 
-  remove(id: string) {
+  deleteShoppingItem(id: string) {
     return deleteShoppingItem(id);
   }
 

@@ -33,78 +33,78 @@ export class ShoppingController {
   constructor(private readonly shoppingService: ShoppingService) {}
 
   @Get("demo")
-  getDemo() {
-    return this.shoppingService.listMockItems();
+  listDemoShoppingItems() {
+    return this.shoppingService.listDemoShoppingItems();
   }
 
   @Get("demo/:id")
-  getDemoItem(@Param() params: Record<string, string>) {
+  getDemoShoppingItemById(@Param() params: Record<string, string>) {
     const { id } = shoppingParamsSchema.parse(params);
-    const item = this.shoppingService.getMockItem(id);
+    const item = this.shoppingService.getDemoShoppingItemById(id);
     if (!item) throw new NotFoundException("Mock product not found");
     return item;
   }
 
   @Get("meta")
-  getMeta() {
-    return this.shoppingService.getMeta();
+  getShoppingItemMetadata() {
+    return this.shoppingService.getShoppingItemMetadata();
   }
 
   @Get()
-  list(@Query() rawQuery: Record<string, unknown>) {
+  listShoppingItems(@Query() rawQuery: Record<string, unknown>) {
     const query = shoppingListQuerySchema.parse(rawQuery);
     this.logger.log(`shopping list request ${JSON.stringify(query)}`);
-    return this.shoppingService.list(query);
+    return this.shoppingService.listShoppingItems(query);
   }
 
   @Get("all")
-  listAll(@Query() rawQuery: Record<string, unknown>) {
+  listAllShoppingItems(@Query() rawQuery: Record<string, unknown>) {
     const query = shoppingListAllQuerySchema.parse(rawQuery);
     this.logger.log(`shopping all request ${JSON.stringify(query)}`);
-    return this.shoppingService.listAll(query);
+    return this.shoppingService.listAllShoppingItems(query);
   }
 
   @Get("page-cursor")
-  getPageCursor(@Query() rawQuery: Record<string, unknown>) {
+  getShoppingItemsPageCursor(@Query() rawQuery: Record<string, unknown>) {
     const query = shoppingPageCursorQuerySchema.parse(rawQuery);
     this.logger.log(`shopping page-cursor request ${JSON.stringify(query)}`);
-    return this.shoppingService.getPageCursor(query);
+    return this.shoppingService.getShoppingItemsPageCursor(query);
   }
 
   @Get(":id")
-  async getById(@Param() params: Record<string, string>) {
+  async getShoppingItemById(@Param() params: Record<string, string>) {
     const { id } = shoppingParamsSchema.parse(params);
-    const item = await this.shoppingService.getById(id);
+    const item = await this.shoppingService.getShoppingItemById(id);
     if (!item) throw new NotFoundException("Product not found");
     return item;
   }
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(@Body() rawBody: Record<string, unknown>) {
+  createShoppingItem(@Body() rawBody: Record<string, unknown>) {
     const input = createShoppingItemSchema.parse(rawBody);
-    return this.shoppingService.create(input);
+    return this.shoppingService.createShoppingItem(input);
   }
 
   @Patch(":id")
-  update(@Param() params: Record<string, string>, @Body() rawBody: Record<string, unknown>) {
+  updateShoppingItem(@Param() params: Record<string, string>, @Body() rawBody: Record<string, unknown>) {
     const { id } = shoppingParamsSchema.parse(params);
     const body = updateShoppingItemSchema.merge(shoppingUpdateBodySchema).parse(rawBody);
     const { version, ...patch } = body;
-    return this.shoppingService.update(id, patch, version);
+    return this.shoppingService.updateShoppingItem(id, patch, version);
   }
 
   @Patch(":id/increment")
-  increment(@Param() params: Record<string, string>, @Body() rawBody: Record<string, unknown>) {
+  incrementShoppingItemField(@Param() params: Record<string, string>, @Body() rawBody: Record<string, unknown>) {
     const { id } = shoppingParamsSchema.parse(params);
     const body = shoppingIncrementBodySchema.parse(rawBody);
-    return this.shoppingService.increment(id, body.field, body.incrementBy);
+    return this.shoppingService.incrementShoppingItemField(id, body.field, body.incrementBy);
   }
 
   @Delete(":id")
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@Param() params: Record<string, string>) {
+  async deleteShoppingItem(@Param() params: Record<string, string>) {
     const { id } = shoppingParamsSchema.parse(params);
-    await this.shoppingService.remove(id);
+    await this.shoppingService.deleteShoppingItem(id);
   }
 }

@@ -1,7 +1,7 @@
-import { deleteShoppingItem, getShoppingItemAll } from "../modules/shopping/shopping.repository.js";
+import { deleteShoppingItem, listAllShoppingItems } from "../modules/shopping/shopping.repository.js";
 
 console.log("Loading existing products...");
-const { items } = await getShoppingItemAll(100, 20);
+const { items } = await listAllShoppingItems(100, 20);
 
 for (const item of items) {
   await deleteShoppingItem(item.id);

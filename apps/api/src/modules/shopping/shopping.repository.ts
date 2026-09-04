@@ -590,7 +590,7 @@ export async function incrementItemValue(id: string, field: string, incrementBy 
 export async function listShoppingItems(limit = 12, cursor?: string, filters: ShoppingFilters = {}) {
   if (filters.sortBy) {
     const targetCursor = cursor ? decodeCursor(cursor) : { offset: 0 };
-    const sorted = sortItems((await getShoppingItemAllBase(100, 100, {
+    const sorted = sortItems((await listAllShoppingItemsBase(100, 100, {
       ...filters,
       sortBy: undefined,
       sortDirection: undefined
@@ -616,11 +616,12 @@ export async function listShoppingItems(limit = 12, cursor?: string, filters: Sh
   return baseResult;
 }
 
-export async function getCursorForPage(page = 1, limit = 12, filters: ShoppingFilters = {}) {
+/** Calculates the cursor state needed to open a requested page of shopping items. */
+export async function getShoppingItemsPageCursor(page = 1, limit = 12, filters: ShoppingFilters = {}) {
   if (filters.sortBy) {
     const targetPage = Math.max(1, Number(page) || 1);
     const pageSize = Math.max(1, Number(limit) || 12);
-    const sorted = sortItems((await getShoppingItemAllBase(100, 100, {
+    const sorted = sortItems((await listAllShoppingItemsBase(100, 100, {
       ...filters,
       sortBy: undefined,
       sortDirection: undefined
@@ -672,9 +673,10 @@ export async function getCursorForPage(page = 1, limit = 12, filters: ShoppingFi
 
 export { getMockShoppingItem, listMockShoppingItems };
 
-export async function getShoppingItemAll(pageLimit = 50, maxPages = 20, filters: ShoppingFilters = {}) {
+/** Lists shopping items across multiple DynamoDB pages, up to the configured safety limit. */
+export async function listAllShoppingItems(pageLimit = 50, maxPages = 20, filters: ShoppingFilters = {}) {
   if (filters.sortBy) {
-    const unsorted = await getShoppingItemAllBase(pageLimit, maxPages, {
+    const unsorted = await listAllShoppingItemsBase(pageLimit, maxPages, {
       ...filters,
       sortBy: undefined,
       sortDirection: undefined
@@ -687,7 +689,7 @@ export async function getShoppingItemAll(pageLimit = 50, maxPages = 20, filters:
     };
   }
 
-  const base = await getShoppingItemAllBase(pageLimit, maxPages, filters);
+  const base = await listAllShoppingItemsBase(pageLimit, maxPages, filters);
   return { ...base, items: sortItems(base.items, {}) };
 }
 
@@ -770,7 +772,7 @@ export async function markInventoryReportProductsAlerted(products: InventoryRepo
   return markedCount;
 }
 
-async function getShoppingItemAllBase(pageLimit = 50, maxPages = 20, filters: ShoppingFilters = {}) {
+async function listAllShoppingItemsBase(pageLimit = 50, maxPages = 20, filters: ShoppingFilters = {}) {
   const allItems: ProductRecord[] = [];
   let cursor: string | undefined;
   let page = 0;

@@ -3,7 +3,7 @@ import { PutItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../config/env.js";
 import { rawDb } from "../database/dynamodb/client.js";
-import { createShoppingItem, getShoppingItemAll } from "../modules/shopping/shopping.repository.js";
+import { createShoppingItem, listAllShoppingItems } from "../modules/shopping/shopping.repository.js";
 
 const categories = ["Thoi trang", "Dien tu", "Gia dung", "Me va be", "Lam dep", "Bach hoa"] as const;
 const brands = ["FlexWear", "SoundMax", "HomePro", "BabyNest", "PureSkin", "Daily Mart"] as const;
@@ -260,7 +260,7 @@ async function seedOrders(customers: number, ordersPerCustomer: number, products
 }
 
 const options = buildOptions();
-const existing = await getShoppingItemAll(1, 1);
+const existing = await listAllShoppingItems(1, 1);
 
 if (!options.force && (existing.items ?? []).length > 0) {
   console.log("Products already exist. Skip seeding. Re-run with --force after resetting data if you want more.");

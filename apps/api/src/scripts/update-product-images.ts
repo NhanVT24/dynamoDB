@@ -1,4 +1,4 @@
-import { getShoppingItemAll, updateShoppingItem } from "../modules/shopping/shopping.repository.js";
+import { listAllShoppingItems, updateShoppingItem } from "../modules/shopping/shopping.repository.js";
 
 const DEFAULT_IMAGE_URL = "https://placehold.co/1200x1200/png?text=Store+Item";
 const categoryImageUrls: Record<string, string> = {
@@ -38,7 +38,7 @@ if (!options.imageUrl) {
   throw new Error("Missing image URL. Pass --image-url=https://...");
 }
 
-const { items, stoppedByMaxPages } = await getShoppingItemAll(options.pageLimit, options.maxPages);
+const { items, stoppedByMaxPages } = await listAllShoppingItems(options.pageLimit, options.maxPages);
 
 console.log("[product-images] loaded", {
   count: items.length,
