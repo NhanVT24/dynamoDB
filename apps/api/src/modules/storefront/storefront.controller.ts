@@ -30,7 +30,7 @@ export class StorefrontController {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
     this.logger.log(`[storefront-controller] create_order_principal_resolved url=${request.url} hasPrincipal=${Boolean(principal)} role=${principal?.role ?? "none"}`);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
-      throw new ForbiddenException("Chỉ tài khoản customer hoặc admin mới được tạo đơn hàng.");
+      throw new ForbiddenException("Only customer or admin can create orders.");
     }
 
     const input = createStorefrontOrderSchema.parse(rawBody);
@@ -43,7 +43,7 @@ export class StorefrontController {
   prepareCheckout(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
-      throw new ForbiddenException("Chỉ tài khoản customer hoặc admin mới được bắt đầu checkout.");
+      throw new ForbiddenException("Only customer or admin can prepare checkout.");
     }
 
     const input = prepareStorefrontCheckoutSchema.parse(rawBody);
@@ -54,7 +54,7 @@ export class StorefrontController {
   async getCheckoutStatus(@Req() request: FastifyRequest, @Param("requestId") requestId: string) {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
-      throw new ForbiddenException("Bạn cần đăng nhập để xem trạng thái checkout.");
+      throw new ForbiddenException("Only customer or admin can view checkout status.");
     }
 
     const status = await this.storefrontService.getCheckoutGateStatus(principal.email, requestId);
@@ -67,7 +67,7 @@ export class StorefrontController {
   createCheckoutPaymentSession(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
-      throw new ForbiddenException("only customer or admin can create checkout payment session.");
+      throw new ForbiddenException("Only customer or admin can create checkout payment session.");
     }
 
     const input = createCheckoutPaymentSessionSchema.parse(rawBody);
@@ -79,7 +79,7 @@ export class StorefrontController {
   cancelCheckout(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
-      throw new ForbiddenException("Chỉ tài khoản customer hoặc admin mới được hủy lượt checkout.");
+      throw new ForbiddenException("Only customer or admin can cancel checkout.");
     }
 
     const input = cancelStorefrontCheckoutSchema.parse(rawBody);
@@ -90,7 +90,7 @@ export class StorefrontController {
   listMyOrders(@Req() request: FastifyRequest) {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal) {
-      throw new ForbiddenException("Bạn cần đăng nhập để xem đơn hàng.");
+      throw new ForbiddenException("Only logged-in users can view their orders.");
     }
 
     return this.storefrontService.listMyOrders(principal.email);

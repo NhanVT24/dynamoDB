@@ -344,7 +344,7 @@ function CheckoutResultPageContent() {
   const isExpired = result?.transactionStatus === "expired";
   const canStartNewCheckout = Boolean(result) && !isSuccess;
   const resultHeading = isSuccess
-    ? "Thanh toán thành công"
+    ? "payment has been confirmed"
     : isExpired
       ? "Phiên thanh toán đã hết hạn"
       : result
