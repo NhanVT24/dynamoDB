@@ -113,7 +113,13 @@ export type CheckoutGateRequestRecord = {
   paymentUrl?: string;
   locale?: "vn" | "en";
   bankCode?: string;
+  // Original inventory-hold deadline. This is kept after a terminal state for
+  // auditability; it must not be reinterpreted as the time the checkout ended.
   lockedUntil?: string;
+  // Time a terminal outcome was recorded.
+  finalizedAt?: string;
+  // Time payment was confirmed and the order transaction committed.
+  completedAt?: string;
   processingMode?: "interactive" | "trigger";
   orderId?: string;
 };
@@ -569,13 +575,25 @@ export async function updateCheckoutGateRequestStatus(input: {
     "message = :message",
     "updatedAt = :updatedAt",
     "failureCode = :failureCode",
-    "paymentUrl = :paymentUrl",
-    "lockedUntil = :lockedUntil"
+    "paymentUrl = :paymentUrl"
   ];
 
   values[":failureCode"] = input.failureCode ?? "";
   values[":paymentUrl"] = input.paymentUrl ?? "";
-  values[":lockedUntil"] = input.lockedUntil ?? "";
+
+  // Only a successful inventory hold or the pending-cancel recovery path
+  // supplies a new deadline. Other transitions preserve the original one.
+  if (input.lockedUntil !== undefined) {
+    segments.push("lockedUntil = :lockedUntil");
+    values[":lockedUntil"] = input.lockedUntil;
+  }
+
+  // `allowed` is the only non-terminal target used here. Keep the original
+  // hold expiry intact and record an explicit terminal timestamp otherwise.
+  if (input.status !== "allowed") {
+    segments.push("finalizedAt = :finalizedAt");
+    values[":finalizedAt"] = now;
+  }
 
   let conditionExpression = "attribute_exists(PK)";
   if (input.expectedStatus) {
@@ -983,7 +1001,7 @@ export async function commitCheckoutReservationsToOrder(input: {
           TableName,
           Key: toDynamoItem(buildCheckoutGateKey(input.requestId)),
           ConditionExpression: "attribute_exists(PK) AND #status = :allowedStatus AND lockedUntil > :now",
-          UpdateExpression: "SET #status = :completedStatus, orderId = :orderId, message = :message, updatedAt = :updatedAt",
+          UpdateExpression: "SET #status = :completedStatus, orderId = :orderId, message = :message, updatedAt = :updatedAt, completedAt = :completedAt, finalizedAt = :finalizedAt",
           ExpressionAttributeNames: {
             "#status": "status"
           },
@@ -993,6 +1011,8 @@ export async function commitCheckoutReservationsToOrder(input: {
             ":orderId": orderId,
             ":message": "Payment confirmed and order committed.",
             ":updatedAt": now,
+            ":completedAt": now,
+            ":finalizedAt": now,
             ":now": now
           })
         }

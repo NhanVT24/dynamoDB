@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-  [string]$AwsProfile = "nhandev"
+  [string]$AwsProfile = "nhandev",
+  [switch]$Clean
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,25 +25,36 @@ if ($LASTEXITCODE -ne 0) {
   }
 }
 
-$cleanTargets = @(
-  (Join-Path $workspaceRoot "cdk.out"),
-  (Join-Path $workspaceRoot "apps\api\dist")
-)
+if ($Clean) {
+  # A clean build is useful when a package is suspected to be corrupt, but it
+  # deliberately invalidates the Lambda zip cache and can make deployment much
+  # slower. Normal deployments should reuse the content-addressed package.
+  $cleanTargets = @(
+    (Join-Path $workspaceRoot "cdk.out"),
+    (Join-Path $workspaceRoot "apps\api\dist")
+  )
 
-foreach ($target in $cleanTargets) {
-  $absoluteTarget = [System.IO.Path]::GetFullPath($target)
-  if (-not $absoluteTarget.StartsWith("$workspaceRoot$([System.IO.Path]::DirectorySeparatorChar)", [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "Refusing to remove a path outside the workspace: $absoluteTarget"
-  }
+  foreach ($target in $cleanTargets) {
+    $absoluteTarget = [System.IO.Path]::GetFullPath($target)
+    if (-not $absoluteTarget.StartsWith("$workspaceRoot$([System.IO.Path]::DirectorySeparatorChar)", [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw "Refusing to remove a path outside the workspace: $absoluteTarget"
+    }
 
-  if (Test-Path -LiteralPath $absoluteTarget) {
-    Write-Host "Removing build artifact: $absoluteTarget"
-    Remove-Item -LiteralPath $absoluteTarget -Recurse -Force
+    if (Test-Path -LiteralPath $absoluteTarget) {
+      Write-Host "Removing build artifact: $absoluteTarget"
+      Remove-Item -LiteralPath $absoluteTarget -Recurse -Force
+    }
   }
+} else {
+  Write-Host "Reusing CDK and Lambda build artifacts. Use -Clean only for a forced rebuild."
 }
 
 # cdk:aws:deploy already packages the Lambda once before deploying.
+$deployStartedAt = Get-Date
 & npm run cdk:aws:deploy
 if ($LASTEXITCODE -ne 0) {
   throw "AWS CDK deployment failed."
 }
+
+$elapsed = (Get-Date) - $deployStartedAt
+Write-Host ("Deployment completed in {0:mm\\:ss}." -f $elapsed)

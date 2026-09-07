@@ -11,6 +11,7 @@ import {
 } from "@aws-sdk/client-cognito-identity-provider";
 
 export type AuthSession = {
+  subject?: string;
   accessToken: string;
   idToken: string;
   refreshToken?: string;
@@ -21,6 +22,7 @@ export type AuthSession = {
 };
 
 type JwtPayload = {
+  sub?: string;
   email?: string;
   name?: string;
   display_name?: string;
@@ -212,6 +214,17 @@ export function readAuthSession() {
       return null;
     }
 
+    // Sessions created before user-scoped cart storage did not persist `sub`.
+    // Repair them from the signed ID token so their cart namespace stays
+    // stable across a token refresh.
+    if (!session.subject) {
+      const subject = String(decodeJwtPayload<JwtPayload>(session.idToken).sub ?? "").trim();
+      if (subject) {
+        session.subject = subject;
+        window.localStorage.setItem(sessionStorageKey, JSON.stringify(session));
+      }
+    }
+
     return session;
   } catch {
     window.localStorage.removeItem(sessionStorageKey);
@@ -335,6 +348,7 @@ function buildSession(authenticationResult: {
   const idPayload = decodeJwtPayload<JwtPayload>(authenticationResult.IdToken);
 
   const session: AuthSession = {
+    subject: String(idPayload.sub ?? "").trim() || undefined,
     accessToken: authenticationResult.AccessToken,
     idToken: authenticationResult.IdToken,
     refreshToken: authenticationResult.RefreshToken,

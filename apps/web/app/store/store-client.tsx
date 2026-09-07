@@ -62,7 +62,8 @@ type PaginationToken = number | "ellipsis";
 
 const StoreContext = createContext<StoreContextValue | null>(null);
 const themeStorageKey = "web-storefront-theme";
-const cartStorageKey = "web-storefront-cart";
+const legacyCartStorageKey = "web-storefront-cart";
+const guestCartStorageKey = "web-storefront-cart:guest";
 const localNotificationsStorageKey = "web-storefront-local-notifications";
 const notificationsUpdatedEvent = "storefront-notifications-updated";
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
@@ -107,7 +108,9 @@ function clearStorefrontSessionArtifacts() {
     return;
   }
 
-  const removableKeys = [cartStorageKey, localNotificationsStorageKey, pendingCheckoutStorageKey];
+  // Keep account carts. A later account on this browser must never inherit
+  // the previous account's private cart contents.
+  const removableKeys = [legacyCartStorageKey, localNotificationsStorageKey, pendingCheckoutStorageKey];
   for (const key of removableKeys) {
     window.localStorage.removeItem(key);
   }
@@ -129,6 +132,38 @@ function clearStorefrontSessionArtifacts() {
   }
 
   window.dispatchEvent(new Event(notificationsUpdatedEvent));
+}
+
+type CartStorage = {
+  key: string;
+  storage: Storage;
+};
+
+function resolveCartStorage(session: AuthSession | null): CartStorage {
+  if (!session) {
+    // Guests do not have a stable identity. sessionStorage avoids showing a
+    // guest cart to the next person after the shared browser is closed.
+    return { key: guestCartStorageKey, storage: window.sessionStorage };
+  }
+
+  const owner = String(session.subject || session.email).trim().toLowerCase();
+  return {
+    key: `web-storefront-cart:user:${encodeURIComponent(owner)}`,
+    storage: window.localStorage
+  };
+}
+
+function readCart(storage: CartStorage): CartItem[] {
+  const raw = storage.storage.getItem(storage.key);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed as CartItem[] : [];
+  } catch {
+    storage.storage.removeItem(storage.key);
+    return [];
+  }
 }
 
 function mergeNotifications(localItems: StoreNotification[], serverItems: StoreNotification[]) {
@@ -219,6 +254,33 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [hasHydratedCart, setHasHydratedCart] = useState(false);
+  const [cartStorage, setCartStorage] = useState<CartStorage | null>(null);
+  const itemsRef = useRef<CartItem[]>([]);
+  const cartStorageRef = useRef<CartStorage | null>(null);
+  const hasHydratedCartRef = useRef(false);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  function switchCartOwner(session: AuthSession | null) {
+    const nextStorage = resolveCartStorage(session);
+    const currentStorage = cartStorageRef.current;
+
+    if (currentStorage?.key === nextStorage.key && currentStorage.storage === nextStorage.storage) {
+      return;
+    }
+
+    if (currentStorage && hasHydratedCartRef.current) {
+      currentStorage.storage.setItem(currentStorage.key, JSON.stringify(itemsRef.current));
+    }
+
+    cartStorageRef.current = nextStorage;
+    setCartStorage(nextStorage);
+    setItems(readCart(nextStorage));
+    hasHydratedCartRef.current = true;
+    setHasHydratedCart(true);
+  }
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem(themeStorageKey);
@@ -228,19 +290,14 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
       setTheme(window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     }
 
-    const rawCart = window.localStorage.getItem(cartStorageKey);
-    if (rawCart) {
-      try {
-        const parsed = JSON.parse(rawCart) as CartItem[];
-        setItems(parsed);
-      } catch {
-        window.localStorage.removeItem(cartStorageKey);
-      } finally {
-        setHasHydratedCart(true);
-      }
-    } else {
-      setHasHydratedCart(true);
-    }
+    // A global legacy cart has no provable owner, so do not migrate it into
+    // any account cart. Keeping it would leak one shopper's choices.
+    window.localStorage.removeItem(legacyCartStorageKey);
+    switchCartOwner(readAuthSession());
+
+    const syncCartOwner = () => switchCartOwner(readAuthSession());
+    window.addEventListener(authSessionChangedEvent, syncCartOwner);
+    return () => window.removeEventListener(authSessionChangedEvent, syncCartOwner);
   }, []);
 
   useEffect(() => {
@@ -249,11 +306,11 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
-    if (!hasHydratedCart) {
+    if (!hasHydratedCart || !cartStorage) {
       return;
     }
-    window.localStorage.setItem(cartStorageKey, JSON.stringify(items));
-  }, [hasHydratedCart, items]);
+    cartStorage.storage.setItem(cartStorage.key, JSON.stringify(items));
+  }, [cartStorage, hasHydratedCart, items]);
 
   function addCatalogItem(product: StoreProduct, quantity: number) {
     if (product.status === "out_of_stock" || product.isLocked) {

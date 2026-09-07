@@ -11,7 +11,6 @@ import { useStorefront } from "../../store-client";
 const localNotificationsStorageKey = "web-storefront-local-notifications";
 const notificationsUpdatedEvent = "storefront-notifications-updated";
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
-const cartStorageKey = "web-storefront-cart";
 const processedPaymentPrefix = "web-storefront-payment-processed-";
 const pendingOrderRequestPrefix = "web-storefront-order-request-";
 const queuePollIntervalMs = 5000;
@@ -43,7 +42,7 @@ type NotificationApiItem = {
 
 type CheckoutGateStatusResponse = {
   requestId?: string;
-  status?: "pending" | "allowed" | "blocked" | "completed";
+  status?: "pending" | "allowed" | "blocked" | "cancelled" | "expired" | "payment_failed" | "completed";
   message?: string;
   failureCode?: string;
   paymentUrl?: string;
@@ -134,12 +133,11 @@ function CheckoutResultPageContent() {
   }, [result?.txnRef]);
 
   useEffect(() => {
-    if (!result || hasBroadcastSuccess) {
+    if (!result || hasBroadcastSuccess || queueState !== "done") {
       return;
     }
 
-    const isSuccess = result.transactionStatus === "success" && result.isValidSignature;
-    if (!isSuccess) {
+    if (!(result.transactionStatus === "success" && result.isValidSignature)) {
       return;
     }
 
@@ -169,7 +167,7 @@ function CheckoutResultPageContent() {
 
       setHasBroadcastSuccess(true);
     } catch {}
-  }, [hasBroadcastSuccess, result]);
+  }, [hasBroadcastSuccess, queueState, result]);
 
   useEffect(() => {
     function finalizeSuccessfulCheckout() {
@@ -177,8 +175,7 @@ function CheckoutResultPageContent() {
         return;
       }
 
-      const isSuccess = result.transactionStatus === "success" && result.isValidSignature;
-      if (!isSuccess) {
+      if (queueState !== "done" || !(result.transactionStatus === "success" && result.isValidSignature)) {
         return;
       }
 
@@ -189,7 +186,6 @@ function CheckoutResultPageContent() {
 
       const rawPendingCheckout = window.localStorage.getItem(pendingCheckoutStorageKey);
       if (!rawPendingCheckout) {
-        window.localStorage.removeItem(cartStorageKey);
         clearCart();
         return;
       }
@@ -211,13 +207,12 @@ function CheckoutResultPageContent() {
         setQueueMessage("Payment has been confirmed. The system is synchronizing your order from the reserved checkout request.");
       }
 
-      window.localStorage.removeItem(cartStorageKey);
       window.localStorage.removeItem(pendingCheckoutStorageKey);
       clearCart();
     }
 
     finalizeSuccessfulCheckout();
-  }, [clearCart, result]);
+  }, [clearCart, queueState, result]);
 
   useEffect(() => {
     if (!result || (result.transactionStatus === "success" && result.isValidSignature)) {
@@ -283,7 +278,7 @@ function CheckoutResultPageContent() {
           return;
         }
 
-        if (gatePayload.status === "blocked") {
+        if (gatePayload.status === "blocked" || gatePayload.status === "cancelled" || gatePayload.status === "expired" || gatePayload.status === "payment_failed") {
           setQueueState("failed");
           setQueueMessage(gatePayload.message || "The order could not be synchronized after payment.");
           window.sessionStorage.removeItem(getPendingOrderRequestKey(result.txnRef));
@@ -340,29 +335,35 @@ function CheckoutResultPageContent() {
     };
   }, [queueState, requestId, result?.txnRef]);
 
-  const isSuccess = result?.transactionStatus === "success" && result.isValidSignature;
+  const hasValidGatewaySuccess = result?.transactionStatus === "success" && result.isValidSignature;
+  const isSuccess = queueState === "done";
   const isExpired = result?.transactionStatus === "expired";
-  const canStartNewCheckout = Boolean(result) && !isSuccess;
+  const isAwaitingWebhook = Boolean(hasValidGatewaySuccess && !isSuccess && queueState !== "failed");
+  const canStartNewCheckout = Boolean(result) && !isSuccess && !isAwaitingWebhook;
   const resultHeading = isSuccess
     ? "payment has been confirmed"
+    : isAwaitingWebhook
+      ? "payment received, awaiting confirmation"
     : isExpired
-      ? "Phiên thanh toán đã hết hạn"
+      ? "payment has expired"
       : result
-        ? "Giao dịch chưa hoàn tất"
-        : "Đang xác minh giao dịch";
+        ? "payment was not completed"
+        : "waiting for payment result from VNPay";
   const resultDescription = isSuccess
-    ? "Hệ thống đang đồng bộ đơn hàng từ checkout đã được giữ hàng."
+    ? "Your order has been successfully recorded. You can check your order history for details."
+    : isAwaitingWebhook
+      ? "VNPay has returned the customer to this page. The system is waiting for the VNPay server webhook before creating the order."
     : isExpired
-      ? "Stock hold của giao dịch cũ đã được giải phóng. Bạn có thể tạo một giao dịch mới từ giỏ hàng hiện tại."
+      ? "The payment session has expired. You can check your cart and start a new checkout process."
       : result
-        ? "Không có đơn hàng nào được tạo từ giao dịch này. Bạn có thể kiểm tra lại giỏ hàng và bắt đầu một giao dịch mới."
-        : error || "Đang nhận kết quả thanh toán từ VNPay.";
+        ? "The payment was not completed. You can check your cart and start a new checkout process."
+        : error || "We are waiting for the payment result from VNPay. Please do not close this page until the result is received.";
   const shouldShowQueueNotification =
     Boolean(matchedNotification) &&
     (queueState !== "done" || matchedNotification?.message !== queueMessage);
 
   const queuePanel = useMemo<QueuePanel | null>(() => {
-    if (!isSuccess || !requestId) {
+    if (!hasValidGatewaySuccess || !requestId) {
       return null;
     }
 
@@ -399,7 +400,7 @@ function CheckoutResultPageContent() {
       title: "The system is preparing your order request",
       message: queueMessage || "Your request has been received. The system is preparing to check the queue status."
     };
-  }, [isDark, isSuccess, queueMessage, queueState, requestId]);
+  }, [hasValidGatewaySuccess, isDark, queueMessage, queueState, requestId]);
 
   return (
     <main className="px-4 py-12 sm:px-6 lg:px-8">
