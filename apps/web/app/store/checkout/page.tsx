@@ -10,10 +10,12 @@ import { formatCurrency } from "../store-utils";
 const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
 const resumeCheckoutAfterLoginStorageKey = "web-storefront-resume-checkout-after-login";
-const checkoutGatePollIntervalMs = 1000;
+// Exponential backoff: retry after 1, 2, 4, 8, 16, 32, then 64 seconds.
+// This prevents a pending checkout from continually hitting the gate API.
+const checkoutGatePollDelaysMs = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000] as const;
 // SQS/EventBridge Pipes can take up to a long-poll cycle before invoking the
-// worker, so a 15-second UI timeout can expire while a valid request is queued.
-const checkoutGateMaxPollAttempts = 40;
+// worker, so allow one immediate check plus every exponential-backoff retry.
+const checkoutGateMaxPollAttempts = checkoutGatePollDelaysMs.length + 1;
 const failedRedirectDelaySeconds = 15;
 
 type PrepareCheckoutResponse = {
@@ -270,6 +272,8 @@ export default function CheckoutPage() {
 
     let cancelled = false;
     let attempts = 0;
+    let timeoutId: number | undefined;
+    let shouldContinuePolling = true;
 
     async function pollGateStatus() {
       if (isPollingGateRef.current || cancelled) {
@@ -314,12 +318,14 @@ export default function CheckoutPage() {
         }
 
         if (payload.status === "allowed") {
+          shouldContinuePolling = false;
           setGateStatus("allowed");
           await createPaymentSessionAndRedirect(gateRequestId);
           return;
         }
 
         if (payload.status === "blocked" || payload.status === "cancelled" || payload.status === "expired" || payload.status === "payment_failed") {
+          shouldContinuePolling = false;
           setGateStatus("blocked");
           setError(payload.message || "We could not reserve all items in your cart for payment. Please review your cart and try again.");
           startFailureRedirect();
@@ -327,6 +333,7 @@ export default function CheckoutPage() {
         }
 
         if (attempts >= checkoutGateMaxPollAttempts) {
+          shouldContinuePolling = false;
           console.error("[checkout] gate_timeout", { requestId: gateRequestId, attempts });
           void cancelTimedOutCheckout(gateRequestId);
           setGateStatus("blocked");
@@ -335,6 +342,7 @@ export default function CheckoutPage() {
         }
       } catch (pollError) {
         if (!cancelled) {
+          shouldContinuePolling = false;
           console.error("[checkout] gate_poll_failed", { requestId: gateRequestId, pollError });
           void cancelTimedOutCheckout(gateRequestId);
           setError(pollError instanceof Error ? pollError.message : "We could not check the checkout queue right now.");
@@ -343,17 +351,23 @@ export default function CheckoutPage() {
         }
       } finally {
         isPollingGateRef.current = false;
+
+        if (!cancelled && shouldContinuePolling && attempts < checkoutGateMaxPollAttempts) {
+          const nextDelayMs = checkoutGatePollDelaysMs[attempts - 1];
+          timeoutId = window.setTimeout(() => {
+            void pollGateStatus();
+          }, nextDelayMs);
+        }
       }
     }
 
     void pollGateStatus();
-    const intervalId = window.setInterval(() => {
-      void pollGateStatus();
-    }, checkoutGatePollIntervalMs);
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
     };
   }, [gateRequestId, gateStatus, items, session]);
 
