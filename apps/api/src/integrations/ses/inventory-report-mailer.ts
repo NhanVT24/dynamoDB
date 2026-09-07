@@ -8,6 +8,9 @@ type InventoryDigestInput = {
   reportDate: string;
   lowStockProducts: InventoryReportProduct[];
   outOfStockProducts: InventoryReportProduct[];
+  // Used only by the SES simulator CLI. Scheduled production reports continue
+  // to use ADMIN_REPORT_EMAIL.
+  recipientEmail?: string;
 };
 
 function escapeHtml(value: string) {
@@ -56,13 +59,14 @@ function buildInventoryDigestHtml(input: InventoryDigestInput) {
 }
 
 export async function sendInventoryDigestEmail(input: InventoryDigestInput) {
-  if (!env.SES_FROM_EMAIL || !env.ADMIN_REPORT_EMAIL) {
-    throw new Error("Missing SES_FROM_EMAIL or ADMIN_REPORT_EMAIL configuration.");
+  const recipientEmail = input.recipientEmail?.trim() || env.ADMIN_REPORT_EMAIL;
+  if (!env.SES_FROM_EMAIL || !recipientEmail) {
+    throw new Error("Missing SES_FROM_EMAIL or inventory report recipient configuration.");
   }
 
   const result = await sesClient.send(new SendEmailCommand({
     FromEmailAddress: env.SES_FROM_EMAIL,
-    Destination: { ToAddresses: [env.ADMIN_REPORT_EMAIL] },
+    Destination: { ToAddresses: [recipientEmail] },
     ConfigurationSetName: env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME,
     // SES copies these tags to SNS feedback events so the receiving Lambda can find this report.
     EmailTags: [

@@ -19,7 +19,8 @@
     "db:update-product-images": "tsx src/scripts/update-product-images.ts",
     "db:localize": "tsx src/scripts/localize-products.ts",
     "mail:test:status": "tsx src/scripts/test-payment-status-emails.ts",
-    "mail:test:weekly-report": "tsx src/scripts/send-weekly-admin-report-preview.ts"
+    "mail:test:weekly-report": "tsx src/scripts/send-weekly-admin-report-preview.ts",
+    "mail:test:ses-simulator": "tsx src/scripts/test-ses-inventory-simulator.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "3.1095.0",

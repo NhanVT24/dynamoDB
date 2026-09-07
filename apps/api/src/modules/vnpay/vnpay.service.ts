@@ -127,7 +127,7 @@ export class VnpayService {
     const expiresAt = configuredExpiry ?? new Date(createdAt.getTime() + PAYMENT_TIMEOUT_MS);
     const createDate = formatVnpDate(createdAt);
     const expireDate = formatVnpDate(expiresAt);
-    const orderInfo = input.orderDescription?.trim() || `Thanh toán đơn hàng ${txnRef}`;
+    const orderInfo = input.orderDescription?.trim() || `Payment for ${txnRef}`;
     const resolvedIpAddress = ipAddress || "127.0.0.1";
     const params: Record<string, string> = {
       vnp_Version: "2.1.0",
@@ -191,7 +191,7 @@ export class VnpayService {
     };
   }
 
-  async verifyReturn(rawQuery: Record<string, unknown>): Promise<VnpayReturnPayload> {
+  private parseAndVerifyCallback(rawQuery: Record<string, unknown>): VnpayReturnPayload {
     const paymentConfig = this.runtimeConfigService.getPaymentConfig();
     const query = Object.fromEntries(
       Object.entries(rawQuery).map(([key, value]) => [key, String(value ?? "")])
@@ -214,7 +214,7 @@ export class VnpayService {
       txnRef: query.vnp_TxnRef || "",
       amount: Number(query.vnp_Amount || 0) / 100,
       orderInfo: query.vnp_OrderInfo || "",
-      responseCode,
+      responseCode,   
       transactionNo: query.vnp_TransactionNo || "",
       bankCode: query.vnp_BankCode || "",
       payDate: query.vnp_PayDate || ""
@@ -222,7 +222,15 @@ export class VnpayService {
 
     this.logger.log(`[payment-vnpay] return_checked txnRef=${query.vnp_TxnRef || ""} valid=${isValidSignature} responseCode=${responseCode}`);
 
-    try {
+    // Return URL is browser-controlled UX only. The VNPay server-to-server
+    // IPN webhook is the sole source of truth for state changes.
+    return result;
+
+    /*
+     * Historical return-URL finalization logic intentionally disabled. A
+     * browser redirect is not an authoritative payment callback; IPN below is.
+     */
+    /* try {
       const handled = await this.handlePaymentEvent(result, "return");
       return handled ? { ...result, ...handled } : result;
     } catch (error) {
@@ -246,22 +254,51 @@ export class VnpayService {
       }
 
       throw error;
-    }
+    } */
+  }
+
+  async verifyReturn(rawQuery: Record<string, unknown>): Promise<VnpayReturnPayload> {
+    const result = this.parseAndVerifyCallback(rawQuery);
+    this.logger.log(`[payment-vnpay] return_received txnRef=${result.txnRef} valid=${result.isValidSignature} responseCode=${result.responseCode}`);
+
+    const handled = await this.handlePaymentEvent(result, "return");
+    return handled ? { ...result, ...handled } : result;
   }
 
   async verifyIpn(rawQuery: Record<string, unknown>) {
-    const result = await this.verifyReturn(rawQuery);
+    const result = this.parseAndVerifyCallback(rawQuery);
     this.logger.log(`[payment-vnpay] ipn_checked txnRef=${result.txnRef} valid=${result.isValidSignature} status=${result.transactionStatus}`);
 
     if (!result.isValidSignature) {
       return { RspCode: "97", Message: "Invalid Checksum" };
     }
 
-    if (result.transactionStatus === "expired") {
-      return { RspCode: "00", Message: "Order Expired" };
+    const session = result.txnRef ? await getPaymentSessionByTxnRef(result.txnRef) : null;
+    if (!session) {
+      return { RspCode: "01", Message: "Order not found" };
     }
 
-    return { RspCode: "00", Message: "Confirm Success" };
+    if (Math.round(session.amount * 100) !== Math.round(result.amount * 100)) {
+      this.logger.warn(`[payment-vnpay] ipn_amount_mismatch txnRef=${result.txnRef} expected=${session.amount} received=${result.amount}`);
+      return { RspCode: "04", Message: "Invalid amount" };
+    }
+
+    if (session.status !== "pending") {
+      // VNPay retries IPN until it gets a terminal acknowledgement.
+      return { RspCode: "02", Message: "Order already confirmed" };
+    }
+
+    try {
+      await this.handlePaymentEvent(result, "ipn");
+      return { RspCode: "00", Message: "Confirm Success" };
+    } catch (error) {
+      this.logger.error(
+        `[payment-vnpay] ipn_processing_failed txnRef=${result.txnRef} error=${error instanceof Error ? error.message : "unknown"}`,
+        error instanceof Error ? error.stack : undefined
+      );
+      // 99 lets VNPay retry; 00/02 would stop its retry mechanism.
+      return { RspCode: "99", Message: "Internal error" };
+    }
   }
 
   async createFailureTestNotification(email: string, input: CreateVnpayFailureTestInput) {
@@ -333,7 +370,28 @@ export class VnpayService {
       };
     }
 
+    const resolvedOrderInfo = session.orderInfo || result.orderInfo;
+    const requestId = extractCheckoutGateRequestId(resolvedOrderInfo);
+
     if (session.status !== "pending") {
+      // A previous callback may have finalized the payment session just before
+      // EventBridge became unavailable. A later signed callback can safely
+      // resume dispatch because the event was never marked as enqueued.
+      if (session.status === "success" && !session.paymentEventEnqueuedAt && session.email) {
+        await this.publishAndMarkPaymentCompletedEvent({
+          email: session.email,
+          txnRef: result.txnRef,
+          amount: session.amount,
+          orderInfo: resolvedOrderInfo,
+          requestId,
+          responseCode: session.responseCode || result.responseCode,
+          transactionNo: session.transactionNo || result.transactionNo,
+          bankCode: session.bankCode || result.bankCode,
+          payDate: session.payDate || result.payDate
+        }, source);
+        return null;
+      }
+
       this.logger.log(`[dynamo-payment] session_finalized txnRef=${result.txnRef} source=${source} status=${session.status} email=${session.email ?? ""}`);
       this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=already_finalized_${session.status} source=${source}`);
       return {
@@ -366,9 +424,6 @@ export class VnpayService {
       this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=missing_payment_session_email source=${source}`);
       return null;
     }
-
-    const resolvedOrderInfo = session.orderInfo || result.orderInfo;
-    const requestId = extractCheckoutGateRequestId(resolvedOrderInfo);
 
     if (requestId) {
       const gate = await getCheckoutGateRequestById(requestId);
@@ -403,26 +458,17 @@ export class VnpayService {
       throw error;
     }
 
-      await this.publishPaymentCompletedEventSafely({
-        email: session.email,
-        txnRef: result.txnRef,
-        amount: result.amount || session.amount,
-        orderInfo: resolvedOrderInfo,
-        requestId,
-        responseCode: result.responseCode,
-        transactionNo: result.transactionNo,
-        bankCode: result.bankCode,
+    await this.publishAndMarkPaymentCompletedEvent({
+      email: session.email,
+      txnRef: result.txnRef,
+      amount: result.amount || session.amount,
+      orderInfo: resolvedOrderInfo,
+      requestId,
+      responseCode: result.responseCode,
+      transactionNo: result.transactionNo,
+      bankCode: result.bankCode,
       payDate: result.payDate
     }, source);
-
-    await this.markPaymentEventEnqueuedSafely(result.txnRef, source);
-    logQueueBusinessEvent(this.logger, {
-      queue: "paymentEvents",
-      eventType: "payment.completed",
-      status: "enqueued",
-      txnRef: result.txnRef,
-      details: { source }
-    });
     return null;
   }
 
@@ -569,7 +615,7 @@ export class VnpayService {
     }
   }
 
-  private async publishPaymentCompletedEventSafely(
+  private async publishAndMarkPaymentCompletedEvent(
     input: {
       email: string;
       txnRef: string;
@@ -580,20 +626,18 @@ export class VnpayService {
       transactionNo: string;
       bankCode: string;
       payDate: string;
-    },
+  },
     source: "return" | "ipn"
   ) {
-    try {
-      await this.notificationsService.publishPaymentCompletedEvent(input);
-    } catch (error) {
-      logQueueWarn(this.logger, {
-        queue: "paymentEvents",
-        eventType: "payment.completed",
-        status: "enqueue_failed",
-        txnRef: input.txnRef,
-        message: error instanceof Error ? error.message : "unknown"
-      });
-    }
+    await this.notificationsService.publishPaymentCompletedEvent(input);
+    await this.markPaymentEventEnqueuedSafely(input.txnRef, source);
+    logQueueBusinessEvent(this.logger, {
+      queue: "paymentEvents",
+      eventType: "payment.completed",
+      status: "enqueued",
+      txnRef: input.txnRef,
+      details: { source }
+    });
   }
 
   private async publishAuditLogSafely(

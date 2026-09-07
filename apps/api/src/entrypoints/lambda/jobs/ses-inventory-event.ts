@@ -45,6 +45,15 @@ export const handler = async (event: SnsEvent) => {
 
   const failed = results.filter((result) => result.status === "rejected");
   if (failed.length > 0) {
+    console.error("[ses-inventory-event] processing_failed", {
+      failureCount: failed.length,
+      errors: failed.map((result) => {
+        const reason = (result as PromiseRejectedResult).reason;
+        return reason instanceof Error
+          ? { name: reason.name, message: reason.message }
+          : { message: String(reason) };
+      })
+    });
     throw new Error(`Failed to process ${failed.length} SES inventory event(s).`);
   }
 

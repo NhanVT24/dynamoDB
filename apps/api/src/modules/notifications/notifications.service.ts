@@ -636,14 +636,10 @@ export class NotificationsService {
         message: syncErrorMessage
       });
 
-      return {
-        type: "payment.completed",
-        txnRef: payload.txnRef,
-        orderId: payload.orderId?.trim() || "",
-        requestId,
-        queuedNotifications: 0,
-        auditQueued: true
-      };
+      // Do not acknowledge a payment event whose order transaction failed.
+      // The SQS/Pipe retry and DLQ path is the recovery mechanism; returning
+      // normally here stranded a paid checkout in `allowed` forever.
+      throw error;
     }
     const orderId = committed.order?.id ?? committed.orderId ?? (payload.orderId?.trim() || "");
 
