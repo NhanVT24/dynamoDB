@@ -24,7 +24,7 @@ type PrepareCheckoutResponse = {
 
 type CheckoutGateStatusResponse = {
   requestId?: string;
-  status?: "pending" | "allowed" | "blocked";
+  status?: "pending" | "allowed" | "blocked" | "cancelled" | "expired" | "payment_failed" | "completed";
   message?: string;
   failureCode?: string;
   paymentUrl?: string;
@@ -242,6 +242,27 @@ export default function CheckoutPage() {
     window.location.assign(payload.paymentUrl);
   }
 
+  async function cancelTimedOutCheckout(requestId: string) {
+    if (!session?.idToken) {
+      return;
+    }
+
+    try {
+      await fetch(`${apiBaseUrl}/api/storefront/checkout/cancel`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.idToken}`
+        },
+        body: JSON.stringify({ requestId })
+      });
+    } catch (cancelError) {
+      // The expiry scheduler remains the safety net if this best-effort
+      // request cannot leave the browser.
+      console.warn("[checkout] gate_cancel_failed", { requestId, cancelError });
+    }
+  }
+
   useEffect(() => {
     if (!gateRequestId || gateStatus !== "pending" || !session?.idToken) {
       return;
@@ -298,7 +319,7 @@ export default function CheckoutPage() {
           return;
         }
 
-        if (payload.status === "blocked") {
+        if (payload.status === "blocked" || payload.status === "cancelled" || payload.status === "expired" || payload.status === "payment_failed") {
           setGateStatus("blocked");
           setError(payload.message || "We could not reserve all items in your cart for payment. Please review your cart and try again.");
           startFailureRedirect();
@@ -307,6 +328,7 @@ export default function CheckoutPage() {
 
         if (attempts >= checkoutGateMaxPollAttempts) {
           console.error("[checkout] gate_timeout", { requestId: gateRequestId, attempts });
+          void cancelTimedOutCheckout(gateRequestId);
           setGateStatus("blocked");
           setError(`The checkout queue is taking too long for request ${gateRequestId}. Please check the checkout-gate worker on AWS and try again.`);
           startFailureRedirect();
@@ -314,6 +336,7 @@ export default function CheckoutPage() {
       } catch (pollError) {
         if (!cancelled) {
           console.error("[checkout] gate_poll_failed", { requestId: gateRequestId, pollError });
+          void cancelTimedOutCheckout(gateRequestId);
           setError(pollError instanceof Error ? pollError.message : "We could not check the checkout queue right now.");
           setGateStatus("blocked");
           startFailureRedirect();

@@ -457,7 +457,8 @@ export class VnpayService {
       await releaseCheckoutGateReservation({
         requestId,
         message: PAYMENT_TIMEOUT_MESSAGE,
-        failureCode: "payment_expired"
+        failureCode: "payment_expired",
+        status: "expired"
       });
     }
 
@@ -505,7 +506,8 @@ export class VnpayService {
         await releaseCheckoutGateReservation({
           requestId,
           message: failureReason,
-          failureCode: result.responseCode === "24" ? "payment_cancelled" : "payment_failed"
+          failureCode: result.responseCode === "24" ? "payment_cancelled" : "payment_failed",
+          status: result.responseCode === "24" ? "cancelled" : "payment_failed"
         });
       }
 

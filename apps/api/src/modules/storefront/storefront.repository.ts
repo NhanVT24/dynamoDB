@@ -87,7 +87,16 @@ export type StorefrontOrderCreationResult = {
   stockChanges: InventoryStockChange[];
 };
 
-export type CheckoutGateStatus = "pending" | "allowed" | "blocked" | "completed";
+// `blocked` means inventory rejected the request. Other terminal states
+// preserve why a previously accepted checkout stopped.
+export type CheckoutGateStatus =
+  | "pending"
+  | "allowed"
+  | "blocked"
+  | "cancelled"
+  | "expired"
+  | "payment_failed"
+  | "completed";
 
 export type CheckoutGateRequestRecord = {
   PK: string;
@@ -109,7 +118,7 @@ export type CheckoutGateRequestRecord = {
   orderId?: string;
 };
 
-type ExpiredAllowedCheckoutGateRecord = Pick<CheckoutGateRequestRecord, "requestId" | "lockedUntil" | "status">;
+type ExpiredCheckoutGateRecord = Pick<CheckoutGateRequestRecord, "requestId" | "lockedUntil" | "status">;
 
 function toDynamoItem(item: Record<string, unknown>) {
   return marshall(item, { removeUndefinedValues: true });
@@ -119,7 +128,7 @@ function fromDynamoItem(item?: Record<string, AttributeValue>) {
   return item ? (unmarshall(item) as Record<string, any>) : null;
 }
 
-function isDynamoConditionalConflict(error: unknown) {
+export function isDynamoConditionalConflict(error: unknown) {
   const candidate = error as { name?: string; CancellationReasons?: Array<{ Code?: string }> };
   return candidate?.name === "ConditionalCheckFailedException" ||
     (
@@ -218,29 +227,30 @@ function isIsoDateExpired(value?: string) {
   return Number.isFinite(timestamp) && timestamp <= Date.now();
 }
 
-async function listExpiredAllowedCheckoutGates() {
-  const expiredGates: ExpiredAllowedCheckoutGateRecord[] = [];
+async function listExpiredCheckoutGates() {
+  const expiredGates: ExpiredCheckoutGateRecord[] = [];
   let exclusiveStartKey: Record<string, AttributeValue> | undefined;
 
   do {
     const result = await rawDb.send(new ScanCommand({
       TableName,
       ExclusiveStartKey: exclusiveStartKey,
-      FilterExpression: "entityType = :entityType AND #status = :status AND attribute_exists(lockedUntil) AND lockedUntil <= :now",
+      FilterExpression: "entityType = :entityType AND #status IN (:allowedStatus, :cancelledStatus) AND attribute_exists(lockedUntil) AND lockedUntil <= :now",
       ExpressionAttributeNames: {
         "#status": "status"
       },
       ExpressionAttributeValues: toDynamoItem({
         ":entityType": "CHECKOUT_GATE",
-        ":status": "allowed",
+        ":allowedStatus": "allowed",
+        ":cancelledStatus": "cancelled",
         ":now": new Date().toISOString()
       })
     }));
 
     expiredGates.push(
       ...(result.Items ?? [])
-        .map((item) => fromDynamoItem(item) as ExpiredAllowedCheckoutGateRecord | null)
-        .filter(Boolean) as ExpiredAllowedCheckoutGateRecord[]
+        .map((item) => fromDynamoItem(item) as ExpiredCheckoutGateRecord | null)
+        .filter(Boolean) as ExpiredCheckoutGateRecord[]
     );
     exclusiveStartKey = result.LastEvaluatedKey;
   } while (exclusiveStartKey);
@@ -249,7 +259,7 @@ async function listExpiredAllowedCheckoutGates() {
 }
 
 export async function releaseExpiredCheckoutGates() {
-  const expiredGates = await listExpiredAllowedCheckoutGates();
+  const expiredGates = await listExpiredCheckoutGates();
   let releasedCount = 0;
 
   for (const gate of expiredGates) {
@@ -258,10 +268,16 @@ export async function releaseExpiredCheckoutGates() {
     }
 
     try {
+      if (gate.status === "cancelled") {
+        releasedCount += await releaseReservedInventory(gate.requestId);
+        continue;
+      }
+
       const released = await releaseCheckoutGateReservation({
         requestId: gate.requestId,
         message: "Checkout reservation expired after 5 minutes.",
-        failureCode: "checkout_reservation_expired"
+        failureCode: "checkout_reservation_expired",
+        status: "expired"
       });
 
       if (released) {
@@ -498,6 +514,7 @@ export async function releaseCheckoutGateReservation(input: {
   requestId: string;
   message: string;
   failureCode?: string;
+  status?: "blocked" | "cancelled" | "expired" | "payment_failed";
 }) {
   const gate = await getCheckoutGateRequestById(input.requestId);
   if (!gate) {
@@ -514,7 +531,7 @@ export async function releaseCheckoutGateReservation(input: {
     await updateCheckoutGateRequestStatus({
       requestId: input.requestId,
       expectedStatus: "allowed",
-      status: "blocked",
+      status: input.status ?? "blocked",
       message: input.message,
       failureCode: input.failureCode ?? "payment_not_completed"
     });
@@ -659,6 +676,21 @@ export async function createCheckoutReservations(input: {
           }
           await rawDb.send(new TransactWriteItemsCommand({
             TransactItems: [
+              {
+                // If a browser timeout cancelled the request, a stale FIFO
+                // worker must not reserve inventory after that cancellation.
+                ConditionCheck: {
+                  TableName,
+                  Key: toDynamoItem(buildCheckoutGateKey(input.requestId)),
+                  ConditionExpression: "#status = :pendingStatus",
+                  ExpressionAttributeNames: {
+                    "#status": "status"
+                  },
+                  ExpressionAttributeValues: toDynamoItem({
+                    ":pendingStatus": "pending"
+                  })
+                }
+              },
               {
                 Update: {
                   TableName,

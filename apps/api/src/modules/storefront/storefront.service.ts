@@ -22,7 +22,9 @@ import {
   createStorefrontOrder,
   getCheckoutGateRequestById,
   getStorefrontProductById,
+  isDynamoConditionalConflict,
   releaseCheckoutGateReservation,
+  releaseReservedInventory,
   type InventoryStockChange,
   listCheckoutReservationsByRequestId,
   listOrdersByCustomer,
@@ -381,24 +383,56 @@ export class StorefrontService {
   }
 
   async cancelCheckout(email: string, requestId: string) {
-    const gate = await getCheckoutGateRequestById(requestId);
+    let gate = await getCheckoutGateRequestById(requestId);
     if (!gate || gate.customerEmail !== email) {
       throw new NotFoundException("Not found checkout request.");
     }
 
-    if (gate.status === "blocked") {
+    // SQS messages already handed to a worker cannot be deleted by a browser.
+    // A conditional state transition makes that worker a safe no-op instead.
+    if (gate.status === "pending") {
+      try {
+        await updateCheckoutGateRequestStatus({
+          requestId,
+          expectedStatus: "pending",
+          status: "cancelled",
+          message: "Checkout was cancelled before inventory was reserved.",
+          failureCode: "checkout_cancelled",
+          // This lets the once-a-minute cleanup job recover an unlikely
+          // partial reservation if the worker lost connectivity mid-batch.
+          lockedUntil: new Date().toISOString()
+        });
+        return {
+          success: true,
+          released: false,
+          requestId,
+          message: "Cancelled queued checkout attempt."
+        };
+      } catch (error) {
+        if (!isDynamoConditionalConflict(error)) {
+          throw error;
+        }
+        gate = await getCheckoutGateRequestById(requestId);
+        if (!gate || gate.customerEmail !== email) {
+          throw new NotFoundException("Not found checkout request.");
+        }
+      }
+    }
+
+    if (gate.status !== "allowed") {
       return {
         success: true,
         released: false,
         requestId,
-        message: gate.message || "This checkout attempt was already released."
+        message: gate.message || "This checkout attempt is already finalized."
       };
     }
 
     await releaseCheckoutGateReservation({
       requestId,
       message: "Previous checkout attempt was cancelled after returning from payment.",
-      failureCode: "checkout_abandoned"
+      failureCode: "checkout_cancelled",
+      status: "cancelled"
     });
     return {
       success: true,
@@ -614,6 +648,15 @@ export class StorefrontService {
     recordIndex?: number;
   }) {
     const normalizedItems = normalizeOrderItems(payload.items);
+    const gate = await getCheckoutGateRequestById(payload.requestId);
+
+    if (!gate || gate.status !== "pending") {
+      if (gate?.status === "cancelled") {
+        await releaseReservedInventory(payload.requestId);
+      }
+      this.logger.log(`[checkout-gate] skipped requestId=${payload.requestId} status=${gate?.status ?? "missing"}`);
+      return { requestId: payload.requestId, status: gate?.status ?? "missing" };
+    }
 
     try {
         if (env.CHECKOUT_TX_RACE_LOGGING && payload.raceTestId) {
@@ -684,6 +727,12 @@ export class StorefrontService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to hold product inventory at this time.";
+      const latestGate = await getCheckoutGateRequestById(payload.requestId);
+      if (latestGate?.status === "cancelled") {
+        await releaseReservedInventory(payload.requestId);
+        this.logger.log(`[checkout-gate] cancelled_before_reservation_completed requestId=${payload.requestId}`);
+        return { requestId: payload.requestId, status: "cancelled" };
+      }
       await updateCheckoutGateRequestStatus({
         requestId: payload.requestId,
         expectedStatus: "pending",
@@ -915,7 +964,8 @@ export class StorefrontService {
       await releaseCheckoutGateReservation({
         requestId: gate.requestId,
         message: "Checkout reservation expired before payment could start.",
-        failureCode: "checkout_reservation_expired"
+        failureCode: "checkout_reservation_expired",
+        status: "expired"
       });
       throw new ConflictException("Checkout reservation expired. Please start checkout again.");
     }
