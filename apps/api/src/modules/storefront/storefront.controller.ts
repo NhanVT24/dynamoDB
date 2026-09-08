@@ -3,7 +3,7 @@ import type { FastifyRequest } from "fastify";
 import { shoppingParamsSchema } from "../shopping/shopping.query-schemas.js";
 import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
 import { StorefrontService } from "./storefront.service.js";
-import { cancelStorefrontCheckoutSchema, createCheckoutPaymentSessionSchema, createStorefrontOrderSchema, prepareStorefrontCheckoutSchema } from "./storefront.schema.js";
+import { createStorefrontOrderSchema } from "./storefront.schema.js";
 
 @Controller("api/storefront")
 export class StorefrontController {
@@ -38,52 +38,22 @@ export class StorefrontController {
     return this.storefrontService.createOrder(principal.email, input);
   }
 
-  @Post("checkout/prepare")
-  @HttpCode(HttpStatus.ACCEPTED)
-  prepareCheckout(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+  @Get("orders/:orderId/status")
+  getOrderStatus(@Req() request: FastifyRequest, @Param("orderId") orderId: string) {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
-      throw new ForbiddenException("Only customer or admin can prepare checkout.");
-    }
-
-    const input = prepareStorefrontCheckoutSchema.parse(rawBody);
-    return this.storefrontService.prepareCheckout(principal.email, input);
+    if (!principal) throw new ForbiddenException("Sign in to view your order.");
+    return this.storefrontService.getOrderStatus(principal.email, orderId);
   }
 
-  @Get("checkout/prepare/:requestId")
-  async getCheckoutStatus(@Req() request: FastifyRequest, @Param("requestId") requestId: string) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
-      throw new ForbiddenException("Only customer or admin can view checkout status.");
-    }
-
-    const status = await this.storefrontService.getCheckoutGateStatus(principal.email, requestId);
-    this.logger.log(`[checkout-gate] status_read requestId=${requestId} status=${status.status} customer=${principal.email}`);
-    return status;
-  }
-
-  @Post("checkout/payment-session")
+  @Post("orders/:orderId/cancel")
   @HttpCode(HttpStatus.OK)
-  createCheckoutPaymentSession(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+  cancelOrder(@Req() request: FastifyRequest, @Param("orderId") orderId: string) {
     const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
-      throw new ForbiddenException("Only customer or admin can create checkout payment session.");
+      throw new ForbiddenException("Only customer or admin can cancel orders.");
     }
 
-    const input = createCheckoutPaymentSessionSchema.parse(rawBody);
-    return this.storefrontService.createCheckoutPaymentSession(principal.email, input.requestId, request.ip);
-  }
-
-  @Post("checkout/cancel")
-  @HttpCode(HttpStatus.OK)
-  cancelCheckout(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
-      throw new ForbiddenException("Only customer or admin can cancel checkout.");
-    }
-
-    const input = cancelStorefrontCheckoutSchema.parse(rawBody);
-    return this.storefrontService.cancelCheckout(principal.email, input.requestId);
+    return this.storefrontService.cancelOrder(principal.email, orderId);
   }
 
   @Get("orders/me")

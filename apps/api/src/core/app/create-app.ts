@@ -75,7 +75,9 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const isNotificationReadMutation = method === "PATCH" && /^\/api\/notifications\/[^/]+\/read(?:\?|$)/.test(url);
     const isNotificationDeleteMutation = method === "DELETE" && /^\/api\/notifications\/[^/]+(?:\?|$)/.test(url);
     const isNotificationDeleteAllMutation = method === "DELETE" && /^\/api\/notifications(?:\?|$)/.test(url);
-    const isStorefrontOrderMutation = method === "POST" && url === "/api/storefront/orders";
+    const isStorefrontOrderMutation = method === "POST" && (
+      url === "/api/storefront/orders" || /^\/api\/storefront\/orders\/[^/]+\/cancel(?:\?|$)/.test(url)
+    );
     const isStorefrontCheckoutPrepareMutation = method === "POST" && url === "/api/storefront/checkout/prepare";
     const isStorefrontCheckoutPaymentSessionMutation = method === "POST" && url === "/api/storefront/checkout/payment-session";
     const isStorefrontCheckoutCancelMutation = method === "POST" && url === "/api/storefront/checkout/cancel";

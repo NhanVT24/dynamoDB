@@ -14,24 +14,23 @@ import { NotificationsService } from "../notifications/notifications.service.js"
 import { resolveSalePrice } from "../sales/sale-pricing.js";
 import { listActiveSaleCampaigns } from "../sales/sales.repository.js";
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
+import { getShoppingItem } from "../shopping/shopping.repository.js";
 import { VnpayService } from "../vnpay/vnpay.service.js";
 import {
-  createCheckoutReservations,
-  arriveAtCheckoutRaceBarrier,
-  createCheckoutGateRequest,
+  createAwaitingPaymentOrder,
   createStorefrontOrder,
+  getAwaitingPaymentOrder,
   getCheckoutGateRequestById,
-  getStorefrontProductById,
   isDynamoConditionalConflict,
   releaseCheckoutGateReservation,
   releaseReservedInventory,
   type InventoryStockChange,
   listCheckoutReservationsByRequestId,
   listOrdersByCustomer,
+  transitionAwaitingPaymentOrder,
   listStorefrontProducts,
   type CheckoutGateQueuePayload,
-  type StorefrontOrderQueuePayload
-  ,
+  type StorefrontOrderQueuePayload,
   updateCheckoutGateRequestStatus,
   waitForCheckoutRaceBarrier
 } from "./storefront.repository.js";
@@ -248,7 +247,7 @@ export class StorefrontService {
   }
 
   async getProductById(id: string) {
-    const item = await getStorefrontProductById(id);
+    const item = await getShoppingItem(id);
     if (!item || !hasPhysicalStock(item)) {
       throw new NotFoundException("Not found product.");
     }
@@ -257,246 +256,72 @@ export class StorefrontService {
     return shaped;
   }
 
-  async prepareCheckout(email: string, input: PrepareStorefrontCheckoutInput) {
-    if (!env.SQS_CHECKOUT_GATE_QUEUE_URL) {
-      throw new Error("Queue processing is not enabled. Cannot prepare checkout at this time.");
-    }
+  async getOrderStatus(email: string, orderId: string) {
+    const order = await getAwaitingPaymentOrder(orderId);
+    if (!order || order.customerEmail !== email) throw new NotFoundException("Order not found.");
+    return { orderId: order.id, status: order.status, lockedUntil: order.lockedUntil };
+  }
 
+  async createOrder(email: string, input: CreateStorefrontOrderInput) {
     const normalizedItems = normalizeOrderItems(input.items);
-
-    const requestId = crypto.randomUUID();
-    await createCheckoutGateRequest({
-      requestId,
+    const orderId = input.requestId?.trim() || crypto.randomUUID();
+    const created = await createAwaitingPaymentOrder({
+      orderId,
       email,
       items: normalizedItems,
-      locale: input.locale,
-      bankCode: input.bankCode,
-      processingMode: input.processingMode
+      holdSeconds: 5 * 60
     });
-    this.logger.log(`[checkout-gate] request_created requestId=${requestId} customer=${email} itemCount=${normalizedItems.length} mode=${input.processingMode}`);
 
-    const payload: CheckoutGateQueuePayload = {
-      type: "storefront.checkout.gate.requested",
-      requestId,
-      email,
-      items: normalizedItems,
-      locale: input.locale,
-      bankCode: input.bankCode,
-      processingMode: input.processingMode,
-      raceTestId: input.raceTestId,
-      createdAt: new Date().toISOString()
-    };
-
-    if (shouldProcessCommerceQueuesInline()) {
-      this.logger.log(`[eventbridge-commerce] inline_checkout_gate requestId=${requestId} customer=${email} itemCount=${normalizedItems.length}`);
-      await this.resolveCheckoutGate(payload);
-    } else {
-      // Every checkout uses one FIFO lane. Splitting interactive and trigger
-      // requests across two queues would break the global ordering guarantee.
-      const queueUrl = env.SQS_CHECKOUT_GATE_QUEUE_URL;
-
-      const sendResult = await sqsClient.send(new SendMessageCommand({
-        QueueUrl: queueUrl,
-        MessageBody: JSON.stringify(payload),
-        MessageGroupId: "checkout-gate-serial",
-        MessageDeduplicationId: requestId
-      }));
-      this.logger.log(`[checkout-gate] request_enqueued requestId=${requestId} queueUrl=${queueUrl} messageId=${sendResult.MessageId ?? ""}`);
+    let payment: Awaited<ReturnType<VnpayService["createWorkflowPaymentUrl"]>>;
+    try {
+      payment = await this.vnpayService.createWorkflowPaymentUrl({
+        email,
+        items: created.items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
+        orderId,
+        orderDescription: `Payment for order ${orderId}`,
+        bankCode: input.bankCode,
+        locale: input.locale,
+        skipStockValidation: true,
+        expiresAt: created.order.lockedUntil,
+        amount: created.order.totalAmount
+      });
+    } catch (error) {
+      await transitionAwaitingPaymentOrder({
+        orderId,
+        expectedCustomerEmail: email,
+        status: "payment_failed"
+      });
+      throw error;
     }
 
+    this.logger.log(`[order] created orderId=${orderId} customer=${email} status=awaiting_payment itemCount=${created.items.length}`);
     return {
       success: true,
-      queued: true,
-      requestId,
-      status: "pending",
-      message: "check out request has been queued for processing. you will receive an update once the request is processed."
+      orderId,
+      status: created.order.status,
+      lockedUntil: created.order.lockedUntil,
+      totalAmount: created.order.totalAmount,
+      items: created.items,
+      paymentUrl: payment.paymentUrl
     };
   }
 
-  async getCheckoutGateStatus(email: string, requestId: string) {
-    const gate = await getCheckoutGateRequestById(requestId);
-    if (!gate || gate.customerEmail !== email) {
-      throw new NotFoundException("Checkout request not found.");
+  async cancelOrder(email: string, orderId: string) {
+    const order = await getAwaitingPaymentOrder(orderId);
+    if (!order || order.customerEmail !== email) {
+      throw new NotFoundException("Order not found.");
     }
 
-    return {
-      requestId: gate.requestId,
-      status: gate.status,
-      message: gate.message || "",
-      failureCode: gate.failureCode || "",
-      paymentUrl: gate.paymentUrl || "",
-      lockedUntil: gate.lockedUntil || "",
-      orderId: String((gate as Record<string, unknown>).orderId ?? "").trim()
-    };
-  }
-
-  async createCheckoutPaymentSession(email: string, requestId: string, ipAddress?: string) {
-    const gate = await getCheckoutGateRequestById(requestId);
-    if (!gate || gate.customerEmail !== email) {
-      throw new NotFoundException("Not found checkout request.");
-    }
-
-    if (gate.status !== "allowed") {
-      throw new ConflictException("Checkout request is not allowed to proceed to payment.");
-    }
-
-    await this.ensureCheckoutGateCanProceedToPayment(gate);
-
-    if (gate.paymentUrl) {
-      return {
-        requestId: gate.requestId,
-        paymentUrl: gate.paymentUrl,
-        lockedUntil: gate.lockedUntil || "",
-        message: gate.message || ""
-      };
-    }
-
-    const firstProduct = await getStorefrontProductById(String(gate.items[0]?.productId ?? ""));
-    const payment = await this.vnpayService.createWorkflowPaymentUrl({
-      email,
-      items: gate.items,
-      orderId: gate.requestId,
-      orderDescription: firstProduct
-        ? `Payment for ${firstProduct.name} - ${gate.requestId}`
-        : `Payment for reserved items ${gate.requestId}`,
-      bankCode: gate.bankCode,
-      locale: gate.locale,
-      ipAddress,
-      expiresAt: gate.lockedUntil
-    });
-
-    await updateCheckoutGateRequestStatus({
-      requestId: gate.requestId,
-      expectedStatus: "allowed",
-      status: "allowed",
-      message: "Redirecting to VNPay payment gateway.",
-      paymentUrl: payment.paymentUrl,
-      lockedUntil: gate.lockedUntil || payment.expiresAt
-    });
-
-    return {
-      requestId: gate.requestId,
-      paymentUrl: payment.paymentUrl,
-      lockedUntil: gate.lockedUntil || payment.expiresAt,
-      message: "Redirecting to VNPay payment gateway."
-    };
-  }
-
-  async cancelCheckout(email: string, requestId: string) {
-    let gate = await getCheckoutGateRequestById(requestId);
-    if (!gate || gate.customerEmail !== email) {
-      throw new NotFoundException("Not found checkout request.");
-    }
-
-    // SQS messages already handed to a worker cannot be deleted by a browser.
-    // A conditional state transition makes that worker a safe no-op instead.
-    if (gate.status === "pending") {
-      try {
-        await updateCheckoutGateRequestStatus({
-          requestId,
-          expectedStatus: "pending",
-          status: "cancelled",
-          message: "Checkout was cancelled before inventory was reserved.",
-          failureCode: "checkout_cancelled",
-          // This lets the once-a-minute cleanup job recover an unlikely
-          // partial reservation if the worker lost connectivity mid-batch.
-          lockedUntil: new Date().toISOString()
-        });
-        return {
-          success: true,
-          released: false,
-          requestId,
-          message: "Cancelled queued checkout attempt."
-        };
-      } catch (error) {
-        if (!isDynamoConditionalConflict(error)) {
-          throw error;
-        }
-        gate = await getCheckoutGateRequestById(requestId);
-        if (!gate || gate.customerEmail !== email) {
-          throw new NotFoundException("Not found checkout request.");
-        }
-      }
-    }
-
-    if (gate.status !== "allowed") {
-      return {
-        success: true,
-        released: false,
-        requestId,
-        message: gate.message || "This checkout attempt is already finalized."
-      };
-    }
-
-    await releaseCheckoutGateReservation({
-      requestId,
-      message: "Previous checkout attempt was cancelled after returning from payment.",
-      failureCode: "checkout_cancelled",
+    const outcome = await transitionAwaitingPaymentOrder({
+      orderId,
+      expectedCustomerEmail: email,
       status: "cancelled"
     });
     return {
       success: true,
-      released: true,
-      requestId,
-      message: "Released previous checkout attempt."
-    };
-  }
-
-  async createOrder(email: string, input: CreateStorefrontOrderInput) {
-    if (!env.EVENTBRIDGE_COMMERCE_BUS_NAME) {
-      this.logger.warn(`[eventbridge-commerce] disabled customer=${email}`);
-      throw new Error("Queue processing is not enabled. Cannot create order at this time.");
-    }
-
-    const normalizedItems = normalizeOrderItems(input.items);
-    this.logger.log(`[eventbridge-commerce] create_order_begin customer=${email} itemCount=${normalizedItems.length} productIds=${normalizedItems.map((item) => item.productId).join(",")}`);
-    try {
-      await this.precheckProducts(email, normalizedItems);
-    } catch (error) {
-      this.logger.error(
-        `[eventbridge-commerce] create_order_error stage=precheck customer=${email} itemCount=${normalizedItems.length} message=${error instanceof Error ? error.message : "unknown_error"}`
-      );
-      throw error;
-    }
-    this.logger.log(`[eventbridge-commerce] create_order_precheck_done customer=${email} itemCount=${normalizedItems.length}`);
-
-    const requestId = input.requestId?.trim() || crypto.randomUUID();
-    const payload: StorefrontOrderQueuePayload = {
-      type: "storefront.order.requested",
-      requestId,
-      email,
-      items: normalizedItems,
-      createdAt: new Date().toISOString()
-    };
-
-    this.logger.log(`[eventbridge-commerce] create_order_publish_begin requestId=${requestId} customer=${email} detailType=storefront.order.requested`);
-    if (shouldProcessCommerceQueuesInline()) {
-      this.logger.log(`[eventbridge-commerce] inline_order_processing requestId=${requestId} customer=${email} itemCount=${normalizedItems.length}`);
-      await this.finalizeQueuedOrder(email, normalizedItems, requestId);
-    } else {
-      let published: Awaited<ReturnType<typeof publishEventBridgeEvent>>;
-      try {
-        published = await publishEventBridgeEvent({
-          busName: env.EVENTBRIDGE_COMMERCE_BUS_NAME,
-          source: "supermarket.commerce",
-          detailType: "storefront.order.requested",
-          detail: payload as unknown as Record<string, unknown>
-        });
-      } catch (error) {
-        this.logger.error(
-          `[eventbridge-commerce] create_order_error stage=publish customer=${email} requestId=${requestId} message=${error instanceof Error ? error.message : "unknown_error"}`
-        );
-        throw error;
-      }
-
-      this.logger.log(`[eventbridge-commerce] create_order_publish_done requestId=${requestId} customer=${email} itemCount=${normalizedItems.length} bus=${published.eventBusName} eventId=${published.eventId}`);
-    }
-
-    return {
-      success: true,
-      queued: true,
-      requestId,
-      message: "Your order has been queued for processing. You will receive an update once the order is processed."
+      orderId,
+      status: outcome.order.status,
+      released: outcome.changed
     };
   }
 
@@ -525,47 +350,10 @@ export class StorefrontService {
     };
   }
 
-  async processCheckoutGateRecords(
-    records: Array<{ body?: string; messageId?: string }>,
-    options?: { queueName?: string; workerName?: string; batchId?: string }
-  ) {
-    const processedItems: unknown[] = [];
-    const failedMessageIds: string[] = [];
-
-    for (const [recordIndex, record] of records.entries()) {
-      const messageId = String(record.messageId ?? "");
-      this.logger.log(`[checkout-fifo] processing_started batchId=${options?.batchId ?? ""} recordIndex=${recordIndex} messageId=${messageId}`);
-      try {
-        const item = await this.processCheckoutGateRecord(record.body, {
-          batchId: options?.batchId,
-          recordIndex
-        });
-        if (item) {
-          processedItems.push(item);
-        }
-      } catch (error) {
-        failedMessageIds.push(messageId);
-        const reason = error instanceof Error
-          ? { name: error.name, message: error.message, stack: error.stack }
-          : { message: String(error ?? "unknown") };
-        this.logger.error(JSON.stringify({
-          scope: "queue",
-          kind: "error",
-          queue: "checkoutGate",
-          status: "record_failed",
-          messageId,
-          reason
-        }));
-      }
-
-      this.logger.log(`[checkout-fifo] processing_finished batchId=${options?.batchId ?? ""} recordIndex=${recordIndex} messageId=${messageId}`);
-    }
-
-    return {
-      processed: processedItems.length,
-      failedMessageIds,
-      items: processedItems
-    };
+  async processCheckoutGateRecords(records: Array<{ body?: string; messageId?: string }>, options?: unknown) {
+    // Retired queue messages must not create legacy checkout records.
+    this.logger.warn("Legacy checkout queue is retired; create an ORDER through the orders API.");
+    return { processed: 0, failedMessageIds: records.map((record) => String(record.messageId ?? "")), items: [] };
   }
 
   listMyOrders(email: string) {
@@ -599,179 +387,6 @@ export class StorefrontService {
       return null;
     }
     return this.finalizeQueuedOrder(payload.email, payload.items, payload.requestId);
-  }
-
-  private async processCheckoutGateRecord(body: string | undefined, options?: {
-    batchId?: string;
-    recordIndex?: number;
-  }) {
-    if (!body) {
-      logQueueWarn(this.logger, {
-        queue: "checkoutGate",
-        status: "record_empty"
-      });
-      return null;
-    }
-
-    const payload = this.parseCheckoutGatePayload(body);
-    if (!payload) {
-      logQueueWarn(this.logger, {
-        queue: "checkoutGate",
-        eventType: "storefront.checkout.gate.requested",
-        status: "ignored_payload"
-      });
-      return null;
-    }
-
-    return this.resolveCheckoutGate(payload, options);
-  }
-
-  private parseCheckoutGatePayload(body: string | undefined): CheckoutGateQueuePayload | null {
-    if (!body) {
-      return null;
-    }
-
-    try {
-      const payload = unwrapEventBridgeDetail(JSON.parse(body) as Record<string, unknown>) as Partial<CheckoutGateQueuePayload>;
-      if (payload.type !== "storefront.checkout.gate.requested" || !payload.email || !payload.requestId || !Array.isArray(payload.items) || payload.items.length === 0) {
-        return null;
-      }
-
-      return payload as CheckoutGateQueuePayload;
-    } catch {
-      return null;
-    }
-  }
-
-  private async resolveCheckoutGate(payload: CheckoutGateQueuePayload, options?: {
-    batchId?: string;
-    recordIndex?: number;
-  }) {
-    const normalizedItems = normalizeOrderItems(payload.items);
-    const gate = await getCheckoutGateRequestById(payload.requestId);
-
-    if (!gate || gate.status !== "pending") {
-      if (gate?.status === "cancelled") {
-        await releaseReservedInventory(payload.requestId);
-      }
-      this.logger.log(`[checkout-gate] skipped requestId=${payload.requestId} status=${gate?.status ?? "missing"}`);
-      return { requestId: payload.requestId, status: gate?.status ?? "missing" };
-    }
-
-    try {
-        if (env.CHECKOUT_TX_RACE_LOGGING && payload.raceTestId) {
-        const participants = await arriveAtCheckoutRaceBarrier({
-          raceTestId: payload.raceTestId,
-          requestId: payload.requestId
-        });
-        this.logger.log(JSON.stringify({
-          marker: "CHECKOUT_TX_RACE",
-          phase: "barrier_arrived",
-          batchId: options?.batchId ?? "",
-          recordIndex: options?.recordIndex,
-          raceTestId: payload.raceTestId,
-          requestId: payload.requestId,
-          participantCount: participants.size
-        }));
-
-        const releasedParticipants = await waitForCheckoutRaceBarrier({
-          raceTestId: payload.raceTestId,
-          expectedParticipants: 2,
-          timeoutMs: 5_000
-        });
-        this.logger.log(JSON.stringify({
-          marker: "CHECKOUT_TX_RACE",
-          phase: "barrier_released",
-          batchId: options?.batchId ?? "",
-          recordIndex: options?.recordIndex,
-          raceTestId: payload.raceTestId,
-          requestId: payload.requestId,
-          participantCount: releasedParticipants.size
-        }));
-      }
-
-      const reservation = await createCheckoutReservations({
-        requestId: payload.requestId,
-        email: payload.email,
-        items: normalizedItems,
-        holdSeconds: 5 * 60,
-        trace: {
-          batchId: options?.batchId,
-          recordIndex: options?.recordIndex,
-          enabled: env.CHECKOUT_TX_RACE_LOGGING && Boolean(payload.raceTestId)
-        }
-      });
-      await updateCheckoutGateRequestStatus({
-        requestId: payload.requestId,
-        expectedStatus: "pending",
-        status: "allowed",
-        message: "your bucket is held temporarily. you can proceed to payment.",
-        lockedUntil: reservation.expiresAt
-      });
-
-      logQueueBusinessEvent(this.logger, {
-        queue: "checkoutGate",
-        eventType: "storefront.checkout.gate.requested",
-        status: "allowed",
-        requestId: payload.requestId,
-        details: {
-          itemCount: normalizedItems.length,
-          productIds: normalizedItems.map((item) => item.productId),
-          lockedUntil: reservation.expiresAt
-        }
-      });
-
-      return {
-        requestId: payload.requestId,
-        status: "allowed"
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to hold product inventory at this time.";
-      const latestGate = await getCheckoutGateRequestById(payload.requestId);
-      if (latestGate?.status === "cancelled") {
-        await releaseReservedInventory(payload.requestId);
-        this.logger.log(`[checkout-gate] cancelled_before_reservation_completed requestId=${payload.requestId}`);
-        return { requestId: payload.requestId, status: "cancelled" };
-      }
-      await updateCheckoutGateRequestStatus({
-        requestId: payload.requestId,
-        expectedStatus: "pending",
-        status: "blocked",
-        message,
-        failureCode: "inventory_gate_blocked"
-      });
-
-      logQueueBusinessEvent(this.logger, {
-        queue: "checkoutGate",
-        eventType: "storefront.checkout.gate.requested",
-        status: "blocked",
-        requestId: payload.requestId,
-        message,
-        details: {
-          itemCount: normalizedItems.length,
-          productIds: normalizedItems.map((item) => item.productId)
-        }
-      });
-
-      logQueueWarn(this.logger, {
-        queue: "checkoutGate",
-        eventType: "storefront.checkout.gate.requested",
-        status: "inventory_gate_blocked_reason",
-        requestId: payload.requestId,
-        message,
-        productId: normalizedItems[0]?.productId,
-        details: {
-          itemCount: normalizedItems.length,
-          productIds: normalizedItems.map((item) => item.productId)
-        }
-      });
-
-      return {
-        requestId: payload.requestId,
-        status: "blocked",
-        message
-      };
-    }
   }
 
   private async finalizeQueuedOrder(
@@ -886,7 +501,7 @@ export class StorefrontService {
               requestId,
               failureReason,
               items: await Promise.all(normalizedItems.map(async (item) => {
-                const product = await getStorefrontProductById(item.productId);
+                const product = await getShoppingItem(item.productId);
                 return {
                   productId: item.productId,
                   productName: product?.name ? String(product.name) : undefined,
@@ -985,7 +600,7 @@ export class StorefrontService {
         throw new ConflictException("Checkout reservation is no longer available. Please start checkout again.");
       }
 
-      const product = await getStorefrontProductById(item.productId);
+      const product = await getShoppingItem(item.productId);
       const stock = Number(product?.stock ?? 0);
       const reservedStock = Number(product?.reservedStock ?? 0);
       if (!product || stock < item.quantity || reservedStock < item.quantity) {
@@ -1002,7 +617,7 @@ export class StorefrontService {
   private async precheckProducts(email: string, items: CreateStorefrontOrderInput["items"]) {
     for (const item of items) {
       this.logger.log(`[dynamo-product] precheck_begin customer=${email} productId=${item.productId} quantity=${item.quantity}`);
-      const product = await getStorefrontProductById(item.productId);
+      const product = await getShoppingItem(item.productId);
 
       if (!product) {
         this.logger.warn(`[dynamo-product] missing customer=${email} productId=${item.productId}`);

@@ -23,6 +23,38 @@ type CreateOrderPayload = {
   items: Array<{ productId: string; quantity: number }>;
 };
 
+export type AwaitingPaymentOrderStatus = "awaiting_payment" | "paid" | "cancelled" | "expired" | "payment_failed";
+
+export type StorefrontAwaitingPaymentOrderRecord = {
+  PK: string;
+  SK: "ORDER";
+  entityType: "ORDER";
+  id: string;
+  customerEmail: string;
+  status: AwaitingPaymentOrderStatus;
+  totalAmount: number;
+  itemCount: number;
+  lockedUntil: string;
+  createdAt: string;
+  updatedAt: string;
+  paymentUrl?: string;
+};
+
+export type StorefrontOrderItemRecord = {
+  PK: string;
+  SK: string;
+  entityType: "ORDER_ITEM";
+  orderId: string;
+  productId: string;
+  customerEmail: string;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  lineTotal: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type StorefrontOrderQueuePayload = {
   type: "storefront.order.requested";
   requestId: string;
@@ -156,6 +188,14 @@ function buildCheckoutGateKey(requestId: string) {
     PK: `CHECKOUT_GATE#${requestId}`,
     SK: "DETAIL"
   };
+}
+
+function buildOrderMetaKey(orderId: string) {
+  return { PK: `ORDER#${orderId}`, SK: "ORDER" as const };
+}
+
+function buildOrderItemKey(orderId: string, productId: string) {
+  return { PK: `ORDER#${orderId}`, SK: `ORDER_ITEM#${productId}` };
 }
 
 function buildCheckoutRaceBarrierKey(raceTestId: string) {
@@ -311,10 +351,6 @@ export async function listStorefrontProducts(query: Record<string, any>) {
     sortBy: query.sortBy,
     sortDirection: query.sortDirection
   });
-}
-
-export async function getStorefrontProductById(id: string) {
-  return getShoppingItem(id);
 }
 
 export async function createStorefrontOrder(input: CreateOrderPayload): Promise<StorefrontOrderCreationResult> {
@@ -1075,6 +1111,211 @@ export async function getOrderById(id: string) {
   return fromDynamoItem(result.Item) as StorefrontOrderRecord | null;
 }
 
+export async function releaseExpiredAwaitingPaymentOrders() {
+  let exclusiveStartKey: Record<string, AttributeValue> | undefined;
+  let releasedCount = 0;
+  const now = new Date().toISOString();
+
+  do {
+    const result = await rawDb.send(new ScanCommand({
+      TableName,
+      ExclusiveStartKey: exclusiveStartKey,
+      FilterExpression: "entityType = :entityType AND #status = :status AND attribute_exists(lockedUntil) AND lockedUntil <= :now",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: toDynamoItem({
+        ":entityType": "ORDER",
+        ":status": "awaiting_payment",
+        ":now": now
+      })
+    }));
+
+    for (const rawOrder of result.Items ?? []) {
+      const order = fromDynamoItem(rawOrder) as StorefrontAwaitingPaymentOrderRecord | null;
+      if (!order?.id) continue;
+      try {
+        const outcome = await transitionAwaitingPaymentOrder({ orderId: order.id, status: "expired" });
+        if (outcome.changed) releasedCount += 1;
+      } catch (error) {
+        console.warn("[order-expiry] release_failed", { orderId: order.id, message: error instanceof Error ? error.message : "unknown" });
+      }
+    }
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+
+  return releasedCount;
+}
+
+export async function createAwaitingPaymentOrder(input: {
+  orderId: string;
+  email: string;
+  items: Array<{ productId: string; quantity: number }>;
+  holdSeconds: number;
+}) {
+  const normalizedItems = normalizeOrderItems(input.items);
+  const now = new Date().toISOString();
+  const lockedUntil = new Date(Date.now() + input.holdSeconds * 1000).toISOString();
+  const saleCampaigns = await listActiveSaleCampaigns();
+  const products = new Map<string, Record<string, any>>();
+  const lines: StorefrontOrderItemRecord[] = [];
+  let totalAmount = 0;
+
+  for (const item of normalizedItems) {
+    const product = await getShoppingItem(item.productId);
+    if (!product) throw new Error(`Product ${item.productId} not found`);
+
+    const stock = Number(product.stock ?? 0);
+    if (stock - Number(product.reservedStock ?? 0) < item.quantity) {
+      throw new Error(`Insufficient stock for ${product.name}`);
+    }
+
+    const unitPrice = resolveSalePrice(product, saleCampaigns).price;
+    const lineTotal = unitPrice * item.quantity;
+    totalAmount += lineTotal;
+    products.set(item.productId, product);
+    lines.push({
+      ...buildOrderItemKey(input.orderId, item.productId),
+      entityType: "ORDER_ITEM",
+      orderId: input.orderId,
+      productId: item.productId,
+      customerEmail: input.email,
+      productName: String(product.name ?? ""),
+      unitPrice,
+      quantity: item.quantity,
+      lineTotal,
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+
+  const order: StorefrontAwaitingPaymentOrderRecord = {
+    ...buildOrderMetaKey(input.orderId),
+    entityType: "ORDER",
+    id: input.orderId,
+    customerEmail: input.email,
+    status: "awaiting_payment",
+    totalAmount,
+    itemCount: lines.length,
+    lockedUntil,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await rawDb.send(new TransactWriteItemsCommand({
+    TransactItems: [
+      {
+        Put: {
+          TableName,
+          Item: toDynamoItem(order),
+          ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)"
+        }
+      },
+      ...normalizedItems.flatMap((item) => {
+        const product = products.get(item.productId)!;
+        return [{
+          Update: {
+            TableName,
+            Key: toDynamoItem(keys.product(item.productId)),
+            ConditionExpression: "attribute_exists(PK) AND #stock >= :requiredStock AND #version = :expectedVersion",
+            UpdateExpression: "SET #stock = #stock - :quantity, updatedAt = :updatedAt, #version = #version + :one",
+            ExpressionAttributeNames: { "#stock": "stock", "#version": "version" },
+            ExpressionAttributeValues: toDynamoItem({
+              ":quantity": item.quantity, ":updatedAt": now,
+              ":requiredStock": Number(product.reservedStock ?? 0) + item.quantity,
+              ":expectedVersion": Number(product.version ?? 0), ":one": 1
+            })
+          }
+        }, {
+          Put: {
+            TableName,
+            Item: toDynamoItem(lines.find((line) => line.productId === item.productId)!),
+            ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)"
+          }
+        }];
+      })
+    ]
+  }));
+
+  return { order, items: lines };
+}
+
+export async function listOrderItems(orderId: string) {
+  const result = await rawDb.send(new QueryCommand({
+    TableName,
+    KeyConditionExpression: "PK = :pk AND begins_with(SK, :itemPrefix)",
+    ConsistentRead: true,
+    ExpressionAttributeValues: toDynamoItem({ ":pk": `ORDER#${orderId}`, ":itemPrefix": "ORDER_ITEM#" })
+  }));
+  return (result.Items ?? []).map((item) => fromDynamoItem(item) as StorefrontOrderItemRecord | null)
+    .filter(Boolean) as StorefrontOrderItemRecord[];
+}
+
+export async function getAwaitingPaymentOrder(orderId: string) {
+  const result = await rawDb.send(new GetItemCommand({
+    TableName,
+    Key: toDynamoItem(buildOrderMetaKey(orderId)),
+    ConsistentRead: true
+  }));
+  return result.Item ? unmarshall(result.Item) as StorefrontAwaitingPaymentOrderRecord : null;
+}
+
+export async function transitionAwaitingPaymentOrder(input: {
+  orderId: string;
+  expectedCustomerEmail?: string;
+  status: Extract<AwaitingPaymentOrderStatus, "paid" | "cancelled" | "expired" | "payment_failed">;
+}) {
+  const order = await getAwaitingPaymentOrder(input.orderId);
+  if (!order) throw new Error("Order not found");
+  if (input.expectedCustomerEmail && order.customerEmail !== input.expectedCustomerEmail) {
+    throw new Error("Order customer does not match");
+  }
+  if (order.status !== "awaiting_payment") {
+    if (input.status === "paid" && order.status !== "paid") {
+      throw new Error("Payment received after inventory was released; reconciliation required");
+    }
+    return { order, items: await listOrderItems(input.orderId), changed: false };
+  }
+
+  const items = await listOrderItems(input.orderId);
+  if (items.length === 0) throw new Error("Order has no held items");
+  const now = new Date().toISOString();
+  const isPaymentSuccess = input.status === "paid";
+
+  await rawDb.send(new TransactWriteItemsCommand({
+    TransactItems: [
+      {
+        Update: {
+          TableName,
+          Key: toDynamoItem(buildOrderMetaKey(input.orderId)),
+          ConditionExpression: "#status = :awaitingPayment",
+          UpdateExpression: "SET #status = :status, updatedAt = :updatedAt, finalizedAt = :updatedAt",
+          ExpressionAttributeNames: { "#status": "status" },
+          ExpressionAttributeValues: toDynamoItem({ ":awaitingPayment": "awaiting_payment", ":status": input.status, ":updatedAt": now })
+        }
+      },
+      ...items.map((item) => ({
+        Update: {
+          TableName,
+          Key: toDynamoItem(keys.product(item.productId)),
+          ConditionExpression: "attribute_exists(PK)",
+          UpdateExpression: isPaymentSuccess
+            ? "SET #soldCount = if_not_exists(#soldCount, :zero) + :quantity, updatedAt = :updatedAt, #version = if_not_exists(#version, :zero) + :one"
+            : "SET #stock = #stock + :quantity, updatedAt = :updatedAt, #version = if_not_exists(#version, :zero) + :one",
+          ExpressionAttributeNames: {
+            ...(isPaymentSuccess ? { "#soldCount": "soldCount" } : { "#stock": "stock" }),
+            "#version": "version"
+          },
+          ExpressionAttributeValues: toDynamoItem({
+            ":quantity": item.quantity, ":updatedAt": now,
+            ":zero": 0, ":one": 1
+          })
+        }
+      }))
+    ]
+  }));
+
+  return { order: { ...order, status: input.status, updatedAt: now }, items, changed: true };
+}
+
 export async function markOrderAsDone(id: string) {
   const now = new Date().toISOString();
 
@@ -1109,17 +1350,28 @@ export async function markOrderAsDone(id: string) {
 }
 
 export async function listOrdersByCustomer(email: string) {
-  const result = await rawDb.send(new ScanCommand({
-    TableName,
-    FilterExpression: "entityType = :entityType AND customerEmail = :customerEmail",
-    ExpressionAttributeValues: toDynamoItem({
-      ":entityType": "ORDER",
-      ":customerEmail": email
-    })
-  }));
-
-  return (result.Items ?? [])
-    .map((item) => fromDynamoItem(item))
-    .filter(Boolean)
+  const orders: Record<string, any>[] = [];
+  let cursor: Record<string, AttributeValue> | undefined;
+  do {
+    const result = await rawDb.send(new ScanCommand({
+      TableName, ExclusiveStartKey: cursor,
+      FilterExpression: "entityType = :entityType AND customerEmail = :customerEmail",
+      ExpressionAttributeValues: toDynamoItem({
+        ":entityType": "ORDER", ":customerEmail": email
+      })
+    }));
+    for (const raw of result.Items ?? []) {
+      const order = fromDynamoItem(raw);
+      if (!order) continue;
+      if (order.SK === "ORDER") {
+        order.items = (await listOrderItems(order.id)).map((item) => ({
+          ...item, price: item.unitPrice
+        }));
+      }
+      orders.push(order);
+    }
+    cursor = result.LastEvaluatedKey;
+  } while (cursor);
+  return orders
     .sort((left, right) => String(right?.createdAt ?? "").localeCompare(String(left?.createdAt ?? "")));
 }

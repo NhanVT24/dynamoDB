@@ -1,8 +1,8 @@
-import { ScanCommand } from "@aws-sdk/client-dynamodb";
+import { QueryCommand, ScanCommand } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
-import type { StorefrontOrderRecord } from "./storefront.repository.js";
+import type { StorefrontAwaitingPaymentOrderRecord, StorefrontOrderItemRecord } from "./storefront.repository.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 
@@ -20,7 +20,7 @@ type WeeklyRevenueSummary = {
     quantity: number;
     revenue: number;
   }>;
-  orders: StorefrontOrderRecord[];
+  orders: Array<StorefrontAwaitingPaymentOrderRecord & { items: StorefrontOrderItemRecord[] }>;
 };
 
 function toDynamoItem(item: Record<string, unknown>) {
@@ -46,20 +46,41 @@ export async function buildWeeklyRevenueSummary(referenceDate = new Date()): Pro
 
   const result = await rawDb.send(new ScanCommand({
     TableName,
-    FilterExpression: "entityType = :entityType AND #status = :status",
+    FilterExpression: "entityType = :entityType AND #status IN (:status, :doneStatus, :pendingStatus)",
     ExpressionAttributeNames: {
       "#status": "status"
     },
     ExpressionAttributeValues: toDynamoItem({
       ":entityType": "ORDER",
-      ":status": "done"
+      ":status": "paid",
+      ":doneStatus": "done",
+      ":pendingStatus": "pending"
     })
   }));
 
-  const orders = (result.Items ?? [])
-    .map((item) => unmarshall(item) as StorefrontOrderRecord)
+  const paidOrders = (result.Items ?? [])
+    .map((item) => unmarshall(item) as StorefrontAwaitingPaymentOrderRecord)
     .filter((item) => isDateWithinRange(String(item.createdAt ?? ""), rangeStartTime, rangeEndTime))
     .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
+
+  const orders = await Promise.all(paidOrders.map(async (order) => {
+    // Legacy checkout orders embed their lines in DETAIL after a successful IPN.
+    const embeddedItems = (order as unknown as { items?: StorefrontOrderItemRecord[] }).items;
+    if (Array.isArray(embeddedItems)) return { ...order, items: embeddedItems };
+    const itemsResult = await rawDb.send(new QueryCommand({
+      TableName,
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :itemPrefix)",
+      ExpressionAttributeValues: toDynamoItem({
+        ":pk": order.PK,
+        ":itemPrefix": "ORDER_ITEM#"
+      })
+    }));
+
+    return {
+      ...order,
+      items: (itemsResult.Items ?? []).map((item) => unmarshall(item) as StorefrontOrderItemRecord)
+    };
+  }));
 
   const topProductsMap = new Map<string, { productId: string; productName: string; quantity: number; revenue: number }>();
   let totalRevenue = 0;

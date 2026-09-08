@@ -42,7 +42,7 @@ type NotificationApiItem = {
 
 type CheckoutGateStatusResponse = {
   requestId?: string;
-  status?: "pending" | "allowed" | "blocked" | "cancelled" | "expired" | "payment_failed" | "completed";
+  status?: "pending" | "allowed" | "blocked" | "cancelled" | "expired" | "payment_failed" | "paid";
   message?: string;
   failureCode?: string;
   paymentUrl?: string;
@@ -240,7 +240,7 @@ function CheckoutResultPageContent() {
     async function pollQueueResult() {
       attempts += 1;
       try {
-        const gateResponse = await fetch(`/api/lambda-proxy/api/storefront/checkout/prepare/${requestId}`, {
+        const gateResponse = await fetch(`/api/lambda-proxy/api/storefront/orders/${requestId}/status`, {
           headers: {
             Authorization: `Bearer ${session.idToken}`
           },
@@ -256,7 +256,7 @@ function CheckoutResultPageContent() {
           return;
         }
 
-        if (gatePayload.status === "completed") {
+        if (gatePayload.status === "paid") {
           setQueueState("done");
           setQueueMessage(gatePayload.message || "Your order has been recorded successfully.");
           setMatchedNotification({

@@ -7,7 +7,7 @@ import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { publishAdminAlert } from "../../integrations/sns/publisher.js";
 import { sendOrderConfirmationEmail, sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
-import { commitCheckoutReservationsToOrder, getOrderById, markOrderAsDone, type InventoryStockChange } from "../storefront/storefront.repository.js";
+import { commitCheckoutReservationsToOrder, getAwaitingPaymentOrder, transitionAwaitingPaymentOrder, getOrderById, markOrderAsDone, type InventoryStockChange } from "../storefront/storefront.repository.js";
 import {
   createNotification,
   deleteNotification,
@@ -580,12 +580,31 @@ export class NotificationsService {
     };
 
     try {
-      committed = requestId
-        ? await commitCheckoutReservationsToOrder({
-          requestId,
-          expectedCustomerEmail: email
-        })
-        : { order: null, orderId: payload.orderId?.trim() || "", stockChanges: [] as InventoryStockChange[] };
+      const awaitingOrder = requestId ? await getAwaitingPaymentOrder(requestId) : null;
+      if (awaitingOrder) {
+        if (awaitingOrder.customerEmail !== email || awaitingOrder.totalAmount !== amount) {
+          throw new Error("Payment customer or amount does not match held order");
+        }
+        const outcome = await transitionAwaitingPaymentOrder({
+          orderId: requestId, expectedCustomerEmail: email, status: "paid"
+        });
+        committed = {
+          orderId: requestId,
+          stockChanges: [],
+          order: {
+            ...outcome.order,
+            SK: "DETAIL",
+            status: "pending",
+            items: outcome.items.map((item) => ({
+              productId: item.productId, productName: item.productName,
+              price: item.unitPrice, quantity: item.quantity, lineTotal: item.lineTotal
+            }))
+          }
+        };
+      } else {
+        if (requestId) throw new Error("ORDER not found; payment reconciliation required");
+        committed = { order: null, orderId: payload.orderId?.trim() || "", stockChanges: [] };
+      }
     } catch (error) {
       const syncErrorMessage = error instanceof Error ? error.message : "unknown";
 

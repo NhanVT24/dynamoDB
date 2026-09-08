@@ -7,9 +7,11 @@ import {
 } from "../../common/logging/queue-logger.js";
 import { RuntimeConfigService } from "../../config/runtime-config.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
+import { getShoppingItem } from "../shopping/shopping.repository.js";
 import {
-  getStorefrontProductById,
-  releaseCheckoutGateReservation
+  getAwaitingPaymentOrder,
+  releaseCheckoutGateReservation,
+  transitionAwaitingPaymentOrder
 } from "../storefront/storefront.repository.js";
 import {
   createPaymentSession,
@@ -85,13 +87,13 @@ export class VnpayService {
   async createPaymentUrl(
     input: CreateVnpayPaymentInput,
     ipAddress: string,
-    options?: { skipStockValidation?: boolean; expiresAt?: string }
+    options?: { skipStockValidation?: boolean; expiresAt?: string; amount?: number }
   ) {
     const paymentConfig = this.runtimeConfigService.getPaymentConfig();
     let totalAmount = 0;
 
     for (const item of input.items) {
-      const product = await getStorefrontProductById(item.productId);
+      const product = await getShoppingItem(item.productId);
       if (!product) {
         throw new Error(`Không tìm thấy sản phẩm ${item.productId}.`);
       }
@@ -101,6 +103,11 @@ export class VnpayService {
       }
 
       totalAmount += Number(product.price ?? 0) * item.quantity;
+    }
+
+    const amount = options?.amount ?? totalAmount;
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      throw new Error("Payment amount must be a positive integer.");
     }
 
     const txnRef = `NX${crypto.randomUUID().replace(/-/g, "")}`;
@@ -118,7 +125,7 @@ export class VnpayService {
       vnp_Version: "2.1.0",
       vnp_Command: "pay",
       vnp_TmnCode: paymentConfig.vnpayTmnCode,
-      vnp_Amount: String(totalAmount * 100),
+      vnp_Amount: String(amount * 100),
       vnp_CreateDate: createDate,
       vnp_ExpireDate: expireDate,
       vnp_CurrCode: "VND",
@@ -142,11 +149,11 @@ export class VnpayService {
       txnRef,
       email: input.email?.trim().toLowerCase(),
       orderInfo,
-      amount: totalAmount,
+      amount,
       expiresAt: expiresAt.toISOString()
     });
 
-    this.logger.log(`[payment-vnpay] created txnRef=${txnRef} amount=${totalAmount} itemCount=${input.items.length} expiresAt=${expiresAt.toISOString()}`);
+    this.logger.log(`[payment-vnpay] created txnRef=${txnRef} amount=${amount} itemCount=${input.items.length} expiresAt=${expiresAt.toISOString()}`);
 
     if (input.email?.trim()) {
       const normalizedEmail = input.email.trim().toLowerCase();
@@ -156,7 +163,7 @@ export class VnpayService {
         email: normalizedEmail,
         resourceId: txnRef,
         metadata: {
-          amount: totalAmount,
+          amount,
           itemCount: input.items.length,
           bankCode: input.bankCode ?? "",
           status: "pending",
@@ -169,7 +176,7 @@ export class VnpayService {
     return {
       paymentUrl,
       txnRef,
-      amount: totalAmount,
+      amount,
       orderInfo,
       expiresAt: expiresAt.toISOString(),
       timeoutMinutes: PAYMENT_TIMEOUT_MINUTES
@@ -297,9 +304,13 @@ export class VnpayService {
       bankCode: session.bankCode ?? "", payDate: session.payDate ?? ""
     };
     if (session.status === "failed" && requestId) {
-      await releaseCheckoutGateReservation({ requestId, message: "Payment was not successful.",
-        failureCode: session.responseCode === "24" ? "payment_cancelled" : "payment_failed",
-        status: session.responseCode === "24" ? "cancelled" : "payment_failed" });
+      const order = await getAwaitingPaymentOrder(requestId);
+      if (order) {
+        await transitionAwaitingPaymentOrder({
+          orderId: requestId,
+          status: session.responseCode === "24" ? "cancelled" : "payment_failed"
+        });
+      }
     }
     if (!session.email) {
       // Recording money must not depend on an optional notification address.
@@ -355,6 +366,7 @@ export class VnpayService {
     ipAddress?: string;
     skipStockValidation?: boolean;
     expiresAt?: string;
+    amount?: number;
   }) {
     return this.createPaymentUrl({
       email: input.email,
@@ -364,7 +376,8 @@ export class VnpayService {
       locale: input.locale
     }, input.ipAddress?.trim() || "127.0.0.1", {
       skipStockValidation: input.skipStockValidation,
-      expiresAt: input.expiresAt
+      expiresAt: input.expiresAt,
+      amount: input.amount
     });
   }
 

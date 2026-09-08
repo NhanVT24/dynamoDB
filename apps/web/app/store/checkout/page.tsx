@@ -19,8 +19,9 @@ const checkoutGateMaxPollAttempts = checkoutGatePollDelaysMs.length + 1;
 const failedRedirectDelaySeconds = 15;
 
 type PrepareCheckoutResponse = {
-  requestId?: string;
-  status?: "pending" | "allowed" | "blocked";
+  orderId?: string;
+  paymentUrl?: string;
+  status?: string;
   message?: string;
 };
 
@@ -126,7 +127,7 @@ export default function CheckoutPage() {
       }
 
       try {
-        const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/cancel`, {
+        const response = await fetch(`${apiBaseUrl}/api/storefront/orders/${requestId}/cancel`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -195,182 +196,6 @@ export default function CheckoutPage() {
     void handleCheckout();
   }, [hasHydrated, session?.idToken]);
 
-  async function createPaymentSessionAndRedirect(requestId: string) {
-    if (!session?.idToken) {
-      throw new Error("Your payment is expired. Please sign in again to continue checkout.");
-    }
-
-    if (isCreatingPaymentSessionRef.current) {
-      return;
-    }
-    isCreatingPaymentSessionRef.current = true;
-    console.info("[checkout] payment_session_started", { requestId });
-
-    setIsRedirectingToPayment(true);
-    setGateMessage("Completing verification and redirecting to VNPay...");
-
-    const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/payment-session`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.idToken}`
-      },
-      body: JSON.stringify({ requestId })
-    });
-    const payload = (await response.json().catch(() => null)) as CheckoutPaymentSessionResponse | null;
-    console.info("[checkout] payment_session_response", {
-      requestId,
-      statusCode: response.status,
-      hasPaymentUrl: Boolean(payload?.paymentUrl),
-      message: payload?.message ?? ""
-    });
-    if (!response.ok || !payload?.paymentUrl) {
-      throw new Error(payload?.message || "Cannot create VNPay payment session at this time.");
-    }
-
-    window.localStorage.setItem(
-      pendingCheckoutStorageKey,
-      JSON.stringify({
-        email: session.email ?? "",
-        requestId,
-        items: items.map((item) => ({
-          productId: item.productId,
-          quantity: item.quantity
-        })),
-        createdAt: new Date().toISOString()
-      })
-    );
-
-    window.location.assign(payload.paymentUrl);
-  }
-
-  async function cancelTimedOutCheckout(requestId: string) {
-    if (!session?.idToken) {
-      return;
-    }
-
-    try {
-      await fetch(`${apiBaseUrl}/api/storefront/checkout/cancel`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.idToken}`
-        },
-        body: JSON.stringify({ requestId })
-      });
-    } catch (cancelError) {
-      // The expiry scheduler remains the safety net if this best-effort
-      // request cannot leave the browser.
-      console.warn("[checkout] gate_cancel_failed", { requestId, cancelError });
-    }
-  }
-
-  useEffect(() => {
-    if (!gateRequestId || gateStatus !== "pending" || !session?.idToken) {
-      return;
-    }
-
-    let cancelled = false;
-    let attempts = 0;
-    let timeoutId: number | undefined;
-    let shouldContinuePolling = true;
-
-    async function pollGateStatus() {
-      if (isPollingGateRef.current || cancelled) {
-        return;
-      }
-
-      isPollingGateRef.current = true;
-      attempts += 1;
-      try {
-        const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare/${gateRequestId}`, {
-          headers: {
-            Authorization: `Bearer ${session.idToken}`
-          },
-          cache: "no-store"
-        });
-        const payload = (await response.json().catch(() => null)) as CheckoutGateStatusResponse | null;
-        if (!response.ok || !payload?.status || cancelled) {
-          console.warn("[checkout] gate_status_unavailable", {
-            requestId: gateRequestId,
-            attempt: attempts,
-            statusCode: response.status
-          });
-          return;
-        }
-
-        console.info("[checkout] gate_status_response", {
-          requestId: gateRequestId,
-          attempt: attempts,
-          status: payload.status,
-          message: payload.message || ""
-        });
-
-        setGateMessage(payload.message || "");
-        if (payload.status !== lastLoggedGateStatusRef.current || attempts % 5 === 0) {
-          console.info("[checkout] gate_status", {
-            requestId: gateRequestId,
-            attempt: attempts,
-            status: payload.status,
-            message: payload.message || ""
-          });
-          lastLoggedGateStatusRef.current = payload.status;
-        }
-
-        if (payload.status === "allowed") {
-          shouldContinuePolling = false;
-          setGateStatus("allowed");
-          await createPaymentSessionAndRedirect(gateRequestId);
-          return;
-        }
-
-        if (payload.status === "blocked" || payload.status === "cancelled" || payload.status === "expired" || payload.status === "payment_failed") {
-          shouldContinuePolling = false;
-          setGateStatus("blocked");
-          setError(payload.message || "We could not reserve all items in your cart for payment. Please review your cart and try again.");
-          startFailureRedirect();
-          return;
-        }
-
-        if (attempts >= checkoutGateMaxPollAttempts) {
-          shouldContinuePolling = false;
-          console.error("[checkout] gate_timeout", { requestId: gateRequestId, attempts });
-          void cancelTimedOutCheckout(gateRequestId);
-          setGateStatus("blocked");
-          setError(`The checkout queue is taking too long for request ${gateRequestId}. Please check the checkout-gate worker on AWS and try again.`);
-          startFailureRedirect();
-        }
-      } catch (pollError) {
-        if (!cancelled) {
-          shouldContinuePolling = false;
-          console.error("[checkout] gate_poll_failed", { requestId: gateRequestId, pollError });
-          void cancelTimedOutCheckout(gateRequestId);
-          setError(pollError instanceof Error ? pollError.message : "We could not check the checkout queue right now.");
-          setGateStatus("blocked");
-          startFailureRedirect();
-        }
-      } finally {
-        isPollingGateRef.current = false;
-
-        if (!cancelled && shouldContinuePolling && attempts < checkoutGateMaxPollAttempts) {
-          const nextDelayMs = checkoutGatePollDelaysMs[attempts - 1];
-          timeoutId = window.setTimeout(() => {
-            void pollGateStatus();
-          }, nextDelayMs);
-        }
-      }
-    }
-
-    void pollGateStatus();
-
-    return () => {
-      cancelled = true;
-      if (timeoutId) {
-        window.clearTimeout(timeoutId);
-      }
-    };
-  }, [gateRequestId, gateStatus, items, session]);
-
   async function handleCheckout() {
     if (items.length === 0) {
       setError("Your cart is empty. Please add at least one product before checkout.");
@@ -414,8 +239,8 @@ export default function CheckoutPage() {
         return;
       }
 
-      setGateMessage("Preparing your checkout request and sending it to the product gate queue.");
-      const response = await fetch(`${apiBaseUrl}/api/storefront/checkout/prepare`, {
+      setGateMessage("Creating your order and holding inventory.");
+      const response = await fetch(`${apiBaseUrl}/api/storefront/orders`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -434,18 +259,23 @@ export default function CheckoutPage() {
       const payload = (await response.json().catch(() => null)) as PrepareCheckoutResponse | null;
       console.info("[checkout] prepare_response", {
         statusCode: response.status,
-        requestId: payload?.requestId ?? "",
+        requestId: payload?.orderId ?? "",
         status: payload?.status ?? "",
         message: payload?.message ?? ""
       });
 
-      if (!response.ok || !payload?.requestId) {
+      if (!response.ok || !payload?.orderId || !payload?.paymentUrl) {
         throw new Error(payload?.message || "We could not send this checkout request to the queue.");
       }
 
-      setGateRequestId(payload.requestId);
-      setGateStatus("pending");
-      setGateMessage(payload.message || "Your request is waiting in the queue for inventory verification.");
+      setGateRequestId(payload.orderId);
+      setGateStatus("allowed");
+      setIsRedirectingToPayment(true);
+      window.localStorage.setItem(pendingCheckoutStorageKey, JSON.stringify({
+        email: session.email, requestId: payload.orderId,
+        items: items.map((item) => ({ productId: item.productId, quantity: item.quantity }))
+      }));
+      window.location.assign(payload.paymentUrl);
     } catch (checkoutError) {
       setGateStatus("blocked");
       setError(checkoutError instanceof Error ? checkoutError.message : "We could not start checkout verification.");
