@@ -4,6 +4,7 @@ import type { InventoryReportProduct } from "../../modules/shopping/shopping.rep
 import { sesClient } from "./client.js";
 
 type InventoryDigestInput = {
+  emailId: string;
   reportId: string;
   reportDate: string;
   lowStockProducts: InventoryReportProduct[];
@@ -12,6 +13,10 @@ type InventoryDigestInput = {
   // to use ADMIN_REPORT_EMAIL.
   recipientEmail?: string;
 };
+
+export function getInventoryDigestSubject(reportDate: string) {
+  return `Inventory Report - ${reportDate}`;
+}
 
 function escapeHtml(value: string) {
   return value
@@ -70,12 +75,13 @@ export async function sendInventoryDigestEmail(input: InventoryDigestInput) {
     ConfigurationSetName: env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME,
     // SES copies these tags to SNS feedback events so the receiving Lambda can find this report.
     EmailTags: [
+      { Name: "emailId", Value: input.emailId },
       { Name: "reportId", Value: input.reportId },
       { Name: "reportType", Value: "daily-inventory" }
     ],
     Content: {
       Simple: {
-        Subject: { Data: `Inventory Report - ${input.reportDate}`, Charset: "UTF-8" },
+        Subject: { Data: getInventoryDigestSubject(input.reportDate), Charset: "UTF-8" },
         Body: { Html: { Data: buildInventoryDigestHtml(input), Charset: "UTF-8" } }
       }
     }

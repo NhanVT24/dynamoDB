@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { updateEmailDeliveryStatus } from "../../../modules/email-deliveries/email-delivery.repository.js";
 import { updateInventoryReportDeliveryStatus } from "../../../modules/inventory-reports/inventory-report.repository.js";
 
 type SnsEvent = {
@@ -9,6 +10,7 @@ type SesEvent = {
   eventType?: string;
   mail?: {
     messageId?: string;
+    timestamp?: string;
     tags?: Record<string, string[]>;
   };
 };
@@ -17,6 +19,7 @@ function toDeliveryStatus(eventType: string) {
   switch (eventType) {
     case "Delivery": return "delivered" as const;
     case "Bounce": return "bounced" as const;
+    case "Complaint": return "complained" as const;
     case "Reject": return "rejected" as const;
     case "DeliveryDelay": return "delivery_delayed" as const;
     default: return null;
@@ -31,16 +34,26 @@ export const handler = async (event: SnsEvent) => {
     const sesEvent = JSON.parse(message) as SesEvent;
     const status = toDeliveryStatus(String(sesEvent.eventType ?? ""));
     const reportId = sesEvent.mail?.tags?.reportId?.[0];
-    if (!status || !reportId) {
+    const emailId = sesEvent.mail?.tags?.emailId?.[0];
+    if (!status || (!reportId && !emailId)) {
       return { ignored: "unrelated_ses_event" };
     }
 
-    await updateInventoryReportDeliveryStatus({
-      reportId,
-      sesMessageId: sesEvent.mail?.messageId,
-      status
-    });
-    return { reportId, status };
+    await Promise.all([
+      reportId
+        ? updateInventoryReportDeliveryStatus({ reportId, sesMessageId: sesEvent.mail?.messageId, status })
+        : Promise.resolve(),
+      emailId
+        ? updateEmailDeliveryStatus({
+          id: emailId,
+          sesMessageId: sesEvent.mail?.messageId,
+          status,
+          providerEventType: String(sesEvent.eventType),
+          providerEventAt: sesEvent.mail?.timestamp
+        })
+        : Promise.resolve()
+    ]);
+    return { reportId, emailId, status };
   }));
 
   const failed = results.filter((result) => result.status === "rejected");

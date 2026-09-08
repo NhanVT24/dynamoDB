@@ -633,7 +633,7 @@ exports.handler = async (event) => {
       configurationSetName: inventoryReportConfigurationSet.ref,
       eventDestination: {
         enabled: true,
-        matchingEventTypes: ["SEND", "DELIVERY", "BOUNCE", "REJECT", "DELIVERY_DELAY"],
+        matchingEventTypes: ["SEND", "DELIVERY", "BOUNCE", "COMPLAINT", "REJECT", "DELIVERY_DELAY"],
         snsDestination: {
           topicArn: inventoryReportEventsTopic.topicArn
         }

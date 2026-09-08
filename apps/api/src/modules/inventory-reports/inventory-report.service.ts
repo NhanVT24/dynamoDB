@@ -1,6 +1,11 @@
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { env } from "../../config/env.js";
-import { sendInventoryDigestEmail } from "../../integrations/ses/inventory-report-mailer.js";
+import { getInventoryDigestSubject, sendInventoryDigestEmail } from "../../integrations/ses/inventory-report-mailer.js";
+import {
+  createPendingEmailDelivery,
+  markEmailDeliveryAccepted,
+  markEmailDeliveryFailed
+} from "../email-deliveries/email-delivery.repository.js";
 import {
   listInventoryReportProducts,
   markInventoryReportProductsAlerted
@@ -66,9 +71,18 @@ export async function sendDailyInventoryReport(referenceDate = new Date()) {
     throw error;
   }
 
+  const email = await createPendingEmailDelivery({
+    emailType: "inventory_daily_report",
+    recipientEmail: env.ADMIN_REPORT_EMAIL,
+    senderEmail: env.SES_FROM_EMAIL ?? "",
+    subject: getInventoryDigestSubject(reportDate),
+    reportId
+  });
+
   let sesMessageId: string;
   try {
     sesMessageId = await sendInventoryDigestEmail({
+      emailId: email.id,
       reportId,
       reportDate,
       lowStockProducts,
@@ -76,12 +90,15 @@ export async function sendDailyInventoryReport(referenceDate = new Date()) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown SES send failure";
-    await markInventoryReportFailed(reportId, message);
+    await Promise.all([markInventoryReportFailed(reportId, message), markEmailDeliveryFailed(email.id, message)]);
     // Daily inventory mail is intentionally not retried immediately; the next scheduled run re-evaluates stock.
     return { sent: false, reason: "ses_send_failed" as const, reportId };
   }
 
-  await markInventoryReportAccepted(reportId, sesMessageId);
+  await Promise.all([
+    markInventoryReportAccepted(reportId, sesMessageId),
+    markEmailDeliveryAccepted(email.id, sesMessageId)
+  ]);
 
   try {
     const alertedProductCount = await markInventoryReportProductsAlerted(products);

@@ -39,6 +39,12 @@ export async function runScheduledDataCleanup(now = new Date()) {
       entityType: "INVENTORY_DAILY_REPORT" as const,
       updatedBefore: reportCutoff,
       isEligible: () => true
+    },
+    {
+      name: "emailDeliveryAudit",
+      entityType: "EMAIL" as const,
+      updatedBefore: reportCutoff,
+      isEligible: () => true
     }
   ];
 

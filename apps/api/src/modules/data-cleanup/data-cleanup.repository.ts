@@ -91,7 +91,7 @@ export async function markDataCleanupCompleted(input: { hasRemainingBacklog: boo
 }
 
 export async function listCleanupCandidates(input: {
-  entityType: "NOTIFICATION" | "CHECKOUT_GATE" | "CHECKOUT_RESERVATION" | "INVENTORY_DAILY_REPORT";
+  entityType: "NOTIFICATION" | "CHECKOUT_GATE" | "CHECKOUT_RESERVATION" | "INVENTORY_DAILY_REPORT" | "EMAIL";
   updatedBefore: string;
   isEligible: (item: CleanupCandidate) => boolean;
 }) {

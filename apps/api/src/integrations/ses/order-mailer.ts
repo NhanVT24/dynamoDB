@@ -1,5 +1,11 @@
 import { SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { env } from "../../config/env.js";
+import {
+  createPendingEmailDelivery,
+  markEmailDeliveryAccepted,
+  markEmailDeliveryFailed,
+  type EmailDeliveryRecord
+} from "../../modules/email-deliveries/email-delivery.repository.js";
 import { sesClient } from "./client.js";
 
 type OrderMailLine = {
@@ -63,6 +69,49 @@ function escapeHtml(value: string) {
 function assertSesConfigured() {
   if (!env.SES_FROM_EMAIL) {
     throw new Error("Thiếu cấu hình SES_FROM_EMAIL.");
+  }
+}
+
+async function sendTrackedOrderEmail(input: {
+  emailType: Extract<EmailDeliveryRecord["emailType"], "order_confirmation" | "payment_failure" | "order_failure">;
+  toEmail: string;
+  subject: string;
+  html: string;
+  relatedId?: string;
+}) {
+  assertSesConfigured();
+  const email = await createPendingEmailDelivery({
+    emailType: input.emailType,
+    recipientEmail: input.toEmail,
+    senderEmail: env.SES_FROM_EMAIL ?? "",
+    subject: input.subject,
+    relatedId: input.relatedId
+  });
+
+  try {
+    const result = await sesClient.send(new SendEmailCommand({
+      FromEmailAddress: env.SES_FROM_EMAIL,
+      Destination: { ToAddresses: [input.toEmail] },
+      ...(env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME
+        ? { ConfigurationSetName: env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME }
+        : {}),
+      EmailTags: [
+        { Name: "emailId", Value: email.id },
+        { Name: "emailType", Value: input.emailType }
+      ],
+      Content: {
+        Simple: {
+          Subject: { Data: input.subject, Charset: "UTF-8" },
+          Body: { Html: { Data: input.html, Charset: "UTF-8" } }
+        }
+      }
+    }));
+    if (!result.MessageId) throw new Error("SES accepted the email without a MessageId.");
+    await markEmailDeliveryAccepted(email.id, result.MessageId);
+    return { emailId: email.id, sesMessageId: result.MessageId };
+  } catch (error) {
+    await markEmailDeliveryFailed(email.id, error instanceof Error ? error.message : "Unknown SES send failure");
+    throw error;
   }
 }
 
@@ -165,7 +214,7 @@ function buildPaymentFailureHtml(input: SendPaymentFailureEmailInput) {
             </tbody>
           </table>
           <p style="margin:24px 0 0;font-size:14px;line-height:1.7;color:#475569;">
-            Bạn có thể thử lại thanh toán hoặc liên hệ với ngân hàng để biết thêm chi tiết. Nếu cần hỗ trợ, vui lòng liên hệ với bộ phận chăm sóc khách hàng của NovaX Market.
+            You can try the payment again or contact NovaX Market for further assistance.
           </p>
         </div>
       </div>
@@ -205,7 +254,7 @@ function buildOrderFailureHtml(input: SendOrderFailureEmailInput) {
             </thead>
             <tbody>${rows}</tbody>
           </table>
-          <p style="margin:24px 0 0;font-size:14px;line-height:1.7;color:#475569;">Bạn có thể thử lại sau hoặc chọn sản phẩm khác. Nếu cần hỗ trợ thêm, vui lòng liên hệ NovaX Market.</p>
+          <p style="margin:24px 0 0;font-size:14px;line-height:1.7;color:#475569;">You can try again later or choose a different product. If you need further assistance, please contact NovaX Market.</p>
         </div>
       </div>
     </div>
@@ -213,6 +262,14 @@ function buildOrderFailureHtml(input: SendOrderFailureEmailInput) {
 }
 
 export async function sendOrderConfirmationEmail(input: SendOrderConfirmationEmailInput) {
+  return sendTrackedOrderEmail({
+    emailType: "order_confirmation",
+    toEmail: input.toEmail,
+    subject: `Order confirmation #${input.orderId} - NovaX Market`,
+    html: buildOrderConfirmationHtml(input),
+    relatedId: input.orderId
+  });
+
   assertSesConfigured();
 
   await sesClient.send(new SendEmailCommand({
@@ -238,6 +295,14 @@ export async function sendOrderConfirmationEmail(input: SendOrderConfirmationEma
 }
 
 export async function sendPaymentFailureEmail(input: SendPaymentFailureEmailInput) {
+  return sendTrackedOrderEmail({
+    emailType: "payment_failure",
+    toEmail: input.toEmail,
+    subject: `Payment failed for transaction ${input.txnRef}`,
+    html: buildPaymentFailureHtml(input),
+    relatedId: input.txnRef
+  });
+
   assertSesConfigured();
 
   await sesClient.send(new SendEmailCommand({
@@ -263,6 +328,14 @@ export async function sendPaymentFailureEmail(input: SendPaymentFailureEmailInpu
 }
 
 export async function sendOrderFailureEmail(input: SendOrderFailureEmailInput) {
+  return sendTrackedOrderEmail({
+    emailType: "order_failure",
+    toEmail: input.toEmail,
+    subject: "Order could not be processed - NovaX Market",
+    html: buildOrderFailureHtml(input),
+    relatedId: input.requestId
+  });
+
   assertSesConfigured();
 
   await sesClient.send(new SendEmailCommand({

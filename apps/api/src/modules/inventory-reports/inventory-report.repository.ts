@@ -1,4 +1,5 @@
 import {
+  ConditionalCheckFailedException,
   GetItemCommand,
   PutItemCommand,
   UpdateItemCommand,
@@ -15,6 +16,7 @@ export type InventoryReportStatus =
   | "accepted"
   | "delivered"
   | "bounced"
+  | "complained"
   | "rejected"
   | "delivery_delayed"
   | "failed";
@@ -36,6 +38,7 @@ export type InventoryReportRecord = {
   updatedAt: string;
   acceptedAt?: string;
   deliveredAt?: string;
+  complainedAt?: string;
 };
 
 function reportKey(reportId: string) {
@@ -97,19 +100,30 @@ export async function getInventoryReport(reportId: string) {
 
 export async function markInventoryReportAccepted(reportId: string, sesMessageId: string) {
   const now = new Date().toISOString();
-  await rawDb.send(new UpdateItemCommand({
-    TableName,
-    Key: toDynamoItem(reportKey(reportId)),
-    UpdateExpression: "SET #status = :status, sesMessageId = :sesMessageId, acceptedAt = :acceptedAt, updatedAt = :updatedAt",
-    ConditionExpression: "attribute_exists(PK)",
-    ExpressionAttributeNames: { "#status": "status" },
-    ExpressionAttributeValues: toDynamoItem({
-      ":status": "accepted",
-      ":sesMessageId": sesMessageId,
-      ":acceptedAt": now,
-      ":updatedAt": now
-    })
-  }));
+  try {
+    await rawDb.send(new UpdateItemCommand({
+      TableName,
+      Key: toDynamoItem(reportKey(reportId)),
+      // Feedback can arrive before SendEmail returns. Do not overwrite a terminal result.
+      UpdateExpression: "SET #status = :status, sesMessageId = :sesMessageId, acceptedAt = :acceptedAt, updatedAt = :updatedAt",
+      ConditionExpression: "attribute_exists(PK) AND #status IN (:pending, :accepted)",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: toDynamoItem({
+        ":status": "accepted",
+        ":pending": "pending",
+        ":accepted": "accepted",
+        ":sesMessageId": sesMessageId,
+        ":acceptedAt": now,
+        ":updatedAt": now
+      })
+    }));
+    return true;
+  } catch (error) {
+    if (error instanceof ConditionalCheckFailedException || (error as { name?: string }).name === "ConditionalCheckFailedException") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function markInventoryReportFailed(reportId: string, failureReason: string) {
@@ -131,22 +145,46 @@ export async function markInventoryReportFailed(reportId: string, failureReason:
 export async function updateInventoryReportDeliveryStatus(input: {
   reportId: string;
   sesMessageId?: string;
-  status: Extract<InventoryReportStatus, "delivered" | "bounced" | "rejected" | "delivery_delayed">;
+  status: Extract<InventoryReportStatus, "delivered" | "bounced" | "complained" | "rejected" | "delivery_delayed">;
 }) {
   const now = new Date().toISOString();
-  const deliveryTimestampField = input.status === "delivered" ? ", deliveredAt = :deliveredAt" : "";
-  await rawDb.send(new UpdateItemCommand({
-    TableName,
-    Key: toDynamoItem(reportKey(input.reportId)),
-    // SNS can deliver the same feedback more than once; assigning the same terminal state is idempotent.
-    UpdateExpression: `SET #status = :status, sesMessageId = if_not_exists(sesMessageId, :sesMessageId), updatedAt = :updatedAt${deliveryTimestampField}`,
-    ConditionExpression: "attribute_exists(PK)",
-    ExpressionAttributeNames: { "#status": "status" },
-    ExpressionAttributeValues: toDynamoItem({
-      ":status": input.status,
-      ":sesMessageId": input.sesMessageId ?? "",
-      ":updatedAt": now,
-      ":deliveredAt": now
-    })
-  }));
+  const timestampField = input.status === "delivered"
+    ? ", deliveredAt = :eventAt"
+    : input.status === "complained"
+      ? ", complainedAt = :eventAt"
+      : "";
+  const values: Record<string, unknown> = {
+    ":status": input.status,
+    ":sesMessageId": input.sesMessageId ?? "",
+    ":updatedAt": now
+  };
+  if (input.status === "delivered" || input.status === "complained") {
+    values[":eventAt"] = now;
+  }
+  const preventDeliveryRegression = input.status === "delivered";
+  if (preventDeliveryRegression) {
+    values[":pending"] = "pending";
+    values[":accepted"] = "accepted";
+    values[":delivered"] = "delivered";
+    values[":deliveryDelayed"] = "delivery_delayed";
+  }
+  try {
+    await rawDb.send(new UpdateItemCommand({
+      TableName,
+      Key: toDynamoItem(reportKey(input.reportId)),
+      // SNS feedback can arrive out of order. Do not regress a final outcome.
+      UpdateExpression: `SET #status = :status, sesMessageId = if_not_exists(sesMessageId, :sesMessageId), updatedAt = :updatedAt${timestampField}`,
+      ConditionExpression: preventDeliveryRegression
+        ? "attribute_exists(PK) AND #status IN (:pending, :accepted, :delivered, :deliveryDelayed)"
+        : "attribute_exists(PK)",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: toDynamoItem(values)
+    }));
+    return true;
+  } catch (error) {
+    if (error instanceof ConditionalCheckFailedException || (error as { name?: string }).name === "ConditionalCheckFailedException") {
+      return false;
+    }
+    throw error;
+  }
 }
