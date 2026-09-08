@@ -8,6 +8,8 @@
     "build": "npm run build:ts && node scripts/package-lambda.js",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:vnpay": "npm run build:ts && node --test --test-isolation=none tests/vnpay.test.mjs",
+    "diagnose:vnpay": "tsx src/scripts/diagnose-vnpay-callback.ts",
     "package:lambda": "npm run build:ts && node scripts/package-lambda.js",
     "db:init": "tsx src/scripts/create-table.ts",
     "db:reset-table": "tsx src/scripts/reset-table.ts",

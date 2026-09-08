@@ -27,6 +27,7 @@ export type PaymentSessionRecord = {
   paidAt?: string;
   paymentEventEnqueuedAt?: string;
   responseCode?: string;
+  gatewayTransactionStatus?: string;
   transactionNo?: string;
   bankCode?: string;
   payDate?: string;
@@ -66,6 +67,7 @@ export async function createPaymentSession(input: {
 export async function getPaymentSessionByTxnRef(txnRef: string) {
   const result = await rawDb.send(new GetItemCommand({
     TableName,
+    ConsistentRead: true,
     Key: toDynamoItem({
       PK: `PAYMENT#${txnRef}`,
       SK: "DETAIL"
@@ -79,6 +81,7 @@ export async function updatePaymentSessionStatus(input: {
   txnRef: string;
   status: Exclude<PaymentSessionStatus, "pending">;
   responseCode: string;
+  transactionStatus?: string;
   transactionNo: string;
   bankCode: string;
   payDate: string;
@@ -98,6 +101,9 @@ export async function updatePaymentSessionStatus(input: {
   if (shouldSetPaidAt) {
     updateSegments.push("paidAt = :paidAt");
   }
+  if (input.transactionStatus !== undefined) {
+    updateSegments.push("gatewayTransactionStatus = :gatewayTransactionStatus");
+  }
 
   const expressionAttributeValues: Record<string, unknown> = {
     ":status": input.status,
@@ -113,20 +119,26 @@ export async function updatePaymentSessionStatus(input: {
   if (shouldSetPaidAt) {
     expressionAttributeValues[":paidAt"] = now;
   }
+  if (input.transactionStatus !== undefined) {
+    expressionAttributeValues[":gatewayTransactionStatus"] = input.transactionStatus;
+  }
 
-  await rawDb.send(new UpdateItemCommand({
+  const result = await rawDb.send(new UpdateItemCommand({
     TableName,
     Key: toDynamoItem({
       PK: `PAYMENT#${input.txnRef}`,
       SK: "DETAIL"
     }),
     ConditionExpression: "attribute_exists(PK) AND #status = :pendingStatus",
+    ReturnValues: "ALL_NEW",
     UpdateExpression: updateSegments.join(", "),
     ExpressionAttributeNames: {
       "#status": "status"
     },
     ExpressionAttributeValues: toDynamoItem(expressionAttributeValues)
   }));
+  if (!result.Attributes) throw new Error("Payment update returned no record");
+  return unmarshall(result.Attributes) as PaymentSessionRecord;
 }
 
 export async function markPaymentEventEnqueued(txnRef: string) {

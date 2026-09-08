@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 import { readAuthSession } from "../../../lib/cognito-auth";
 import { formatCurrency } from "../../../store/store-utils";
@@ -18,7 +18,7 @@ const queueMaxPollAttempts = 18;
 
 type ReturnPayload = {
   isValidSignature: boolean;
-  transactionStatus: "success" | "failed" | "expired";
+  transactionStatus: "pending" | "success" | "failed" | "expired";
   message: string;
   txnRef: string;
   amount: number;
@@ -71,7 +71,6 @@ function CheckoutResultPageContent() {
   const searchParams = useSearchParams();
   const { clearCart, theme } = useStorefront();
   const isDark = theme === "dark";
-  const verifiedQueryRef = useRef("");
 
   const [result, setResult] = useState<ReturnPayload | null>(null);
   const [error, setError] = useState("");
@@ -82,38 +81,40 @@ function CheckoutResultPageContent() {
   const [matchedNotification, setMatchedNotification] = useState<NotificationApiItem | null>(null);
 
   useEffect(() => {
-    async function verifyPayment() {
-      const query = searchParams.toString();
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const query = searchParams.toString();
+    async function readPayment() {
       if (!query) {
         setError("No response data was received from VNPay.");
         return;
       }
-
-      if (verifiedQueryRef.current === query) {
-        return;
-      }
-
-      verifiedQueryRef.current = query;
-      setError("");
-
+      attempts += 1;
+      let retry = true;
       try {
         const response = await fetch(`/api/lambda-proxy/api/payments/vnpay/return?${query}`, {
           cache: "no-store"
         });
         const payload = (await response.json().catch(() => null)) as ReturnPayload | { message?: string } | null;
-
         if (!response.ok || !payload || !("txnRef" in payload)) {
-          throw new Error(payload?.message || "We could not verify the payment result.");
+          throw new Error(payload?.message || "We could not read the payment status.");
         }
-
+        if (cancelled) return;
+        setError("");
         setResult(payload);
-      } catch (verificationError) {
-        verifiedQueryRef.current = "";
-        setError(verificationError instanceof Error ? verificationError.message : "We could not verify the payment result.");
+        retry = payload.isValidSignature && payload.transactionStatus === "pending";
+      } catch (readError) {
+        if (cancelled) return;
+        setError(readError instanceof Error ? readError.message : "We could not read the payment status.");
+      }
+      if (!cancelled && retry) {
+        if (attempts < queueMaxPollAttempts) timer = setTimeout(() => void readPayment(), queuePollIntervalMs);
+        else setError("Payment confirmation is taking longer than expected. Refresh this page or check your order history before paying again.");
       }
     }
-
-    void verifyPayment();
+    void readPayment();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [searchParams]);
 
   useEffect(() => {
@@ -203,8 +204,6 @@ function CheckoutResultPageContent() {
       if (nextRequestId) {
         window.sessionStorage.setItem(getPendingOrderRequestKey(result.txnRef), nextRequestId);
         setRequestId(nextRequestId);
-        setQueueState("polling");
-        setQueueMessage("Payment has been confirmed. The system is synchronizing your order from the reserved checkout request.");
       }
 
       window.localStorage.removeItem(pendingCheckoutStorageKey);
@@ -215,7 +214,7 @@ function CheckoutResultPageContent() {
   }, [clearCart, queueState, result]);
 
   useEffect(() => {
-    if (!result || (result.transactionStatus === "success" && result.isValidSignature)) {
+    if (!result || result.transactionStatus === "pending" || (result.transactionStatus === "success" && result.isValidSignature)) {
       return;
     }
 
@@ -320,30 +319,39 @@ function CheckoutResultPageContent() {
 
       if (!cancelled && attempts >= queueMaxPollAttempts) {
         setQueueState("failed");
-        setQueueMessage("Order processing is taking too long. Please check the worker and DLQ on AWS.");
+        setQueueMessage("Order confirmation is taking longer than expected. Please check your order history or contact support before paying again.");
       }
     }
 
-    void pollQueueResult();
-    const intervalId = window.setInterval(() => {
-      void pollQueueResult();
-    }, queuePollIntervalMs);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function pollNext() {
+      await pollQueueResult();
+      if (cancelled) return;
+      if (attempts >= queueMaxPollAttempts) {
+        setQueueState((state) => state === "done" ? state : "failed");
+        return;
+      }
+      timer = setTimeout(() => void pollNext(), queuePollIntervalMs);
+    }
+    void pollNext();
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
+      if (timer) clearTimeout(timer);
     };
   }, [queueState, requestId, result?.txnRef]);
 
   const hasValidGatewaySuccess = result?.transactionStatus === "success" && result.isValidSignature;
-  const isSuccess = queueState === "done";
+  const isSuccess = queueState === "done" || Boolean(hasValidGatewaySuccess && !requestId && !extractRequestId(result?.orderInfo ?? ""));
   const isExpired = result?.transactionStatus === "expired";
-  const isAwaitingWebhook = Boolean(hasValidGatewaySuccess && !isSuccess && queueState !== "failed");
-  const canStartNewCheckout = Boolean(result) && !isSuccess && !isAwaitingWebhook;
+  const isAwaitingWebhook = Boolean(result?.transactionStatus === "pending" || (hasValidGatewaySuccess && !isSuccess && queueState !== "failed"));
+  const canStartNewCheckout = Boolean(result?.isValidSignature && (result.transactionStatus === "failed" || result.transactionStatus === "expired")) && !isSuccess;
   const resultHeading = isSuccess
     ? "payment has been confirmed"
     : isAwaitingWebhook
-      ? "payment received, awaiting confirmation"
+      ? "awaiting payment confirmation"
+    : hasValidGatewaySuccess
+      ? "payment confirmed, order needs review"
     : isExpired
       ? "payment has expired"
       : result
@@ -352,18 +360,20 @@ function CheckoutResultPageContent() {
   const resultDescription = isSuccess
     ? "Your order has been successfully recorded. You can check your order history for details."
     : isAwaitingWebhook
-      ? "VNPay has returned the customer to this page. The system is waiting for the VNPay server webhook before creating the order."
+      ? "We are checking the payment confirmation and your order. You can return to your order history later."
+    : hasValidGatewaySuccess
+      ? "Your payment was confirmed, but your order needs further checking. Please contact support before paying again."
     : isExpired
       ? "The payment session has expired. You can check your cart and start a new checkout process."
       : result
         ? "The payment was not completed. You can check your cart and start a new checkout process."
-        : error || "We are waiting for the payment result from VNPay. Please do not close this page until the result is received.";
+        : error || "We are checking your payment status. Processing continues even if you close this page.";
   const shouldShowQueueNotification =
     Boolean(matchedNotification) &&
     (queueState !== "done" || matchedNotification?.message !== queueMessage);
 
   const queuePanel = useMemo<QueuePanel | null>(() => {
-    if (!hasValidGatewaySuccess || !requestId) {
+    if (!(hasValidGatewaySuccess || result?.transactionStatus === "pending") || !requestId) {
       return null;
     }
 
@@ -400,7 +410,7 @@ function CheckoutResultPageContent() {
       title: "The system is preparing your order request",
       message: queueMessage || "Your request has been received. The system is preparing to check the queue status."
     };
-  }, [hasValidGatewaySuccess, isDark, queueMessage, queueState, requestId]);
+  }, [hasValidGatewaySuccess, result?.transactionStatus, isDark, queueMessage, queueState, requestId]);
 
   return (
     <main className="px-4 py-12 sm:px-6 lg:px-8">
@@ -410,7 +420,7 @@ function CheckoutResultPageContent() {
         }`}
       >
         <p className={`text-xs font-semibold uppercase tracking-[0.28em] ${isSuccess ? "text-emerald-500" : isExpired ? "text-rose-500" : "text-orange-500"}`}>
-          {isSuccess ? "Payment confirmed" : isExpired ? "Payment expired" : "Payment not completed"}
+          {isSuccess || hasValidGatewaySuccess ? "Payment confirmed" : isAwaitingWebhook ? "Awaiting confirmation" : isExpired ? "Payment expired" : "Payment not completed"}
         </p>
         <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>
           {resultHeading}
@@ -419,7 +429,7 @@ function CheckoutResultPageContent() {
           {resultDescription}
         </p>
 
-        {result && !isSuccess ? (
+        {result && canStartNewCheckout ? (
           <div className={`mt-6 rounded-[1.5rem] border p-5 ${
             isExpired
               ? isDark

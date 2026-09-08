@@ -10,7 +10,12 @@ import { env } from "../../config/env.js";
 import { AppModule } from "./app.module.js";
 
 export async function createNestApp(): Promise<NestFastifyApplication> {
-  const adapter = new FastifyAdapter({ logger: true });
+  const adapter = new FastifyAdapter({ logger: {
+    // Signed callback URLs are read capabilities; never put them in access logs.
+    serializers: {
+      req: (request) => ({ method: request.method, url: request.url?.split("?")[0], id: request.id })
+    }
+  } });
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
     bufferLogs: true,
     logger: createNestLogger()
@@ -53,8 +58,8 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       correlationId,
       lambdaName: (request.raw as { requestContext?: { lambdaName?: string } })?.requestContext?.lambdaName ?? "http-api",
       method: request.method,
-      url: request.url,
-      query: request.query,
+      url: request.url.split("?")[0],
+      query: request.url.includes("/payments/vnpay") ? undefined : request.query,
       params: request.params
     }, "incoming api request");
   });
@@ -191,7 +196,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       correlationId: (request as { correlationId?: string }).correlationId ?? "",
       lambdaName: (request.raw as { requestContext?: { lambdaName?: string } })?.requestContext?.lambdaName ?? "http-api",
       method: request.method,
-      url: request.url,
+      url: request.url.split("?")[0],
       statusCode: reply.statusCode
     }, "api response sent");
   });

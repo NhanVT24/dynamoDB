@@ -5,11 +5,9 @@ import {
   logQueueBusinessEvent,
   logQueueWarn
 } from "../../common/logging/queue-logger.js";
-import { env } from "../../config/env.js";
 import { RuntimeConfigService } from "../../config/runtime-config.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import {
-  getCheckoutGateRequestById,
   getStorefrontProductById,
   releaseCheckoutGateReservation
 } from "../storefront/storefront.repository.js";
@@ -20,6 +18,7 @@ import {
   updatePaymentSessionStatus,
   type PaymentSessionRecord
 } from "./vnpay.repository.js";
+import { serializeVnpayParams, signVnpayParams, verifyVnpaySignature } from "./vnpay-signature.js";
 import type { CreateVnpayFailureTestInput, CreateVnpayPaymentInput } from "./vnpay.schema.js";
 
 const PAYMENT_TIMEOUT_MINUTES = 5;
@@ -29,7 +28,10 @@ const VIETNAM_UTC_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 type VnpayReturnPayload = {
   isValidSignature: boolean;
-  transactionStatus: "success" | "failed" | "expired";
+  transactionStatus: "pending" | "success" | "failed" | "expired";
+  gatewayTransactionStatus: string;
+  merchantCode: string;
+  amountMinor: string;
   message: string;
   txnRef: string;
   amount: number;
@@ -40,8 +42,6 @@ type VnpayReturnPayload = {
   payDate: string;
 };
 
-type VnpayHandlingOverride = Pick<VnpayReturnPayload, "transactionStatus" | "message">;
-
 function pad(value: number) {
   return String(value).padStart(2, "0");
 }
@@ -51,17 +51,6 @@ function formatVnpDate(date: Date) {
   return `${vietnamDate.getUTCFullYear()}${pad(vietnamDate.getUTCMonth() + 1)}${pad(vietnamDate.getUTCDate())}${pad(vietnamDate.getUTCHours())}${pad(vietnamDate.getUTCMinutes())}${pad(vietnamDate.getUTCSeconds())}`;
 }
 
-function sortAndSerialize(params: Record<string, string>) {
-  return Object.keys(params)
-    .sort()
-    .map((key) => `${key}=${encodeURIComponent(params[key]).replace(/%20/g, "+")}`)
-    .join("&");
-}
-
-function signPayload(payload: string, secret: string) {
-  return crypto.createHmac("sha512", secret).update(Buffer.from(payload, "utf-8")).digest("hex");
-}
-
 function mapResponseCode(code: string) {
   if (code === "00") return "Thanh toán thành công.";
   if (code === "24") return "Khách hàng đã hủy giao dịch.";
@@ -69,10 +58,6 @@ function mapResponseCode(code: string) {
   if (code === "65") return "Tài khoản đã vượt quá hạn mức giao dịch trong ngày.";
   if (code === "75") return "Ngân hàng thanh toán đang bảo trì hoặc không phản hồi.";
   return "Giao dịch chưa hoàn tất hoặc đã xảy ra lỗi trong quá trình thanh toán.";
-}
-
-function isPaymentSessionExpired(session: Pick<PaymentSessionRecord, "expiresAt">) {
-  return new Date(session.expiresAt).getTime() <= Date.now();
 }
 
 function isConditionalCheckFailedError(error: unknown) {
@@ -118,7 +103,7 @@ export class VnpayService {
       totalAmount += Number(product.price ?? 0) * item.quantity;
     }
 
-    const txnRef = `NX${Date.now()}`;
+    const txnRef = `NX${crypto.randomUUID().replace(/-/g, "")}`;
     const createdAt = new Date();
     const configuredExpiry = options?.expiresAt ? new Date(options.expiresAt) : null;
     if (configuredExpiry && (!Number.isFinite(configuredExpiry.getTime()) || configuredExpiry.getTime() <= createdAt.getTime())) {
@@ -149,8 +134,8 @@ export class VnpayService {
       params.vnp_BankCode = input.bankCode.trim();
     }
 
-    const query = sortAndSerialize(params);
-    const secureHash = signPayload(query, paymentConfig.vnpayHashSecret);
+    const query = serializeVnpayParams(params);
+    const secureHash = signVnpayParams(params, paymentConfig.vnpayHashSecret);
     const paymentUrl = `${paymentConfig.vnpayPaymentUrl}?${query}&vnp_SecureHash=${secureHash}`;
 
     await createPaymentSession({
@@ -191,113 +176,143 @@ export class VnpayService {
     };
   }
 
-  private parseAndVerifyCallback(rawQuery: Record<string, unknown>): VnpayReturnPayload {
-    const paymentConfig = this.runtimeConfigService.getPaymentConfig();
-    const query = Object.fromEntries(
-      Object.entries(rawQuery).map(([key, value]) => [key, String(value ?? "")])
-    ) as Record<string, string>;
-
-    const receivedHash = query.vnp_SecureHash || "";
-    const sanitized = { ...query };
-    delete sanitized.vnp_SecureHash;
-    delete sanitized.vnp_SecureHashType;
-
-    const computedHash = signPayload(sortAndSerialize(sanitized), paymentConfig.vnpayHashSecret);
+  private parseAndVerifyCallback(rawQuery: Record<string, unknown>, source: "return" | "ipn"): VnpayReturnPayload {
+    const config = this.runtimeConfigService.getPaymentConfig();
+    const verified = verifyVnpaySignature(rawQuery, config.vnpayHashSecret);
+    const { query, isValidSignature } = verified;
     const responseCode = query.vnp_ResponseCode || "";
-    const isValidSignature = receivedHash === computedHash;
-    const success = isValidSignature && responseCode === "00";
-
-    const result: VnpayReturnPayload = {
+    const gatewayTransactionStatus = query.vnp_TransactionStatus || "";
+    const success = responseCode === "00" && gatewayTransactionStatus === "00";
+    this.logger.log(JSON.stringify({
+      event: "vnpay.callback_checked", source, reason: verified.reason,
+      valid: isValidSignature, hashLength: verified.hashLength,
+      queryKeys: Object.keys(rawQuery).sort(),
+      txnRef: query.vnp_TxnRef ?? "", responseCode, gatewayTransactionStatus,
+      merchantMatches: query.vnp_TmnCode === config.vnpayTmnCode
+    }));
+    return {
       isValidSignature,
-      transactionStatus: success ? "success" : "failed",
-      message: isValidSignature ? mapResponseCode(responseCode) : "Chữ ký phản hồi từ VNPay không hợp lệ.",
+      transactionStatus: isValidSignature && success ? "success" : "failed",
+      message: !isValidSignature ? "Vnpay signature is invalid."
+        : responseCode === "00" && !success ? "VNPay has not confirmed payment success."
+        : mapResponseCode(responseCode),
       txnRef: query.vnp_TxnRef || "",
       amount: Number(query.vnp_Amount || 0) / 100,
-      orderInfo: query.vnp_OrderInfo || "",
-      responseCode,   
+      amountMinor: query.vnp_Amount || "",
+      merchantCode: query.vnp_TmnCode || "",
+      gatewayTransactionStatus,
+      orderInfo: query.vnp_OrderInfo || "", responseCode,
       transactionNo: query.vnp_TransactionNo || "",
-      bankCode: query.vnp_BankCode || "",
-      payDate: query.vnp_PayDate || ""
+      bankCode: query.vnp_BankCode || "", payDate: query.vnp_PayDate || ""
     };
-
-    this.logger.log(`[payment-vnpay] return_checked txnRef=${query.vnp_TxnRef || ""} valid=${isValidSignature} responseCode=${responseCode}`);
-
-    // Return URL is browser-controlled UX only. The VNPay server-to-server
-    // IPN webhook is the sole source of truth for state changes.
-    return result;
-
-    /*
-     * Historical return-URL finalization logic intentionally disabled. A
-     * browser redirect is not an authoritative payment callback; IPN below is.
-     */
-    /* try {
-      const handled = await this.handlePaymentEvent(result, "return");
-      return handled ? { ...result, ...handled } : result;
-    } catch (error) {
-      this.logger.error(
-        `[payment-vnpay] return_processing_failed txnRef=${result.txnRef} responseCode=${result.responseCode} error=${error instanceof Error ? error.message : "unknown"}`,
-        error instanceof Error ? error.stack : undefined
-      );
-
-      if (result.isValidSignature) {
-        const fallbackMessage = result.responseCode === "24"
-          ? "Khách hàng đã hủy giao dịch trên VNPay."
-          : result.transactionStatus === "success"
-            ? "Hệ thống đã ghi nhận giao dịch thành công nhưng có lỗi khi đồng bộ nội bộ."
-            : mapResponseCode(result.responseCode);
-
-        return {
-          ...result,
-          transactionStatus: result.transactionStatus === "success" ? "success" : "failed",
-          message: fallbackMessage
-        };
-      }
-
-      throw error;
-    } */
   }
 
+  private isValidCallback(result: VnpayReturnPayload) {
+    return result.merchantCode === this.runtimeConfigService.getPaymentConfig().vnpayTmnCode
+      && /^[a-zA-Z0-9_-]{1,100}$/.test(result.txnRef)
+      && /^\d{1,12}$/.test(result.amountMinor)
+      && Number.isSafeInteger(Number(result.amountMinor))
+      && /^\d{2}$/.test(result.responseCode)
+      && /^\d{2}$/.test(result.gatewayTransactionStatus)
+      && /^\d{1,15}$/.test(result.transactionNo);
+  }
+
+  // A valid signed return query grants read access only to its own transaction.
+  // Polling never finalizes payments, releases stock or publishes events.
   async verifyReturn(rawQuery: Record<string, unknown>): Promise<VnpayReturnPayload> {
-    const result = this.parseAndVerifyCallback(rawQuery);
-    this.logger.log(`[payment-vnpay] return_received txnRef=${result.txnRef} valid=${result.isValidSignature} responseCode=${result.responseCode}`);
-
-    const handled = await this.handlePaymentEvent(result, "return");
-    return handled ? { ...result, ...handled } : result;
+    const result = this.parseAndVerifyCallback(rawQuery, "return");
+    if (!result.isValidSignature) return result;
+    if (!this.isValidCallback(result)) {
+      return { ...result, transactionStatus: "failed", message: "Invalid VNPay callback data." };
+    }
+    const session = await getPaymentSessionByTxnRef(result.txnRef);
+    if (!session || session.amount * 100 !== Number(result.amountMinor)) {
+      return { ...result, transactionStatus: "failed", message: "Payment session or amount does not match." };
+    }
+    return {
+      ...result, transactionStatus: session.status,
+      amount: session.amount, orderInfo: session.orderInfo,
+      responseCode: session.responseCode ?? result.responseCode,
+      gatewayTransactionStatus: session.gatewayTransactionStatus ?? result.gatewayTransactionStatus,
+      transactionNo: session.transactionNo ?? result.transactionNo,
+      bankCode: session.bankCode ?? result.bankCode,
+      payDate: session.payDate ?? result.payDate,
+      message: session.status === "pending" ? "Waiting for VNPay payment confirmation."
+        : session.status === "success" ? "Payment confirmed by VNPay IPN."
+        : session.status === "expired" ? PAYMENT_TIMEOUT_MESSAGE : "Payment was not successful."
+    };
   }
 
-  async verifyIpn(rawQuery: Record<string, unknown>) {
-    const result = this.parseAndVerifyCallback(rawQuery);
-    this.logger.log(`[payment-vnpay] ipn_checked txnRef=${result.txnRef} valid=${result.isValidSignature} status=${result.transactionStatus}`);
-
-    if (!result.isValidSignature) {
-      return { RspCode: "97", Message: "Invalid Checksum" };
-    }
-
-    const session = result.txnRef ? await getPaymentSessionByTxnRef(result.txnRef) : null;
-    if (!session) {
-      return { RspCode: "01", Message: "Order not found" };
-    }
-
-    if (Math.round(session.amount * 100) !== Math.round(result.amount * 100)) {
-      this.logger.warn(`[payment-vnpay] ipn_amount_mismatch txnRef=${result.txnRef} expected=${session.amount} received=${result.amount}`);
-      return { RspCode: "04", Message: "Invalid amount" };
-    }
-
-    if (session.status !== "pending") {
-      // VNPay retries IPN until it gets a terminal acknowledgement.
-      return { RspCode: "02", Message: "Order already confirmed" };
-    }
-
+  async verifyIpn(rawQuery: Record<string, unknown>, requestId?: string) {
     try {
-      await this.handlePaymentEvent(result, "ipn");
-      return { RspCode: "00", Message: "Confirm Success" };
+      const result = this.parseAndVerifyCallback(rawQuery, "ipn");
+      this.logger.log(JSON.stringify({ event: "vnpay.ipn_received", requestId, txnRef: result.txnRef }));
+      if (!result.isValidSignature) return { RspCode: "97", Message: "Invalid Checksum" };
+      if (!this.isValidCallback(result)) return { RspCode: "99", Message: "Invalid callback data" };
+      let session = await getPaymentSessionByTxnRef(result.txnRef);
+      if (!session) return { RspCode: "01", Message: "Order not found" };
+      if (!Number.isSafeInteger(session.amount * 100) || session.amount * 100 !== Number(result.amountMinor)) {
+        return { RspCode: "04", Message: "Invalid amount" };
+      }
+      let alreadyConfirmed = session.status !== "pending";
+      if (!alreadyConfirmed) {
+        try {
+          // Reservation expiry must never turn a paid transaction into an unpaid one.
+          session = await updatePaymentSessionStatus({
+            txnRef: result.txnRef, status: result.transactionStatus === "success" ? "success" : "failed",
+            responseCode: result.responseCode, transactionStatus: result.gatewayTransactionStatus,
+            transactionNo: result.transactionNo, bankCode: result.bankCode, payDate: result.payDate
+          });
+        } catch (error) {
+          if (!isConditionalCheckFailedError(error)) throw error;
+          // Another IPN won the update. Read its durable outcome before acknowledging.
+          session = await getPaymentSessionByTxnRef(result.txnRef);
+          alreadyConfirmed = true;
+        }
+      }
+      if (!session || session.status !== result.transactionStatus
+        || session.responseCode !== result.responseCode
+        || session.transactionNo !== result.transactionNo
+        || (session.gatewayTransactionStatus && session.gatewayTransactionStatus !== result.gatewayTransactionStatus)) {
+        throw new Error("Conflicting payment callback; reconciliation required");
+      }
+      // Resume interrupted dispatch on duplicate callbacks before terminal ACK 02.
+      await this.dispatchPaymentEvent(session);
+      return alreadyConfirmed ? { RspCode: "02", Message: "Order already confirmed" }
+        : { RspCode: "00", Message: "Confirm Success" };
     } catch (error) {
-      this.logger.error(
-        `[payment-vnpay] ipn_processing_failed txnRef=${result.txnRef} error=${error instanceof Error ? error.message : "unknown"}`,
-        error instanceof Error ? error.stack : undefined
-      );
-      // 99 lets VNPay retry; 00/02 would stop its retry mechanism.
+      this.logger.error(JSON.stringify({ event: "vnpay.ipn_processing_failed", requestId,
+        error: error instanceof Error ? error.message : "unknown" }));
       return { RspCode: "99", Message: "Internal error" };
+    }
+  }
+
+  private async dispatchPaymentEvent(session: PaymentSessionRecord) {
+    if (session.paymentEventEnqueuedAt) return;
+    const requestId = extractCheckoutGateRequestId(session.orderInfo);
+    const input = {
+      email: session.email, txnRef: session.txnRef, amount: session.amount,
+      orderInfo: session.orderInfo, requestId,
+      responseCode: session.responseCode ?? "", transactionNo: session.transactionNo ?? "",
+      bankCode: session.bankCode ?? "", payDate: session.payDate ?? ""
+    };
+    if (session.status === "failed" && requestId) {
+      await releaseCheckoutGateReservation({ requestId, message: "Payment was not successful.",
+        failureCode: session.responseCode === "24" ? "payment_cancelled" : "payment_failed",
+        status: session.responseCode === "24" ? "cancelled" : "payment_failed" });
+    }
+    if (!session.email) {
+      // Recording money must not depend on an optional notification address.
+      this.logger.warn(JSON.stringify({ event: "vnpay.notification_skipped", txnRef: session.txnRef, reason: "missing_email" }));
+      if (requestId) throw new Error("Checkout payment has no customer email; reconciliation required");
+      return;
+    }
+    if (session.status === "success") {
+      await this.publishAndMarkPaymentCompletedEvent({ ...input, email: session.email }, "ipn");
+    } else {
+      await this.enqueueFailedPaymentNotification({ ...input, email: session.email,
+        failureReason: session.responseCode === "00" ? "VNPay has not confirmed payment success."
+          : mapResponseCode(session.responseCode ?? "") }, "ipn");
     }
   }
 
@@ -353,229 +368,6 @@ export class VnpayService {
     });
   }
 
-  private async handlePaymentEvent(result: VnpayReturnPayload, source: "return" | "ipn"): Promise<VnpayHandlingOverride | null> {
-    this.logger.log(`[queue-payment] evaluate txnRef=${result.txnRef} source=${source} valid=${result.isValidSignature} status=${result.transactionStatus}`);
-
-    if (!result.isValidSignature) {
-      this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=invalid_signature source=${source}`);
-      return null;
-    }
-
-    const session = result.txnRef ? await getPaymentSessionByTxnRef(result.txnRef) : null;
-    if (!session) {
-      this.logger.warn(`[dynamo-payment] session_missing txnRef=${result.txnRef} source=${source}`);
-      return {
-        transactionStatus: "failed" as const,
-        message: "Không tìm thấy phiên thanh toán."
-      };
-    }
-
-    const resolvedOrderInfo = session.orderInfo || result.orderInfo;
-    const requestId = extractCheckoutGateRequestId(resolvedOrderInfo);
-
-    if (session.status !== "pending") {
-      // A previous callback may have finalized the payment session just before
-      // EventBridge became unavailable. A later signed callback can safely
-      // resume dispatch because the event was never marked as enqueued.
-      if (session.status === "success" && !session.paymentEventEnqueuedAt && session.email) {
-        await this.publishAndMarkPaymentCompletedEvent({
-          email: session.email,
-          txnRef: result.txnRef,
-          amount: session.amount,
-          orderInfo: resolvedOrderInfo,
-          requestId,
-          responseCode: session.responseCode || result.responseCode,
-          transactionNo: session.transactionNo || result.transactionNo,
-          bankCode: session.bankCode || result.bankCode,
-          payDate: session.payDate || result.payDate
-        }, source);
-        return null;
-      }
-
-      this.logger.log(`[dynamo-payment] session_finalized txnRef=${result.txnRef} source=${source} status=${session.status} email=${session.email ?? ""}`);
-      this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=already_finalized_${session.status} source=${source}`);
-      return {
-        transactionStatus: session.status === "expired" ? "expired" : session.status,
-        message: session.status === "expired" ? PAYMENT_TIMEOUT_MESSAGE : mapResponseCode(session.responseCode ?? result.responseCode)
-      };
-    }
-
-    if (isPaymentSessionExpired(session)) {
-      await this.finalizeExpiredPayment(session, result, source);
-      return {
-        transactionStatus: "expired" as const,
-        message: PAYMENT_TIMEOUT_MESSAGE
-      };
-    }
-
-    if (result.transactionStatus !== "success") {
-      const failureReason = result.responseCode === "24"
-        ? "Khách hàng đã hủy giao dịch trên VNPay."
-        : mapResponseCode(result.responseCode);
-
-      await this.finalizeFailedPayment(session, result, source, failureReason);
-      return {
-        transactionStatus: "failed" as const,
-        message: failureReason
-      };
-    }
-
-    if (!session.email) {
-      this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=missing_payment_session_email source=${source}`);
-      return null;
-    }
-
-    if (requestId) {
-      const gate = await getCheckoutGateRequestById(requestId);
-      const lockedUntilMs = new Date(String(gate?.lockedUntil ?? "")).getTime();
-      if (!gate || gate.status !== "allowed" || !Number.isFinite(lockedUntilMs) || lockedUntilMs <= Date.now()) {
-        await this.finalizeExpiredPayment(session, result, source);
-        return {
-          transactionStatus: "expired" as const,
-          message: PAYMENT_TIMEOUT_MESSAGE
-        };
-      }
-    }
-
-    try {
-      await updatePaymentSessionStatus({
-        txnRef: result.txnRef,
-        status: "success",
-        responseCode: result.responseCode,
-        transactionNo: result.transactionNo,
-        bankCode: result.bankCode,
-        payDate: result.payDate
-      });
-    } catch (error) {
-      if (isConditionalCheckFailedError(error)) {
-        this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=finalized_during_success source=${source}`);
-        return {
-          transactionStatus: "failed" as const,
-          message: "Phiên thanh toán đã được chốt bởi một callback khác."
-        };
-      }
-
-      throw error;
-    }
-
-    await this.publishAndMarkPaymentCompletedEvent({
-      email: session.email,
-      txnRef: result.txnRef,
-      amount: result.amount || session.amount,
-      orderInfo: resolvedOrderInfo,
-      requestId,
-      responseCode: result.responseCode,
-      transactionNo: result.transactionNo,
-      bankCode: result.bankCode,
-      payDate: result.payDate
-    }, source);
-    return null;
-  }
-
-  private async finalizeExpiredPayment(session: PaymentSessionRecord, result: VnpayReturnPayload, source: "return" | "ipn") {
-    try {
-      await updatePaymentSessionStatus({
-        txnRef: result.txnRef,
-        status: "expired",
-        responseCode: result.responseCode || "TIMEOUT",
-        transactionNo: result.transactionNo,
-        bankCode: result.bankCode,
-        payDate: result.payDate
-      });
-    } catch (error) {
-      if (isConditionalCheckFailedError(error)) {
-        this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=finalized_during_expiry source=${source}`);
-        return;
-      }
-
-      throw error;
-    }
-
-    this.logger.warn(`[payment-vnpay] expired txnRef=${result.txnRef} source=${source} expiresAt=${session.expiresAt}`);
-    if (!session.email) {
-      this.logger.warn(`[mail-ses] payment_expired_skipped txnRef=${result.txnRef} source=${source} reason=missing_session_email`);
-      return;
-    }
-
-    const resolvedOrderInfo = session.orderInfo || result.orderInfo;
-    const requestId = extractCheckoutGateRequestId(resolvedOrderInfo);
-    if (requestId) {
-      await releaseCheckoutGateReservation({
-        requestId,
-        message: PAYMENT_TIMEOUT_MESSAGE,
-        failureCode: "payment_expired",
-        status: "expired"
-      });
-    }
-
-    await this.enqueueFailedPaymentNotification({
-      email: session.email,
-      txnRef: result.txnRef,
-      amount: result.amount || session.amount,
-      orderInfo: resolvedOrderInfo,
-      requestId,
-      responseCode: result.responseCode || "TIMEOUT",
-      transactionNo: result.transactionNo,
-      bankCode: result.bankCode,
-      payDate: result.payDate,
-      failureReason: PAYMENT_TIMEOUT_MESSAGE
-    }, source);
-  }
-
-  private async finalizeFailedPayment(
-    session: PaymentSessionRecord,
-    result: VnpayReturnPayload,
-    source: "return" | "ipn",
-    failureReason: string
-  ) {
-    try {
-      await updatePaymentSessionStatus({
-        txnRef: result.txnRef,
-        status: "failed",
-        responseCode: result.responseCode,
-        transactionNo: result.transactionNo,
-        bankCode: result.bankCode,
-        payDate: result.payDate
-      });
-    } catch (error) {
-      if (isConditionalCheckFailedError(error)) {
-        this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=finalized_during_failure source=${source}`);
-        return;
-      }
-      throw error;
-    }
-
-    if (session.email) {
-      const resolvedOrderInfo = session.orderInfo || result.orderInfo;
-      const requestId = extractCheckoutGateRequestId(resolvedOrderInfo);
-      if (requestId) {
-        await releaseCheckoutGateReservation({
-          requestId,
-          message: failureReason,
-          failureCode: result.responseCode === "24" ? "payment_cancelled" : "payment_failed",
-          status: result.responseCode === "24" ? "cancelled" : "payment_failed"
-        });
-      }
-
-      await this.enqueueFailedPaymentNotification({
-        email: session.email,
-        txnRef: result.txnRef,
-        amount: result.amount || session.amount,
-        orderInfo: resolvedOrderInfo,
-        requestId,
-        responseCode: result.responseCode,
-        transactionNo: result.transactionNo,
-        bankCode: result.bankCode,
-        payDate: result.payDate,
-        failureReason
-      }, source);
-    } else {
-      this.logger.warn(`[mail-ses] payment_failed_skipped txnRef=${result.txnRef} source=${source} reason=missing_session_email`);
-    }
-
-    this.logger.warn(`[queue-payment] skipped txnRef=${result.txnRef} reason=status_${result.transactionStatus} source=${source}`);
-  }
-
   private async enqueueFailedPaymentNotification(
     input: {
       email: string;
@@ -595,7 +387,8 @@ export class VnpayService {
       this.logger.log(
         `[queue-payment] failed_enqueue_begin txnRef=${input.txnRef} source=${source} to=${input.email} responseCode=${input.responseCode}`
       );
-      await this.notificationsService.publishPaymentFailedEvent(input);
+      const published = await this.notificationsService.publishPaymentFailedEvent(input);
+      if (!published.queued) throw new Error("Payment event publishing is disabled");
       await this.markPaymentEventEnqueuedSafely(input.txnRef, source);
       logQueueBusinessEvent(this.logger, {
         queue: "paymentEvents",
@@ -612,6 +405,7 @@ export class VnpayService {
         txnRef: input.txnRef,
         message: error instanceof Error ? error.message : "unknown"
       });
+      throw error;
     }
   }
 
@@ -629,7 +423,8 @@ export class VnpayService {
   },
     source: "return" | "ipn"
   ) {
-    await this.notificationsService.publishPaymentCompletedEvent(input);
+    const published = await this.notificationsService.publishPaymentCompletedEvent(input);
+    if (!published.queued) throw new Error("Payment event publishing is disabled");
     await this.markPaymentEventEnqueuedSafely(input.txnRef, source);
     logQueueBusinessEvent(this.logger, {
       queue: "paymentEvents",

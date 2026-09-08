@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, Ip, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Header, Headers, Ip, Post, Query, Req } from "@nestjs/common";
+import type { FastifyRequest } from "fastify";
 import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
 import { createVnpayFailureTestSchema, createVnpayPaymentSchema } from "./vnpay.schema.js";
 import { VnpayService } from "./vnpay.service.js";
@@ -14,13 +15,15 @@ export class VnpayController {
   }
 
   @Get("return")
+  @Header("Cache-Control", "no-store")
   async handleReturn(@Query() rawQuery: Record<string, unknown>) {
     return this.vnpayService.verifyReturn(rawQuery);
   }
 
   @Get("ipn")
-  async handleIpn(@Query() rawQuery: Record<string, unknown>) {
-    return this.vnpayService.verifyIpn(rawQuery);
+  @Header("Cache-Control", "no-store")
+  async handleIpn(@Query() rawQuery: Record<string, unknown>, @Req() request: FastifyRequest) {
+    return this.vnpayService.verifyIpn(rawQuery, request.id);
   }
 
   @Post("test/fail")
