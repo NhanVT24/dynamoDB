@@ -84,7 +84,6 @@ export class ShoppingService {
 
   async updateShoppingItem(id: string, patch: Record<string, any>, version: number) {
     const current = await getShoppingItem(id);
-    this.ensureStockCanCoverReservations(current, patch.stock);
     const updated = await updateShoppingItem(id, patch, version);
     await this.publishInventoryAlertIfNeeded(current, updated, "admin.update");
     return updated;

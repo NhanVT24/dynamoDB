@@ -345,6 +345,7 @@ function CheckoutResultPageContent() {
   const isSuccess = queueState === "done" || Boolean(hasValidGatewaySuccess && !requestId && !extractRequestId(result?.orderInfo ?? ""));
   const isExpired = result?.transactionStatus === "expired";
   const isAwaitingWebhook = Boolean(result?.transactionStatus === "pending" || (hasValidGatewaySuccess && !isSuccess && queueState !== "failed"));
+  const isPaymentFailure = Boolean(result && !isSuccess && !isAwaitingWebhook && !hasValidGatewaySuccess);
   const canStartNewCheckout = Boolean(result?.isValidSignature && (result.transactionStatus === "failed" || result.transactionStatus === "expired")) && !isSuccess;
   const resultHeading = isSuccess
     ? "payment has been confirmed"
@@ -397,9 +398,9 @@ function CheckoutResultPageContent() {
 
     if (queueState === "failed") {
       return {
-        tone: isDark ? "border-amber-500/20 bg-amber-500/10 text-amber-100" : "border-amber-200 bg-amber-50 text-amber-800",
-        badge: "Needs review",
-        title: "Your order is not fully completed yet",
+        tone: isDark ? "border-rose-500/20 bg-rose-500/10 text-rose-100" : "border-rose-200 bg-rose-50 text-rose-800",
+        badge: "Failed",
+        title: "Your order could not be completed",
         message: queueMessage || "The queue responded, but the order could not be completed fully."
       };
     }
@@ -419,7 +420,7 @@ function CheckoutResultPageContent() {
           isDark ? "border-white/10 bg-[#101826] text-white" : "border-slate-200 bg-white text-slate-950"
         }`}
       >
-        <p className={`text-xs font-semibold uppercase tracking-[0.28em] ${isSuccess ? "text-emerald-500" : isExpired ? "text-rose-500" : "text-orange-500"}`}>
+        <p className={`text-xs font-semibold uppercase tracking-[0.28em] ${isSuccess ? "text-emerald-500" : isPaymentFailure ? "text-rose-500" : "text-orange-500"}`}>
           {isSuccess || hasValidGatewaySuccess ? "Payment confirmed" : isAwaitingWebhook ? "Awaiting confirmation" : isExpired ? "Payment expired" : "Payment not completed"}
         </p>
         <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>
@@ -430,15 +431,9 @@ function CheckoutResultPageContent() {
         </p>
 
         {result && canStartNewCheckout ? (
-          <div className={`mt-6 rounded-[1.5rem] border p-5 ${
-            isExpired
-              ? isDark
-                ? "border-rose-500/25 bg-rose-500/10 text-rose-100"
-                : "border-rose-200 bg-rose-50 text-rose-900"
-              : isDark
-                ? "border-amber-500/25 bg-amber-500/10 text-amber-100"
-                : "border-amber-200 bg-amber-50 text-amber-900"
-          }`}>
+          <div className={`mt-6 rounded-[1.5rem] border p-5 ${isDark
+            ? "border-rose-500/25 bg-rose-500/10 text-rose-100"
+            : "border-rose-200 bg-rose-50 text-rose-900"}`}>
             <p className="text-sm font-semibold">{result.message}</p>
             <p className="mt-2 text-sm leading-6 opacity-90">
               Mã giao dịch cũ không thể được dùng lại. Khi tiếp tục, hệ thống sẽ kiểm tra tồn kho và tạo một payment session VNPay hoàn toàn mới.
