@@ -19,6 +19,7 @@ import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaDestinations from "aws-cdk-lib/aws-lambda-destinations";
 import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -592,7 +593,7 @@ exports.handler = async (event) => {
       configurationSetName: inventoryReportConfigurationSet.ref,
       eventDestination: {
         enabled: true,
-        matchingEventTypes: ["SEND", "DELIVERY", "BOUNCE", "COMPLAINT", "REJECT", "DELIVERY_DELAY"],
+        matchingEventTypes: ["SEND", "DELIVERY", "BOUNCE", "COMPLAINT", "REJECT", "DELIVERY_DELAY", "RENDERING_FAILURE"],
         snsDestination: {
           topicArn: inventoryReportEventsTopic.topicArn
         }
@@ -798,7 +799,26 @@ exports.handler = async (event) => {
       20,
       256
     );
-    inventoryReportEventsTopic.addSubscription(new subscriptions.LambdaSubscription(sesInventoryEventFunction));
+    sesInventoryEventFunction.addEnvironment("SES_EVENTS_TOPIC_ARN", inventoryReportEventsTopic.topicArn);
+    const sesFeedbackDlq = new sqs.Queue(this, "SesFeedbackDlq", {
+      queueName: "supermarket-ses-feedback-dlq",
+      retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true
+    });
+    // SNS delivery failures and Lambda execution failures are separate stages.
+    inventoryReportEventsTopic.addSubscription(new subscriptions.LambdaSubscription(sesInventoryEventFunction, {
+      deadLetterQueue: sesFeedbackDlq
+    }));
+    new lambda.EventInvokeConfig(this, "SesFeedbackInvokeConfig", {
+      function: sesInventoryEventFunction,
+      maxEventAge: Duration.hours(6),
+      retryAttempts: 2,
+      onFailure: new lambdaDestinations.SqsDestination(sesFeedbackDlq)
+    });
+    new CfnOutput(this, "SesFeedbackConfigurationSetName", { value: inventoryReportConfigurationSet.ref });
+    new CfnOutput(this, "SesFeedbackTopicArn", { value: inventoryReportEventsTopic.topicArn });
+    new CfnOutput(this, "SesFeedbackDlqUrl", { value: sesFeedbackDlq.queueUrl });
     // The daily digest is deliberately best-effort; a failed run is summarized by the next day instead of retrying immediately.
     new lambda.EventInvokeConfig(this, "DailyInventoryReportInvokeConfig", {
       function: dailyInventoryReportFunction,
@@ -1518,6 +1538,7 @@ exports.handler = async (event) => {
     };
 
     createDlqAlarm("NotificationsDlqAlarm", notificationsDlq, "supermarket-notifications-dlq");
+    createDlqAlarm("SesFeedbackDlqAlarm", sesFeedbackDlq, "supermarket-ses-feedback-dlq");
     createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
     createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");

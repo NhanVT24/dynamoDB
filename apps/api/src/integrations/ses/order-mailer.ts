@@ -5,7 +5,7 @@ import {
   markEmailDeliveryAccepted,
   markEmailDeliveryFailed,
   sesTrackingTags,
-  type EmailDeliveryRecord
+  type EmailType
 } from "../../modules/email-deliveries/email-delivery.repository.js";
 import { sesClient } from "./client.js";
 
@@ -74,13 +74,14 @@ function assertSesConfigured() {
 }
 
 async function sendTrackedOrderEmail(input: {
-  emailType: Extract<EmailDeliveryRecord["emailType"], "order_confirmation" | "payment_failure" | "order_failure">;
+  emailType: Extract<EmailType, "order_confirmation" | "payment_failure" | "order_failure">;
   toEmail: string;
   subject: string;
   html: string;
   relatedId?: string;
 }) {
   assertSesConfigured();
+  if (!env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME) throw new Error("Missing SES feedback configuration set.");
   const email = await createPendingEmailDelivery({
     emailType: input.emailType,
     recipientEmail: input.toEmail,
@@ -109,7 +110,14 @@ async function sendTrackedOrderEmail(input: {
       }
     }));
     if (!result.MessageId) throw new Error("SES accepted the email without a MessageId.");
-    await markEmailDeliveryAccepted(email.id, result.MessageId);
+    // Acceptance persistence is separate from sending. Never classify a DB
+    // failure after SES accepted as a sending failure (or automatically resend).
+    try {
+      await markEmailDeliveryAccepted(email.id, result.MessageId);
+    } catch (error) {
+      console.error("[ses] acceptance_persistence_failed", { emailId: email.id, sesMessageId: result.MessageId });
+      // The SES Send event also records acceptance and repairs this projection.
+    }
     return { emailId: email.id, sesMessageId: result.MessageId };
   } catch (error) {
     await markEmailDeliveryFailed(email.id, error instanceof Error ? error.message : "Unknown SES send failure");

@@ -65,6 +65,7 @@ function buildInventoryDigestHtml(input: InventoryDigestInput) {
 }
 
 export async function sendInventoryDigestEmail(input: InventoryDigestInput) {
+  if (!env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME) throw new Error("Missing SES feedback configuration set.");
   const recipientEmail = input.recipientEmail?.trim() || env.ADMIN_REPORT_EMAIL;
   if (!env.SES_FROM_EMAIL || !recipientEmail) {
     throw new Error("Missing SES_FROM_EMAIL or inventory report recipient configuration.");

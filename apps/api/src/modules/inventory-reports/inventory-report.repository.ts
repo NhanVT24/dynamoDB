@@ -145,44 +145,22 @@ export async function markInventoryReportFailed(reportId: string, failureReason:
 export async function updateInventoryReportDeliveryStatus(input: {
   reportId: string;
   sesMessageId?: string;
-  status: Extract<InventoryReportStatus, "delivered" | "bounced" | "complained" | "rejected" | "delivery_delayed">;
+  status: import("../email-deliveries/email-feedback.js").FeedbackStatus;
+  providerEventAt?: string;
 }) {
+  if (!input.sesMessageId) throw new Error("Missing SES message ID.");
+  const { feedbackUpdate } = await import("../email-deliveries/email-feedback.js");
   const now = new Date().toISOString();
-  const timestampField = input.status === "delivered"
-    ? ", deliveredAt = :eventAt"
-    : input.status === "complained"
-      ? ", complainedAt = :eventAt"
-      : "";
-  const values: Record<string, unknown> = {
-    ":status": input.status,
-    ":sesMessageId": input.sesMessageId ?? "",
-    ":updatedAt": now
-  };
-  if (input.status === "delivered" || input.status === "complained") {
-    values[":eventAt"] = now;
-  }
-  const preventDeliveryRegression = input.status === "delivered";
-  if (preventDeliveryRegression) {
-    values[":pending"] = "pending";
-    values[":accepted"] = "accepted";
-    values[":delivered"] = "delivered";
-    values[":deliveryDelayed"] = "delivery_delayed";
-  }
+  const { values, ...update } = feedbackUpdate(input.status, input.providerEventAt ?? now, now, input.sesMessageId);
   try {
     await rawDb.send(new UpdateItemCommand({
-      TableName,
-      Key: toDynamoItem(reportKey(input.reportId)),
-      // SNS feedback can arrive out of order. Do not regress a final outcome.
-      UpdateExpression: `SET #status = :status, sesMessageId = if_not_exists(sesMessageId, :sesMessageId), updatedAt = :updatedAt${timestampField}`,
-      ConditionExpression: preventDeliveryRegression
-        ? "attribute_exists(PK) AND #status IN (:pending, :accepted, :delivered, :deliveryDelayed)"
-        : "attribute_exists(PK)",
-      ExpressionAttributeNames: { "#status": "status" },
+      TableName, Key: toDynamoItem(reportKey(input.reportId)), ...update,
       ExpressionAttributeValues: toDynamoItem(values)
     }));
     return true;
   } catch (error) {
     if (error instanceof ConditionalCheckFailedException || (error as { name?: string }).name === "ConditionalCheckFailedException") {
+      if (!await getInventoryReport(input.reportId)) throw new Error("Inventory report feedback target not found.");
       return false;
     }
     throw error;

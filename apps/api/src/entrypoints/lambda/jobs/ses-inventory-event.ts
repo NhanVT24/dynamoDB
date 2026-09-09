@@ -1,84 +1,113 @@
 import "reflect-metadata";
-import { updateEmailDeliveryStatus, updateEmailRecipientStatus } from "../../../modules/email-deliveries/email-delivery.repository.js";
+import { z } from "zod";
+import { env } from "../../../config/env.js";
+import { listEmailRecipients, markEmailAccepted, updateEmailDeliveryStatus, updateEmailRecipientStatus } from "../../../modules/email-deliveries/email-delivery.repository.js";
 import { updateInventoryReportDeliveryStatus } from "../../../modules/inventory-reports/inventory-report.repository.js";
+import type { FeedbackStatus } from "../../../modules/email-deliveries/email-feedback.js";
 
-type SnsEvent = {
-  Records?: Array<{ Sns?: { Message?: string } }>;
+const affectedRecipient = z.object({ emailAddress: z.string(), diagnosticCode: z.string().optional() });
+const details = z.object({
+  timestamp: z.string().datetime({ offset: true }).optional(),
+  recipients: z.array(z.string()).optional(),
+  bouncedRecipients: z.array(affectedRecipient).optional(),
+  complainedRecipients: z.array(affectedRecipient).optional(),
+  delayedRecipients: z.array(affectedRecipient).optional(),
+  bounceType: z.string().optional(),
+  reason: z.string().optional(),
+  errorMessage: z.string().optional()
+});
+const sesSchema = z.object({
+  eventType: z.string(),
+  mail: z.object({
+    messageId: z.string().min(1),
+    timestamp: z.string().datetime({ offset: true }),
+    destination: z.array(z.string()).optional(),
+    tags: z.record(z.string(), z.array(z.string())).optional()
+  }),
+  delivery: details.optional(), bounce: details.optional(), complaint: details.optional(),
+  deliveryDelay: details.optional(), reject: details.optional(), failure: details.optional()
+});
+const events: Record<string, { status: FeedbackStatus; field?: "delivery" | "bounce" | "complaint" | "deliveryDelay" | "reject" | "failure" }> = {
+  Send: { status: "accepted" },
+  Delivery: { status: "delivered", field: "delivery" },
+  Bounce: { status: "bounced", field: "bounce" },
+  Complaint: { status: "complained", field: "complaint" },
+  DeliveryDelay: { status: "delivery_delayed", field: "deliveryDelay" },
+  Reject: { status: "rejected", field: "reject" },
+  "Rendering Failure": { status: "rejected", field: "failure" }
 };
 
-type SesEvent = {
-  eventType?: string;
-  mail?: {
-    messageId?: string;
-    timestamp?: string;
-    tags?: Record<string, string[]>;
-  };
-};
+type SnsEvent = { Records?: Array<{ Sns?: { Message?: string; MessageId?: string; TopicArn?: string } }> };
 
-function toDeliveryStatus(eventType: string) {
-  switch (eventType) {
-    case "Delivery": return "delivered" as const;
-    case "Bounce": return "bounced" as const;
-    case "Complaint": return "complained" as const;
-    case "Reject": return "rejected" as const;
-    case "DeliveryDelay": return "delivery_delayed" as const;
-    default: return null;
+export async function processSesMessage(message: string) {
+  const event = sesSchema.parse(JSON.parse(message));
+  const mapping = events[event.eventType];
+  const emailId = event.mail.tags?.emailId?.[0];
+  const recipientId = event.mail.tags?.recipientId?.[0];
+  const reportId = event.mail.tags?.reportId?.[0];
+  if (!mapping || (!emailId && !reportId)) return { ignored: "unrelated_ses_event" };
+  const detail = mapping.field ? event[mapping.field] : undefined;
+  if (mapping.field && !detail) throw new Error("SES event is missing its detail object.");
+  const recipientEmails = event.eventType === "Delivery" ? detail?.recipients
+    : event.eventType === "Bounce" ? detail?.bouncedRecipients?.map((r) => r.emailAddress)
+      : event.eventType === "Complaint" ? detail?.complainedRecipients?.map((r) => r.emailAddress)
+        : event.eventType === "DeliveryDelay" ? detail?.delayedRecipients?.map((r) => r.emailAddress)
+          : event.mail.destination;
+  if (["Delivery", "Bounce", "DeliveryDelay"].includes(event.eventType) && !recipientEmails?.length) {
+    throw new Error("SES event is missing affected recipients.");
   }
+  const eventAt = detail?.timestamp ?? event.mail.timestamp;
+  const input = {
+    status: mapping.status,
+    statusAt: eventAt,
+    recipientEmails: recipientEmails?.length ? recipientEmails : undefined,
+    failureReason: detail?.reason ?? detail?.errorMessage ?? detail?.bounceType
+  };
+  if (emailId) {
+    // A pre-migration DETAIL item has no META. Its child update below remains
+    // supported; current records persist the common SES message ID on META.
+    await markEmailAccepted(emailId, event.mail.messageId);
+    if (recipientId) {
+      await updateEmailRecipientStatus({ ...input, emailId, recipientId });
+    } else {
+      // A shared To/CC/BCC message has one emailId tag. Only affected addresses
+      // in the event may be updated; mail.destination includes ALL recipients.
+      const recipients = await listEmailRecipients(emailId);
+      if (recipients.length) {
+        if (!input.recipientEmails && recipients.length > 1) throw new Error("Cannot attribute SES event to recipients.");
+        for (const recipient of recipients) {
+          if (!input.recipientEmails || input.recipientEmails.some((address) => address.toLowerCase() === recipient.recipientEmail.toLowerCase())) {
+            await updateEmailRecipientStatus({ ...input, emailId, recipientId: recipient.recipientId });
+          }
+        }
+      } else {
+        await updateEmailDeliveryStatus({ ...input, id: emailId });
+      }
+    }
+  }
+  // Preserve the existing report projection. Both writes are independently
+  // idempotent so a retry after partial completion is safe.
+  if (reportId) await updateInventoryReportDeliveryStatus({
+    reportId,
+    sesMessageId: event.mail.messageId,
+    status: mapping.status,
+    providerEventAt: eventAt
+  });
+  return { emailId, recipientId, status: mapping.status };
 }
 
 export const handler = async (event: SnsEvent) => {
-  const results = await Promise.allSettled((event.Records ?? []).map(async (record) => {
-    const message = record.Sns?.Message;
-    if (!message) return { ignored: "empty_message" };
-
-    const sesEvent = JSON.parse(message) as SesEvent;
-    const status = toDeliveryStatus(String(sesEvent.eventType ?? ""));
-    const reportId = sesEvent.mail?.tags?.reportId?.[0];
-    const emailId = sesEvent.mail?.tags?.emailId?.[0];
-    const recipientId = sesEvent.mail?.tags?.recipientId?.[0];
-    if (!status || (!reportId && !emailId)) {
-      return { ignored: "unrelated_ses_event" };
-    }
-
-    await Promise.all([
-      reportId
-        ? updateInventoryReportDeliveryStatus({ reportId, sesMessageId: sesEvent.mail?.messageId, status })
-        : Promise.resolve(),
-      emailId
-        ? recipientId
-          ? updateEmailRecipientStatus({
-            emailId,
-            recipientId,
-            sesMessageId: sesEvent.mail?.messageId,
-            status,
-            providerEventType: String(sesEvent.eventType),
-            providerEventAt: sesEvent.mail?.timestamp
-          })
-          : updateEmailDeliveryStatus({
-            id: emailId,
-            sesMessageId: sesEvent.mail?.messageId,
-            status,
-            providerEventType: String(sesEvent.eventType),
-            providerEventAt: sesEvent.mail?.timestamp
-          })
-        : Promise.resolve()
-    ]);
-    return { reportId, emailId, status };
+  const results = await Promise.allSettled((event.Records ?? []).map(async ({ Sns: sns }) => {
+    if (!sns?.Message) throw new Error("Missing SNS message.");
+    if (env.SES_EVENTS_TOPIC_ARN && sns.TopicArn !== env.SES_EVENTS_TOPIC_ARN) throw new Error("Unexpected SNS topic.");
+    const result = await processSesMessage(sns.Message);
+    console.info("[ses-feedback] processed", { snsMessageId: sns.MessageId, ...result });
   }));
-
-  const failed = results.filter((result) => result.status === "rejected");
-  if (failed.length > 0) {
-    console.error("[ses-inventory-event] processing_failed", {
-      failureCount: failed.length,
-      errors: failed.map((result) => {
-        const reason = (result as PromiseRejectedResult).reason;
-        return reason instanceof Error
-          ? { name: reason.name, message: reason.message }
-          : { message: String(reason) };
-      })
-    });
-    throw new Error(`Failed to process ${failed.length} SES inventory event(s).`);
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length) {
+    // Do not log raw events: they can contain BCC addresses and message headers.
+    console.error("[ses-feedback] processing_failed", { count: failures.length });
+    throw new Error(`Failed to process ${failures.length} SES event(s).`);
   }
-
   return { processed: results.length };
 };

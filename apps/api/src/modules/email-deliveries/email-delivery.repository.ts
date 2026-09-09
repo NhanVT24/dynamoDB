@@ -1,30 +1,35 @@
 import crypto from "node:crypto";
-import { ConditionalCheckFailedException, TransactWriteItemsCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
-import { marshall } from "@aws-sdk/util-dynamodb";
+import { ConditionalCheckFailedException, GetItemCommand, QueryCommand, TransactWriteItemsCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
+import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
+import { feedbackUpdate, type FeedbackStatus } from "./email-feedback.js";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 
 export type EmailDeliveryStatus = "pending" | "accepted" | "delivered" | "bounced" | "complained" | "rejected" | "delivery_delayed" | "failed";
-type EmailType = "inventory_daily_report" | "order_confirmation" | "payment_failure" | "order_failure" | "sale_campaign";
+export type EmailType = "inventory_daily_report" | "order_confirmation" | "payment_failure" | "order_failure" | "sale_campaign";
 
 export type EmailDeliveryMeta = {
   PK: string; SK: "META"; entityType: "EMAIL"; id: string; emailType: EmailType;
   senderEmail: string; subject: string; recipientCount: number; reportId?: string; relatedId?: string;
+  sendStatus: "pending" | "accepted" | "failed";
+  sesMessageId?: string; failureReason?: string;
   createdAt: string; updatedAt: string;
 };
 
 // Source of truth for one mailbox recipient. A parent META groups an operator action/campaign.
 export type EmailDeliveryRecord = {
   PK: string; SK: `RECIPIENT#${string}`; entityType: "EMAIL_RECIPIENT";
-  id: string; emailId: string; recipientId: string; emailType: EmailType;
-  recipientEmail: string; recipientType: "to" | "cc" | "bcc"; senderEmail: string; subject: string;
-  status: EmailDeliveryStatus; reportId?: string; relatedId?: string; sesMessageId?: string;
-  failureReason?: string; providerEventType?: string; providerEventAt?: string;
-  createdAt: string; updatedAt: string; acceptedAt?: string; deliveredAt?: string;
-  bouncedAt?: string; complainedAt?: string;
+  recipientId: string;
+  recipientEmail: string; recipientType: "to" | "cc" | "bcc";
+  status: EmailDeliveryStatus; statusAt?: string; failureReason?: string;
+  updatedAt: string;
 };
+
+// Returned to existing single-recipient callers. These convenience values are
+// not persisted on the RECIPIENT item; they are derivable from the parent/key.
+export type CreatedEmailDelivery = EmailDeliveryRecord & { id: string; emailId: string; emailType: EmailType };
 
 function metaKey(emailId: string) { return { PK: `EMAIL#${emailId}`, SK: "META" } as const; }
 function recipientKey(emailId: string, recipientId: string) { return { PK: `EMAIL#${emailId}`, SK: `RECIPIENT#${recipientId}` } as const; }
@@ -35,12 +40,13 @@ function isConditionalFailure(error: unknown) {
 
 // SES copies these values into Delivery/Bounce/Complaint events. They are the
 // correlation keys used by the event consumer; never put customer data in tags.
-export function sesTrackingTags(input: { emailId: string; recipientId: string; emailType: EmailType }) {
-  return [
+export function sesTrackingTags(input: { emailId: string; recipientId?: string; emailType: EmailType }) {
+  const tags = [
     { Name: "emailId", Value: input.emailId },
-    { Name: "recipientId", Value: input.recipientId },
     { Name: "emailType", Value: input.emailType }
   ];
+  if (input.recipientId) tags.push({ Name: "recipientId", Value: input.recipientId });
+  return tags;
 }
 
 export async function createPendingEmailDeliveryBatch(input: {
@@ -57,16 +63,14 @@ export async function createPendingEmailDeliveryBatch(input: {
   const emailId = input.emailId ?? crypto.randomUUID();
   const meta: EmailDeliveryMeta = {
     ...metaKey(emailId), entityType: "EMAIL", id: emailId, emailType: input.emailType,
-    senderEmail: input.senderEmail, subject: input.subject, recipientCount: normalized.length,
+    senderEmail: input.senderEmail, subject: input.subject, recipientCount: normalized.length, sendStatus: "pending",
     reportId: input.reportId, relatedId: input.relatedId, createdAt: now, updatedAt: now
   };
   const recipients: EmailDeliveryRecord[] = normalized.map((recipient) => {
     const recipientId = crypto.randomUUID();
     return {
-      ...recipientKey(emailId, recipientId), entityType: "EMAIL_RECIPIENT", id: recipientId, emailId, recipientId,
-      emailType: input.emailType, recipientEmail: recipient.email, recipientType: recipient.type,
-      senderEmail: input.senderEmail, subject: input.subject, status: "pending", reportId: input.reportId,
-      relatedId: input.relatedId, createdAt: now, updatedAt: now
+      ...recipientKey(emailId, recipientId), entityType: "EMAIL_RECIPIENT", recipientId,
+      recipientEmail: recipient.email, recipientType: recipient.type, status: "pending", updatedAt: now
     };
   });
   await rawDb.send(new TransactWriteItemsCommand({
@@ -85,78 +89,99 @@ export async function createPendingEmailDelivery(input: {
   const now = new Date().toISOString();
   const meta: EmailDeliveryMeta = {
     ...metaKey(emailId), entityType: "EMAIL", id: emailId, emailType: input.emailType, senderEmail: input.senderEmail,
-    subject: input.subject, recipientCount: 1, reportId: input.reportId, relatedId: input.relatedId, createdAt: now, updatedAt: now
+    subject: input.subject, recipientCount: 1, sendStatus: "pending", reportId: input.reportId, relatedId: input.relatedId, createdAt: now, updatedAt: now
   };
   const record: EmailDeliveryRecord = {
-    ...recipientKey(emailId, emailId), entityType: "EMAIL_RECIPIENT", id: emailId, emailId, recipientId: emailId,
-    emailType: input.emailType, recipientEmail: input.recipientEmail.trim().toLowerCase(), recipientType: "to",
-    senderEmail: input.senderEmail, subject: input.subject, status: "pending", reportId: input.reportId,
-    relatedId: input.relatedId, createdAt: now, updatedAt: now
+    ...recipientKey(emailId, emailId), entityType: "EMAIL_RECIPIENT", recipientId: emailId,
+    recipientEmail: input.recipientEmail.trim().toLowerCase(), recipientType: "to", status: "pending", updatedAt: now
   };
   await rawDb.send(new TransactWriteItemsCommand({ TransactItems: [meta, record].map((value) => ({ Put: {
     TableName, Item: item(value), ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)"
   } })) }));
-  return record;
+  return { ...record, id: emailId, emailId, emailType: input.emailType } satisfies CreatedEmailDelivery;
 }
 
-export async function markEmailRecipientAccepted(input: { emailId: string; recipientId: string; sesMessageId: string }) {
+export async function markEmailAccepted(emailId: string, sesMessageId: string) {
   const now = new Date().toISOString();
   try {
     await rawDb.send(new UpdateItemCommand({
-      TableName, Key: item(recipientKey(input.emailId, input.recipientId)),
-      ConditionExpression: "attribute_exists(PK) AND #status IN (:pending, :accepted)",
-      UpdateExpression: "SET #status = :accepted, sesMessageId = :sesMessageId, acceptedAt = :acceptedAt, updatedAt = :updatedAt",
-      ExpressionAttributeNames: { "#status": "status" },
-      ExpressionAttributeValues: item({ ":pending": "pending", ":accepted": "accepted", ":sesMessageId": input.sesMessageId, ":acceptedAt": now, ":updatedAt": now })
+      TableName,
+      Key: item(metaKey(emailId)),
+      ConditionExpression: "attribute_exists(PK) AND (attribute_not_exists(sesMessageId) OR (sesMessageId = :sesMessageId AND sendStatus <> :accepted))",
+      UpdateExpression: "SET sendStatus = :accepted, sesMessageId = :sesMessageId, updatedAt = :updatedAt REMOVE failureReason",
+      ExpressionAttributeValues: item({ ":accepted": "accepted", ":sesMessageId": sesMessageId, ":updatedAt": now })
     }));
     return true;
   } catch (error) { if (isConditionalFailure(error)) return false; throw error; }
 }
 
+export async function markEmailRecipientAccepted(input: { emailId: string; recipientId: string }) {
+  return updateEmailRecipientStatus({ ...input, status: "accepted" });
+}
+
 export async function markEmailDeliveryAccepted(id: string, sesMessageId: string) {
-  return markEmailRecipientAccepted({ emailId: id, recipientId: id, sesMessageId });
+  await markEmailAccepted(id, sesMessageId);
+  return markEmailRecipientAccepted({ emailId: id, recipientId: id });
+}
+
+export async function markEmailRecipientFailed(input: { emailId: string; recipientId: string; failureReason: string }) {
+  const now = new Date().toISOString();
+  try {
+    await rawDb.send(new UpdateItemCommand({
+    TableName, Key: item(recipientKey(input.emailId, input.recipientId)), ConditionExpression: "attribute_exists(PK) AND #status = :pending",
+    UpdateExpression: "SET #status = :failed, failureReason = :failureReason, statusAt = :statusAt, updatedAt = :updatedAt",
+    ExpressionAttributeNames: { "#status": "status" },
+    ExpressionAttributeValues: item({ ":pending": "pending", ":failed": "failed", ":failureReason": input.failureReason.slice(0, 500), ":statusAt": now, ":updatedAt": now })
+    }));
+  } catch (error) { if (!isConditionalFailure(error)) throw error; }
 }
 
 export async function markEmailDeliveryFailed(id: string, failureReason: string) {
+  await markEmailFailed(id, failureReason);
+  return markEmailRecipientFailed({ emailId: id, recipientId: id, failureReason });
+}
+
+export async function markEmailFailed(emailId: string, failureReason: string) {
   const now = new Date().toISOString();
-  await rawDb.send(new UpdateItemCommand({
-    TableName, Key: item(recipientKey(id, id)), ConditionExpression: "attribute_exists(PK)",
-    UpdateExpression: "SET #status = :failed, failureReason = :failureReason, updatedAt = :updatedAt",
-    ExpressionAttributeNames: { "#status": "status" },
-    ExpressionAttributeValues: item({ ":failed": "failed", ":failureReason": failureReason.slice(0, 500), ":updatedAt": now })
-  }));
+  try {
+    await rawDb.send(new UpdateItemCommand({
+      TableName,
+      Key: item(metaKey(emailId)),
+      ConditionExpression: "attribute_exists(PK) AND sendStatus = :pending",
+      UpdateExpression: "SET sendStatus = :failed, failureReason = :failureReason, updatedAt = :updatedAt",
+      ExpressionAttributeValues: item({ ":pending": "pending", ":failed": "failed", ":failureReason": failureReason.slice(0, 500), ":updatedAt": now })
+    }));
+  } catch (error) { if (!isConditionalFailure(error)) throw error; }
 }
 
 export async function updateEmailRecipientStatus(input: {
-  emailId: string; recipientId: string; sesMessageId?: string;
-  status: Extract<EmailDeliveryStatus, "delivered" | "bounced" | "complained" | "rejected" | "delivery_delayed">;
-  providerEventType: string; providerEventAt?: string;
+  emailId: string; recipientId: string;
+  status: FeedbackStatus;
+  statusAt?: string;
+  legacy?: boolean;
+  recipientEmails?: string[];
+  failureReason?: string;
 }) {
+  const key = input.legacy ? { PK: `EMAIL#${input.emailId}`, SK: "DETAIL" } : recipientKey(input.emailId, input.recipientId);
+  const existing = await rawDb.send(new GetItemCommand({ TableName, Key: item(key), ConsistentRead: true }));
+  if (!existing.Item) throw new Error(`Email feedback target not found: ${input.emailId}/${input.recipientId}`);
+  const target = unmarshall(existing.Item);
+  if (input.recipientEmails && !input.recipientEmails.some((address) => address.toLowerCase() === String(target.recipientEmail).toLowerCase())) {
+    return false;
+  }
   const now = new Date().toISOString();
-  const occurredAt = input.providerEventAt ?? now;
-  const statusTimestamp = input.status === "delivered" ? ", deliveredAt = :occurredAt"
-    : input.status === "bounced" ? ", bouncedAt = :occurredAt"
-      : input.status === "complained" ? ", complainedAt = :occurredAt" : "";
-  const values: Record<string, unknown> = {
-    ":status": input.status, ":providerEventType": input.providerEventType, ":providerEventAt": occurredAt,
-    ":updatedAt": now, ":occurredAt": occurredAt, ":pending": "pending", ":accepted": "accepted", ":deliveryDelayed": "delivery_delayed"
-  };
-  if (input.sesMessageId) values[":sesMessageId"] = input.sesMessageId;
+  const { values, ...update } = feedbackUpdate(input.status, input.statusAt ?? now, now, "unused", {
+    timestampField: "statusAt",
+    storeMessageId: false,
+    preserveTimestamp: false
+  });
+  if (input.failureReason) {
+    values[":reason"] = input.failureReason.slice(0, 500);
+    update.UpdateExpression += ", failureReason = :reason";
+  }
   try {
     await rawDb.send(new UpdateItemCommand({
-      TableName, Key: item(recipientKey(input.emailId, input.recipientId)),
-      // A late DeliveryDelay cannot replace a final outcome. A complaint after Delivery is valid.
-      ConditionExpression: input.status === "delivery_delayed"
-        ? "attribute_exists(PK) AND #status IN (:pending, :accepted, :deliveryDelayed)"
-        : input.status === "delivered"
-          ? "attribute_exists(PK) AND #status IN (:pending, :accepted, :deliveryDelayed, :status)"
-          : input.status === "complained"
-            // Complaint can legitimately arrive after Delivery, but the same event is a no-op.
-            ? "attribute_exists(PK) AND #status <> :status"
-            // A late Bounce/Reject must not overwrite a prior final Delivery/Complaint.
-            : "attribute_exists(PK) AND #status IN (:pending, :accepted, :deliveryDelayed, :status)",
-      UpdateExpression: `SET #status = :status, providerEventType = :providerEventType, providerEventAt = :providerEventAt, updatedAt = :updatedAt${input.sesMessageId ? ", sesMessageId = if_not_exists(sesMessageId, :sesMessageId)" : ""}${statusTimestamp}`,
-      ExpressionAttributeNames: { "#status": "status" }, ExpressionAttributeValues: item(values)
+      TableName, Key: item(key), ...update, ExpressionAttributeValues: item(values)
     }));
     return true;
   } catch (error) { if (isConditionalFailure(error)) return false; throw error; }
@@ -164,5 +189,22 @@ export async function updateEmailRecipientStatus(input: {
 
 // Legacy single-recipient tags have only emailId, so it doubles as recipientId.
 export async function updateEmailDeliveryStatus(input: Omit<Parameters<typeof updateEmailRecipientStatus>[0], "emailId" | "recipientId"> & { id: string }) {
-  return updateEmailRecipientStatus({ ...input, emailId: input.id, recipientId: input.id });
+  // Pre-migration events have no recipientId tag. Prefer the new child, then the
+  // old DETAIL item so in-flight feedback survives deploying the new schema.
+  const result = await rawDb.send(new GetItemCommand({ TableName, Key: item(recipientKey(input.id, input.id)), ConsistentRead: true }));
+  return updateEmailRecipientStatus({ ...input, emailId: input.id, recipientId: input.id, legacy: !result.Item });
+}
+
+export async function listEmailRecipients(emailId: string) {
+  const recipients: EmailDeliveryRecord[] = [];
+  let cursor: Record<string, import("@aws-sdk/client-dynamodb").AttributeValue> | undefined;
+  do {
+    const result = await rawDb.send(new QueryCommand({ TableName, ConsistentRead: true,
+      KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
+      ExpressionAttributeValues: item({ ":pk": `EMAIL#${emailId}`, ":prefix": "RECIPIENT#" }), ExclusiveStartKey: cursor
+    }));
+    recipients.push(...(result.Items ?? []).map((value) => unmarshall(value) as EmailDeliveryRecord));
+    cursor = result.LastEvaluatedKey;
+  } while (cursor);
+  return recipients;
 }

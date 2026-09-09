@@ -9,6 +9,7 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:vnpay": "npm run build:ts && node --test --test-isolation=none tests/vnpay.test.mjs",
+    "test:email-feedback": "npm run build:ts && node --test tests/email-feedback.test.mjs",
     "diagnose:vnpay": "tsx src/scripts/diagnose-vnpay-callback.ts",
     "package:lambda": "npm run build:ts && node scripts/package-lambda.js",
     "db:init": "tsx src/scripts/create-table.ts",
@@ -25,6 +26,9 @@
     "mail:test:status": "tsx src/scripts/test-payment-status-emails.ts",
     "mail:test:weekly-report": "tsx src/scripts/send-weekly-admin-report-preview.ts",
     "mail:test:ses-simulator": "tsx src/scripts/test-ses-inventory-simulator.ts",
+    "mail:test:ses-all": "tsx src/scripts/test-ses-inventory-simulator.ts --scenario=all",
+    "mail:test:ses-layout": "tsx src/scripts/test-ses-inventory-simulator.ts --scenario=layout",
+    "mail:test:ses-layout-simulator": "tsx src/scripts/test-ses-inventory-simulator.ts --scenario=layout-simulator",
     "mail:test:ses-bounce": "tsx src/scripts/test-ses-inventory-simulator.ts --scenario=bounce",
     "mail:test:ses-complaint": "tsx src/scripts/test-ses-inventory-simulator.ts --scenario=complaint"
   },
