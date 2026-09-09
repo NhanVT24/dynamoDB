@@ -41,7 +41,8 @@ type StorefrontListResponse = {
 };
 
 type StorefrontOrderApiItem = {
-  id: string;
+  id?: string;
+  PK?: string;
   customerEmail: string;
   status: string;
   items?: Array<{
@@ -186,13 +187,19 @@ export async function fetchMyOrders() {
   }
 
   const payload = (await response.json().catch(() => [])) as StorefrontOrderApiItem[];
-  return payload.map((item): StoreOrder => ({
-    id: item.id,
-    customerEmail: item.customerEmail,
-    status: item.status,
-    items: item.items ?? [],
-    totalAmount: Number(item.totalAmount ?? 0),
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt
-  }));
+  return payload.flatMap((item): StoreOrder[] => {
+    const orderId = String(item.id ?? item.PK?.replace(/^ORDER#/, "") ?? "").trim();
+    // A malformed historical record must not crash the customer's profile.
+    if (!orderId) return [];
+
+    return [{
+      id: orderId,
+      customerEmail: item.customerEmail,
+      status: item.status,
+      items: item.items ?? [],
+      totalAmount: Number(item.totalAmount ?? 0),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt
+    }];
+  });
 }
