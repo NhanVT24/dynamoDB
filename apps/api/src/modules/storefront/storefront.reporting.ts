@@ -20,7 +20,7 @@ type WeeklyRevenueSummary = {
     quantity: number;
     revenue: number;
   }>;
-  orders: Array<StorefrontAwaitingPaymentOrderRecord & { items: StorefrontOrderItemRecord[] }>;
+  orders: Array<StorefrontAwaitingPaymentOrderRecord & { id: string; items: StorefrontOrderItemRecord[] }>;
 };
 
 function toDynamoItem(item: Record<string, unknown>) {
@@ -64,9 +64,10 @@ export async function buildWeeklyRevenueSummary(referenceDate = new Date()): Pro
     .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)));
 
   const orders = await Promise.all(paidOrders.map(async (order) => {
+    const orderId = String((order as { id?: string }).id ?? order.PK.replace(/^ORDER#/, ""));
     // Legacy checkout orders embed their lines in DETAIL after a successful IPN.
     const embeddedItems = (order as unknown as { items?: StorefrontOrderItemRecord[] }).items;
-    if (Array.isArray(embeddedItems)) return { ...order, items: embeddedItems };
+    if (Array.isArray(embeddedItems)) return { ...order, id: orderId, items: embeddedItems };
     const itemsResult = await rawDb.send(new QueryCommand({
       TableName,
       KeyConditionExpression: "PK = :pk AND begins_with(SK, :itemPrefix)",
@@ -78,6 +79,7 @@ export async function buildWeeklyRevenueSummary(referenceDate = new Date()): Pro
 
     return {
       ...order,
+      id: orderId,
       items: (itemsResult.Items ?? []).map((item) => unmarshall(item) as StorefrontOrderItemRecord)
     };
   }));

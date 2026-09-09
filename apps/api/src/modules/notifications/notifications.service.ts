@@ -593,6 +593,7 @@ export class NotificationsService {
           stockChanges: [],
           order: {
             ...outcome.order,
+            id: requestId,
             SK: "DETAIL",
             status: "pending",
             items: outcome.items.map((item) => ({

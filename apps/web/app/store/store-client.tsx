@@ -1000,15 +1000,17 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
     let cancelled = false;
 
     async function loadNotifications() {
-      const localItems = readLocalNotifications();
-
       if (!session?.idToken) {
         if (!cancelled) {
-          setNotifications(localItems);
-          setPendingCount(localItems.filter((item) => !item.isRead).length);
+          // Notifications belong to an authenticated account. Local payment
+          // feedback must never remain visible after logout or token expiry.
+          setNotifications([]);
+          setPendingCount(0);
         }
         return;
       }
+
+      const localItems = readLocalNotifications();
 
       try {
         const response = await fetch("/api/lambda-proxy/api/notifications/me", {
@@ -1221,6 +1223,10 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       current.map((item) => ({ ...item, isRead: true, status: "read" as const }))
     );
     setPendingCount(0);
+  }
+
+  if (!session?.idToken) {
+    return null;
   }
 
   return (
