@@ -29,7 +29,6 @@ export type StorefrontAwaitingPaymentOrderRecord = {
   PK: string;
   SK: "ORDER";
   entityType: "ORDER";
-  id: string;
   customerEmail: string;
   status: AwaitingPaymentOrderStatus;
   totalAmount: number;
@@ -192,6 +191,10 @@ function buildCheckoutGateKey(requestId: string) {
 
 function buildOrderMetaKey(orderId: string) {
   return { PK: `ORDER#${orderId}`, SK: "ORDER" as const };
+}
+
+function orderIdFromPk(pk: string) {
+  return pk.startsWith("ORDER#") ? pk.slice("ORDER#".length) : "";
 }
 
 function buildOrderItemKey(orderId: string, productId: string) {
@@ -1131,12 +1134,13 @@ export async function releaseExpiredAwaitingPaymentOrders() {
 
     for (const rawOrder of result.Items ?? []) {
       const order = fromDynamoItem(rawOrder) as StorefrontAwaitingPaymentOrderRecord | null;
-      if (!order?.id) continue;
+      const orderId = order?.PK ? orderIdFromPk(order.PK) : "";
+      if (!orderId) continue;
       try {
-        const outcome = await transitionAwaitingPaymentOrder({ orderId: order.id, status: "expired" });
+        const outcome = await transitionAwaitingPaymentOrder({ orderId, status: "expired" });
         if (outcome.changed) releasedCount += 1;
       } catch (error) {
-        console.warn("[order-expiry] release_failed", { orderId: order.id, message: error instanceof Error ? error.message : "unknown" });
+        console.warn("[order-expiry] release_failed", { orderId, message: error instanceof Error ? error.message : "unknown" });
       }
     }
     exclusiveStartKey = result.LastEvaluatedKey;
@@ -1164,7 +1168,7 @@ export async function createAwaitingPaymentOrder(input: {
     if (!product) throw new Error(`Product ${item.productId} not found`);
 
     const stock = Number(product.stock ?? 0);
-    if (stock - Number(product.reservedStock ?? 0) < item.quantity) {
+    if (stock < item.quantity) {
       throw new Error(`Insufficient stock for ${product.name}`);
     }
 
@@ -1190,7 +1194,6 @@ export async function createAwaitingPaymentOrder(input: {
   const order: StorefrontAwaitingPaymentOrderRecord = {
     ...buildOrderMetaKey(input.orderId),
     entityType: "ORDER",
-    id: input.orderId,
     customerEmail: input.email,
     status: "awaiting_payment",
     totalAmount,
@@ -1220,7 +1223,7 @@ export async function createAwaitingPaymentOrder(input: {
             ExpressionAttributeNames: { "#stock": "stock", "#version": "version" },
             ExpressionAttributeValues: toDynamoItem({
               ":quantity": item.quantity, ":updatedAt": now,
-              ":requiredStock": Number(product.reservedStock ?? 0) + item.quantity,
+              ":requiredStock": item.quantity,
               ":expectedVersion": Number(product.version ?? 0), ":one": 1
             })
           }
@@ -1364,7 +1367,10 @@ export async function listOrdersByCustomer(email: string) {
       const order = fromDynamoItem(raw);
       if (!order) continue;
       if (order.SK === "ORDER") {
-        order.items = (await listOrderItems(order.id)).map((item) => ({
+        const orderId = orderIdFromPk(String(order.PK ?? ""));
+        if (!orderId) continue;
+        order.id = orderId;
+        order.items = (await listOrderItems(orderId)).map((item) => ({
           ...item, price: item.unitPrice
         }));
       }

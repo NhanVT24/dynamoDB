@@ -11,7 +11,7 @@ import { UploadsService } from "../../../modules/uploads/uploads.service.js";
 
 type QueueHandlerConfig = {
   lambdaName: string;
-  worker: "storefront" | "checkoutGate" | "notifications" | "payments" | "uploads";
+  worker: "storefront" | "notifications" | "payments" | "uploads";
   queueName: string;
 };
 
@@ -74,23 +74,10 @@ export function createQueueHandler(config: QueueHandlerConfig) {
       }
     });
 
-    // Keep the FIFO message in flight while waiting, so the next message in the
-    // shared checkout lane cannot begin its business processing first.
-    if (config.worker === "checkoutGate") {
-      logger.log(`[checkout-fifo] start_delay batchId=${batchId} delayMs=5000`);
-      await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
-    }
-
     const appContext = await appContextPromise;
 
     try {
-      const result = config.worker === "checkoutGate"
-        ? await appContext.get(StorefrontService).processCheckoutGateRecords(records, {
-          queueName: config.queueName,
-          workerName: config.lambdaName,
-          batchId
-        })
-        : config.worker === "storefront"
+      const result = config.worker === "storefront"
           ? await appContext.get(StorefrontService).processQueueRecords(records, {
             queueName: config.queueName,
             workerName: config.lambdaName

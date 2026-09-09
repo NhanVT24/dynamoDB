@@ -10,7 +10,6 @@ import { NotificationsService } from "../notifications/notifications.service.js"
 import { getShoppingItem } from "../shopping/shopping.repository.js";
 import {
   getAwaitingPaymentOrder,
-  releaseCheckoutGateReservation,
   transitionAwaitingPaymentOrder
 } from "../storefront/storefront.repository.js";
 import {
@@ -71,7 +70,7 @@ function isConditionalCheckFailedError(error: unknown) {
   return candidate?.name === "ConditionalCheckFailedException" || candidate?.code === "ConditionalCheckFailedException";
 }
 
-function extractCheckoutGateRequestId(orderInfo: string) {
+function extractOrderId(orderInfo: string) {
   return orderInfo.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0];
 }
 
@@ -296,7 +295,7 @@ export class VnpayService {
 
   private async dispatchPaymentEvent(session: PaymentSessionRecord) {
     if (session.paymentEventEnqueuedAt) return;
-    const requestId = extractCheckoutGateRequestId(session.orderInfo);
+    const requestId = extractOrderId(session.orderInfo);
     const input = {
       email: session.email, txnRef: session.txnRef, amount: session.amount,
       orderInfo: session.orderInfo, requestId,

@@ -126,9 +126,7 @@ function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T):
 
 function toPublicProductSummary(item: ProductRecord, saleCampaigns = [] as Awaited<ReturnType<typeof listActiveSaleCampaigns>>): PublicProductSummary {
   const stock = Number(item.stock ?? 0);
-  const reservedStock = Number(item.reservedStock ?? 0);
-  const availableStock = Math.max(0, stock - reservedStock);
-  const status = availableStock <= 0 ? "out_of_stock" : availableStock <= 10 ? "low_stock" : String(item.status ?? "active");
+  const status = stock <= 0 ? "out_of_stock" : stock <= 10 ? "low_stock" : String(item.status ?? "active");
   return {
     id: String(item.id),
     name: String(item.name ?? ""),
@@ -136,15 +134,14 @@ function toPublicProductSummary(item: ProductRecord, saleCampaigns = [] as Await
     brand: String(item.brand ?? ""),
     ...resolveSalePrice(item, saleCampaigns),
     status,
-    stock: availableStock,
+    stock,
     imageUrl: item.imageUrl ? String(item.imageUrl) : undefined,
     rating: item.rating == null ? undefined : Number(item.rating),
     soldCount: item.soldCount == null ? undefined : Number(item.soldCount),
     location: item.location ? String(item.location) : undefined,
     featured: Boolean(item.featured),
     updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
-    isLocked: availableStock <= 0 && reservedStock > 0,
-    lockedUntil: item.lockedUntil ? String(item.lockedUntil) : undefined
+    isLocked: false
   };
 }
 
@@ -176,9 +173,7 @@ function toPublicProductDetail(item: ProductRecord, saleCampaigns = [] as Awaite
     ...attributes
   } = item;
   const numericStock = Number(stock ?? 0);
-  const reservedStock = Number(item.reservedStock ?? 0);
-  const availableStock = Math.max(0, numericStock - reservedStock);
-  const publicStatus = availableStock <= 0 ? "out_of_stock" : availableStock <= 10 ? "low_stock" : String(status ?? "active");
+  const publicStatus = numericStock <= 0 ? "out_of_stock" : numericStock <= 10 ? "low_stock" : String(status ?? "active");
 
   return {
     id: String(id),
@@ -187,7 +182,7 @@ function toPublicProductDetail(item: ProductRecord, saleCampaigns = [] as Awaite
     brand: String(brand ?? ""),
     ...resolveSalePrice(item, saleCampaigns),
     status: publicStatus,
-    stock: availableStock,
+    stock: numericStock,
     imageUrl: imageUrl ? String(imageUrl) : undefined,
     rating: rating == null ? undefined : Number(rating),
     soldCount: soldCount == null ? undefined : Number(soldCount),
@@ -196,8 +191,7 @@ function toPublicProductDetail(item: ProductRecord, saleCampaigns = [] as Awaite
     updatedAt: updatedAt ? String(updatedAt) : undefined,
     description: description ? String(description) : undefined,
     sku: sku ? String(sku) : undefined,
-    isLocked: availableStock <= 0 && reservedStock > 0,
-    lockedUntil: item.lockedUntil ? String(item.lockedUntil) : undefined,
+    isLocked: false,
     attributes
   };
 }
@@ -259,7 +253,7 @@ export class StorefrontService {
   async getOrderStatus(email: string, orderId: string) {
     const order = await getAwaitingPaymentOrder(orderId);
     if (!order || order.customerEmail !== email) throw new NotFoundException("Order not found.");
-    return { orderId: order.id, status: order.status, lockedUntil: order.lockedUntil };
+    return { orderId, status: order.status, lockedUntil: order.lockedUntil };
   }
 
   async createOrder(email: string, input: CreateStorefrontOrderInput) {
@@ -348,12 +342,6 @@ export class StorefrontService {
       failedMessageIds,
       items: processedItems
     };
-  }
-
-  async processCheckoutGateRecords(records: Array<{ body?: string; messageId?: string }>, options?: unknown) {
-    // Retired queue messages must not create legacy checkout records.
-    this.logger.warn("Legacy checkout queue is retired; create an ORDER through the orders API.");
-    return { processed: 0, failedMessageIds: records.map((record) => String(record.messageId ?? "")), items: [] };
   }
 
   listMyOrders(email: string) {

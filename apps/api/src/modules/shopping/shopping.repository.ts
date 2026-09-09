@@ -561,16 +561,12 @@ export async function incrementItemValue(id: string, field: string, incrementBy 
       "#version = #version + :one",
       ...(field === "stock" ? ["#inventoryAlertSent = :inventoryAlertSent"] : [])
     ].join(", ") + (field === "stock" ? " REMOVE inventoryAlertSentAt" : ""),
-    // Stock decrements must leave enough physical units for active checkout holds.
-    ConditionExpression: field === "stock"
-      ? "attribute_exists(PK) AND (attribute_not_exists(#reservedStock) OR #reservedStock <= :fieldValue)"
-      : "attribute_exists(PK)",
+    ConditionExpression: "attribute_exists(PK)",
     ExpressionAttributeNames: {
       "#field": field,
       "#status": "status",
       "#searchName": "searchName",
       "#version": "version",
-      "#reservedStock": "reservedStock",
       "#inventoryAlertSent": "inventoryAlertSent"
     },
     ExpressionAttributeValues: toDynamoItem({
@@ -807,8 +803,7 @@ export async function updateShoppingItem(id: string, patch: ProductRecord, versi
     "#version": "version",
     "#status": "status",
     "#searchName": "searchName",
-    "#searchField": "searchField",
-    "#reservedStock": "reservedStock"
+    "#searchField": "searchField"
   };
   const values: Record<string, unknown> = {
     ":expectedVersion": version,
@@ -816,8 +811,7 @@ export async function updateShoppingItem(id: string, patch: ProductRecord, versi
     ":updatedAt": merged.updatedAt,
     ":status": merged.status,
     ":searchName": normalizeText(merged.name),
-    ":searchField": merged.searchField ?? "name",
-    ":resultingStock": Number(merged.stock ?? 0)
+    ":searchField": merged.searchField ?? "name"
   };
   const setters = [
     "updatedAt = :updatedAt",
@@ -850,9 +844,7 @@ export async function updateShoppingItem(id: string, patch: ProductRecord, versi
     TableName,
     Key: toDynamoItem(keys.product(id)),
     UpdateExpression: `SET ${setters.join(", ")}${stockChanged ? " REMOVE inventoryAlertSentAt" : ""}`,
-    // This is evaluated atomically with the update, including reservations made
-    // after the admin read the product but before this write.
-    ConditionExpression: "attribute_exists(PK) AND #version = :expectedVersion AND (attribute_not_exists(#reservedStock) OR #reservedStock <= :resultingStock)",
+    ConditionExpression: "attribute_exists(PK) AND #version = :expectedVersion",
     ExpressionAttributeNames: names,
     ExpressionAttributeValues: toDynamoItem(values),
     ReturnValues: "ALL_NEW"
