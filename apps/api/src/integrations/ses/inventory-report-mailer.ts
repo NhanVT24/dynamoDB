@@ -1,5 +1,6 @@
 import { SendEmailCommand } from "@aws-sdk/client-sesv2";
 import { env } from "../../config/env.js";
+import { sesTrackingTags } from "../../modules/email-deliveries/email-delivery.repository.js";
 import type { InventoryReportProduct } from "../../modules/shopping/shopping.repository.js";
 import { sesClient } from "./client.js";
 
@@ -75,7 +76,7 @@ export async function sendInventoryDigestEmail(input: InventoryDigestInput) {
     ConfigurationSetName: env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME,
     // SES copies these tags to SNS feedback events so the receiving Lambda can find this report.
     EmailTags: [
-      { Name: "emailId", Value: input.emailId },
+      ...sesTrackingTags({ emailId: input.emailId, recipientId: input.emailId, emailType: "inventory_daily_report" }),
       { Name: "reportId", Value: input.reportId },
       { Name: "reportType", Value: "daily-inventory" }
     ],

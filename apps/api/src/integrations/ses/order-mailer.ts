@@ -4,6 +4,7 @@ import {
   createPendingEmailDelivery,
   markEmailDeliveryAccepted,
   markEmailDeliveryFailed,
+  sesTrackingTags,
   type EmailDeliveryRecord
 } from "../../modules/email-deliveries/email-delivery.repository.js";
 import { sesClient } from "./client.js";
@@ -95,10 +96,11 @@ async function sendTrackedOrderEmail(input: {
       ...(env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME
         ? { ConfigurationSetName: env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME }
         : {}),
-      EmailTags: [
-        { Name: "emailId", Value: email.id },
-        { Name: "emailType", Value: input.emailType }
-      ],
+      EmailTags: sesTrackingTags({
+        emailId: email.emailId,
+        recipientId: email.recipientId,
+        emailType: input.emailType
+      }),
       Content: {
         Simple: {
           Subject: { Data: input.subject, Charset: "UTF-8" },

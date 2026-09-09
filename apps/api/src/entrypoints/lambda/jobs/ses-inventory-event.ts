@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { updateEmailDeliveryStatus } from "../../../modules/email-deliveries/email-delivery.repository.js";
+import { updateEmailDeliveryStatus, updateEmailRecipientStatus } from "../../../modules/email-deliveries/email-delivery.repository.js";
 import { updateInventoryReportDeliveryStatus } from "../../../modules/inventory-reports/inventory-report.repository.js";
 
 type SnsEvent = {
@@ -35,6 +35,7 @@ export const handler = async (event: SnsEvent) => {
     const status = toDeliveryStatus(String(sesEvent.eventType ?? ""));
     const reportId = sesEvent.mail?.tags?.reportId?.[0];
     const emailId = sesEvent.mail?.tags?.emailId?.[0];
+    const recipientId = sesEvent.mail?.tags?.recipientId?.[0];
     if (!status || (!reportId && !emailId)) {
       return { ignored: "unrelated_ses_event" };
     }
@@ -44,13 +45,22 @@ export const handler = async (event: SnsEvent) => {
         ? updateInventoryReportDeliveryStatus({ reportId, sesMessageId: sesEvent.mail?.messageId, status })
         : Promise.resolve(),
       emailId
-        ? updateEmailDeliveryStatus({
-          id: emailId,
-          sesMessageId: sesEvent.mail?.messageId,
-          status,
-          providerEventType: String(sesEvent.eventType),
-          providerEventAt: sesEvent.mail?.timestamp
-        })
+        ? recipientId
+          ? updateEmailRecipientStatus({
+            emailId,
+            recipientId,
+            sesMessageId: sesEvent.mail?.messageId,
+            status,
+            providerEventType: String(sesEvent.eventType),
+            providerEventAt: sesEvent.mail?.timestamp
+          })
+          : updateEmailDeliveryStatus({
+            id: emailId,
+            sesMessageId: sesEvent.mail?.messageId,
+            status,
+            providerEventType: String(sesEvent.eventType),
+            providerEventAt: sesEvent.mail?.timestamp
+          })
         : Promise.resolve()
     ]);
     return { reportId, emailId, status };
