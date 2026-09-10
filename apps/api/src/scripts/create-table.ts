@@ -18,6 +18,8 @@ const tableDefinition: CreateTableCommandInput = {
     { AttributeName: "searchName", AttributeType: "S" },
     { AttributeName: "searchField", AttributeType: "S" },
     { AttributeName: "entityType", AttributeType: "S" },
+    { AttributeName: "marketingAudience", AttributeType: "S" },
+    { AttributeName: "emailSearch", AttributeType: "S" },
     { AttributeName: "campaignStatus", AttributeType: "S" },
     { AttributeName: "startAt", AttributeType: "S" },
     { AttributeName: "updatedAt", AttributeType: "S" }
@@ -61,6 +63,14 @@ const tableDefinition: CreateTableCommandInput = {
       KeySchema: [
         { AttributeName: "entityType", KeyType: "HASH" },
         { AttributeName: "updatedAt", KeyType: "RANGE" }
+      ],
+      Projection: { ProjectionType: "ALL" }
+    },
+    {
+      IndexName: "CustomerMarketingIndex",
+      KeySchema: [
+        { AttributeName: "marketingAudience", KeyType: "HASH" },
+        { AttributeName: "emailSearch", KeyType: "RANGE" }
       ],
       Projection: { ProjectionType: "ALL" }
     },

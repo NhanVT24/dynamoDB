@@ -13,6 +13,7 @@ export const env = z.object({
   AWS_SECRET_ACCESS_KEY: z.string().default("local"),
   DYNAMODB_ENDPOINT: z.string().optional(),
   DYNAMODB_TABLE_NAME: z.string().default("MarketplaceProducts"),
+  COGNITO_USER_POOL_ID: z.string().min(1).optional(),
   S3_BUCKET_NAME: z.string().optional(),
   S3_ENDPOINT: z.string().optional(),
   S3_PUBLIC_BASE_URL: z.string().optional(),

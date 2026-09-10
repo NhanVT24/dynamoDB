@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import ShoppingManager from "../components/ShoppingManager";
+import EmailCenter from "../components/EmailCenter";
 import {
   beginGoogleSignIn,
   clearAuthSession,
@@ -426,6 +427,7 @@ export default function Home() {
   const searchParams = useSearchParams();
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
+  const [adminTab, setAdminTab] = useState<"products" | "email">("products");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [message, setMessage] = useState("Dùng tài khoản Cognito để truy cập API admin trên AWS.");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -959,6 +961,13 @@ export default function Home() {
         <ShoppingManager
           authToken={session.idToken}
           canManageProducts={session.role === "admin"}
+          workspaceContent={adminTab === "email" ? <EmailCenter authToken={session.idToken} /> : null}
+          tabNavigation={(
+          <nav className="flex w-full justify-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+          <button type="button" onClick={() => setAdminTab("products")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "products" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Products & Sales</button>
+          <button type="button" onClick={() => setAdminTab("email")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "email" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Email Center</button>
+          </nav>
+          )}
           headerActions={(
             <div className="relative z-50 flex items-center gap-3">
               <AdminNotificationBell authToken={session.idToken} />

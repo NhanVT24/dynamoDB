@@ -71,6 +71,9 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const isPublicStorefrontRead = isReadOnlyMethod && url.startsWith("/api/storefront/");
     const isPublicProductsRead = isReadOnlyMethod && url.startsWith("/api/products");
     const isSalesRequest = url.startsWith("/api/sales");
+    // Customer email/consent is personal data. Unlike most reads, this route
+    // must reach the admin guard below.
+    const isAdminCustomerRequest = url.startsWith("/api/admin/customers");
     const isNotificationsMeRead = isReadOnlyMethod && url.startsWith("/api/notifications/me");
     const isNotificationReadMutation = method === "PATCH" && /^\/api\/notifications\/[^/]+\/read(?:\?|$)/.test(url);
     const isNotificationDeleteMutation = method === "DELETE" && /^\/api\/notifications\/[^/]+(?:\?|$)/.test(url);
@@ -88,7 +91,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       url.startsWith("/api/payments/vnpay/") ||
       url.startsWith("/api/payments/vnpay?");
 
-    if ((!isSalesRequest && isReadOnlyMethod) || isPublicStorefrontRead || isPublicProductsRead || isPublicVnpayRequest || isNotificationsMeRead) {
+    if ((!isSalesRequest && !isAdminCustomerRequest && isReadOnlyMethod) || isPublicStorefrontRead || isPublicProductsRead || isPublicVnpayRequest || isNotificationsMeRead) {
       return;
     }
 

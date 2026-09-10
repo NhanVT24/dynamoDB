@@ -91,6 +91,8 @@ type MetaResponse = {
 type ShoppingManagerProps = {
   authToken?: string;
   headerActions?: ReactNode;
+  tabNavigation?: ReactNode;
+  workspaceContent?: ReactNode;
   canManageProducts?: boolean;
 };
 
@@ -509,6 +511,8 @@ function ShoppingManagerSkeleton() {
 export default function ShoppingManager({
   authToken = "",
   headerActions = null,
+  tabNavigation = null,
+  workspaceContent = null,
   canManageProducts = false
 }: ShoppingManagerProps) {
   const [items, setItems] = useState<ProductItem[]>([]);
@@ -1132,6 +1136,10 @@ export default function ShoppingManager({
         {headerActions}
       </section>
 
+      {tabNavigation}
+
+      <div className={workspaceContent ? "hidden" : undefined}>
+
       {isViewerOnly ? (
         <section className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800" style={panelStyle}>
           This account does not have permission to manage products. You can view the product list, but you cannot create, edit, or delete products.
@@ -1588,6 +1596,8 @@ export default function ShoppingManager({
         </form>
         )}
       </section>
+      </div>
+      {workspaceContent}
       <style jsx>{`
         @media (max-width: 1279px) {
           .product-manager-panel {

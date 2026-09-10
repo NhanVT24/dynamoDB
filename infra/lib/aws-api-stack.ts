@@ -136,6 +136,8 @@ export class AwsApiStack extends Stack {
         { attributeName: "searchName", attributeType: "S" },
         { attributeName: "searchField", attributeType: "S" },
         { attributeName: "entityType", attributeType: "S" },
+        { attributeName: "marketingAudience", attributeType: "S" },
+        { attributeName: "emailSearch", attributeType: "S" },
         ...(includeSaleCampaignTimelineIndex ? [
           { attributeName: "campaignStatus", attributeType: "S" },
           { attributeName: "startAt", attributeType: "S" }
@@ -181,6 +183,14 @@ export class AwsApiStack extends Stack {
           keySchema: [
             { attributeName: "entityType", keyType: "HASH" },
             { attributeName: "updatedAt", keyType: "RANGE" }
+          ],
+          projection: { projectionType: "ALL" }
+        },
+        {
+          indexName: "CustomerMarketingIndex",
+          keySchema: [
+            { attributeName: "marketingAudience", keyType: "HASH" },
+            { attributeName: "emailSearch", keyType: "RANGE" }
           ],
           projection: { projectionType: "ALL" }
         },
@@ -637,6 +647,7 @@ exports.handler = async (event) => {
 
     const sharedEnvironment = {
       DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString,
+      COGNITO_USER_POOL_ID: userPool.userPoolId,
       S3_BUCKET_NAME: productImagesBucket.bucketName,
       S3_PUBLIC_BASE_URL: `https://${productImagesBucket.bucketName}.s3.${this.region}.amazonaws.com`,
       SQS_NOTIFICATIONS_QUEUE_URL: notificationsQueue.queueUrl,
@@ -772,6 +783,10 @@ exports.handler = async (event) => {
       25,
       256
     );
+    httpApiFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["cognito-idp:ListUsers"],
+      resources: [userPool.userPoolArn]
+    }));
     const orderWorkerFunction = createApplicationLambda(
       "SupermarketOrderWorkerFunction",
       "supermarket-order-worker-aws",

@@ -9,8 +9,10 @@ import { SalesModule } from "../../modules/sales/sales.module.js";
 import { StorefrontModule } from "../../modules/storefront/storefront.module.js";
 import { UploadsModule } from "../../modules/uploads/uploads.module.js";
 import { VnpayModule } from "../../modules/vnpay/vnpay.module.js";
+import { CustomersModule } from "../../modules/customers/customers.module.js";
+import { EmailDeliveriesModule } from "../../modules/email-deliveries/email-deliveries.module.js";
 
 @Module({
-  imports: [ConfigModule, AdminOpsModule, HealthModule, ShoppingModule, SalesModule, StorefrontModule, LearningModule, NotificationsModule, UploadsModule, VnpayModule]
+  imports: [ConfigModule, AdminOpsModule, HealthModule, ShoppingModule, SalesModule, StorefrontModule, LearningModule, NotificationsModule, UploadsModule, VnpayModule, CustomersModule, EmailDeliveriesModule]
 })
 export class AppModule {}
