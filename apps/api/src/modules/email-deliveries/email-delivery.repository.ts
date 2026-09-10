@@ -7,13 +7,15 @@ import { rawDb } from "../../database/dynamodb/client.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 
-export type EmailDeliveryStatus = "pending" | "accepted" | "delivered" | "bounced" | "complained" | "rejected" | "delivery_delayed" | "failed";
+export type EmailDeliveryStatus = "pending" | "accepted" | "delivered" | "bounced" | "complained" | "rejected" | "delivery_delayed" | "failed" | "not_sent" | "unknown";
 export type EmailType = "inventory_daily_report" | "order_confirmation" | "payment_failure" | "order_failure" | "sale_campaign";
 
 export type EmailDeliveryMeta = {
   PK: string; SK: "META"; entityType: "EMAIL"; id: string; emailType: EmailType;
   senderEmail: string; subject: string; recipientCount: number; reportId?: string; relatedId?: string;
-  sendStatus: "pending" | "accepted" | "failed";
+  // This is the aggregate submit result, not the delivery outcome. Delivery is
+  // tracked on each RECIPIENT item because a bulk send can succeed partially.
+  sendStatus: "pending" | "accepted" | "partial_sent" | "failed" | "unknown";
   sesMessageId?: string; failureReason?: string;
   createdAt: string; updatedAt: string;
 };
@@ -24,6 +26,9 @@ export type EmailDeliveryRecord = {
   recipientId: string;
   recipientEmail: string; recipientType: "to" | "cc" | "bcc";
   status: EmailDeliveryStatus; statusAt?: string; failureReason?: string;
+  // Bulk SES sends return one MessageId for each entry. Keeping it on the
+  // recipient lets SNS feedback correlate without scanning an entire campaign.
+  sesMessageId?: string;
   updatedAt: string;
 };
 
@@ -54,7 +59,9 @@ export async function createPendingEmailDeliveryBatch(input: {
   recipients: Array<{ email: string; type?: "to" | "cc" | "bcc" }>;
   reportId?: string; relatedId?: string; emailId?: string;
 }) {
-  if (input.recipients.length === 0 || input.recipients.length > 99) throw new Error("An email batch must contain from 1 to 99 recipients.");
+  // SES accepts at most 50 recipients in a send. Larger campaigns are split
+  // into independent bulk attempts by bulk-mailer.ts.
+  if (input.recipients.length === 0 || input.recipients.length > 50) throw new Error("An email batch must contain from 1 to 50 recipients.");
   const normalized = input.recipients.map((recipient) => ({ email: recipient.email.trim().toLowerCase(), type: recipient.type ?? "to" }));
   if (normalized.some((recipient) => !recipient.email)) throw new Error("Recipient email is required.");
   if (new Set(normalized.map((recipient) => recipient.email)).size !== normalized.length) throw new Error("A recipient may appear only once in an email batch.");
@@ -107,15 +114,18 @@ export async function markEmailAccepted(emailId: string, sesMessageId: string) {
     await rawDb.send(new UpdateItemCommand({
       TableName,
       Key: item(metaKey(emailId)),
-      ConditionExpression: "attribute_exists(PK) AND (attribute_not_exists(sesMessageId) OR (sesMessageId = :sesMessageId AND sendStatus <> :accepted))",
+      // SNS can arrive before the caller persists SendEmail's result. It may
+      // repair pending/unknown attempts, but must never overwrite bulk's final
+      // aggregate (accepted/partial_sent/failed).
+      ConditionExpression: "attribute_exists(PK) AND sendStatus IN (:pending, :unknown)",
       UpdateExpression: "SET sendStatus = :accepted, sesMessageId = :sesMessageId, updatedAt = :updatedAt REMOVE failureReason",
-      ExpressionAttributeValues: item({ ":accepted": "accepted", ":sesMessageId": sesMessageId, ":updatedAt": now })
+      ExpressionAttributeValues: item({ ":pending": "pending", ":unknown": "unknown", ":accepted": "accepted", ":sesMessageId": sesMessageId, ":updatedAt": now })
     }));
     return true;
   } catch (error) { if (isConditionalFailure(error)) return false; throw error; }
 }
 
-export async function markEmailRecipientAccepted(input: { emailId: string; recipientId: string }) {
+export async function markEmailRecipientAccepted(input: { emailId: string; recipientId: string; sesMessageId?: string }) {
   return updateEmailRecipientStatus({ ...input, status: "accepted" });
 }
 
@@ -132,6 +142,30 @@ export async function markEmailRecipientFailed(input: { emailId: string; recipie
     UpdateExpression: "SET #status = :failed, failureReason = :failureReason, statusAt = :statusAt, updatedAt = :updatedAt",
     ExpressionAttributeNames: { "#status": "status" },
     ExpressionAttributeValues: item({ ":pending": "pending", ":failed": "failed", ":failureReason": input.failureReason.slice(0, 500), ":statusAt": now, ":updatedAt": now })
+    }));
+  } catch (error) { if (!isConditionalFailure(error)) throw error; }
+}
+
+export async function markEmailRecipientNotSent(input: { emailId: string; recipientId: string; failureReason: string }) {
+  const now = new Date().toISOString();
+  try {
+    await rawDb.send(new UpdateItemCommand({
+      TableName, Key: item(recipientKey(input.emailId, input.recipientId)), ConditionExpression: "attribute_exists(PK) AND #status = :pending",
+      UpdateExpression: "SET #status = :notSent, failureReason = :failureReason, statusAt = :statusAt, updatedAt = :updatedAt",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: item({ ":pending": "pending", ":notSent": "not_sent", ":failureReason": input.failureReason.slice(0, 500), ":statusAt": now, ":updatedAt": now })
+    }));
+  } catch (error) { if (!isConditionalFailure(error)) throw error; }
+}
+
+export async function markEmailRecipientUnknown(input: { emailId: string; recipientId: string; failureReason: string }) {
+  const now = new Date().toISOString();
+  try {
+    await rawDb.send(new UpdateItemCommand({
+      TableName, Key: item(recipientKey(input.emailId, input.recipientId)), ConditionExpression: "attribute_exists(PK) AND #status = :pending",
+      UpdateExpression: "SET #status = :unknown, failureReason = :failureReason, statusAt = :statusAt, updatedAt = :updatedAt",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: item({ ":pending": "pending", ":unknown": "unknown", ":failureReason": input.failureReason.slice(0, 500), ":statusAt": now, ":updatedAt": now })
     }));
   } catch (error) { if (!isConditionalFailure(error)) throw error; }
 }
@@ -154,6 +188,39 @@ export async function markEmailFailed(emailId: string, failureReason: string) {
   } catch (error) { if (!isConditionalFailure(error)) throw error; }
 }
 
+export async function markEmailUnknown(emailId: string, failureReason: string) {
+  const now = new Date().toISOString();
+  try {
+    await rawDb.send(new UpdateItemCommand({
+      TableName, Key: item(metaKey(emailId)), ConditionExpression: "attribute_exists(PK) AND sendStatus = :pending",
+      UpdateExpression: "SET sendStatus = :unknown, failureReason = :failureReason, updatedAt = :updatedAt",
+      ExpressionAttributeValues: item({ ":pending": "pending", ":unknown": "unknown", ":failureReason": failureReason.slice(0, 500), ":updatedAt": now })
+    }));
+  } catch (error) { if (!isConditionalFailure(error)) throw error; }
+}
+
+export async function markBulkEmailSendOutcome(input: { emailId: string; acceptedCount: number; recipientCount: number; failureReason?: string }) {
+  if (input.recipientCount < 1 || input.acceptedCount < 0 || input.acceptedCount > input.recipientCount) {
+    throw new Error("Invalid bulk email send outcome.");
+  }
+  const sendStatus = input.acceptedCount === input.recipientCount ? "accepted"
+    : input.acceptedCount > 0 ? "partial_sent" : "failed";
+  const now = new Date().toISOString();
+  const values: Record<string, unknown> = { ":status": sendStatus, ":updatedAt": now };
+  let expression = "SET sendStatus = :status, updatedAt = :updatedAt";
+  if (input.failureReason) {
+    values[":failureReason"] = input.failureReason.slice(0, 500);
+    expression += ", failureReason = :failureReason";
+  } else {
+    expression += " REMOVE failureReason";
+  }
+  await rawDb.send(new UpdateItemCommand({
+    TableName, Key: item(metaKey(input.emailId)), ConditionExpression: "attribute_exists(PK)",
+    UpdateExpression: expression, ExpressionAttributeValues: item(values)
+  }));
+  return sendStatus;
+}
+
 export async function updateEmailRecipientStatus(input: {
   emailId: string; recipientId: string;
   status: FeedbackStatus;
@@ -161,6 +228,7 @@ export async function updateEmailRecipientStatus(input: {
   legacy?: boolean;
   recipientEmails?: string[];
   failureReason?: string;
+  sesMessageId?: string;
 }) {
   const key = input.legacy ? { PK: `EMAIL#${input.emailId}`, SK: "DETAIL" } : recipientKey(input.emailId, input.recipientId);
   const existing = await rawDb.send(new GetItemCommand({ TableName, Key: item(key), ConsistentRead: true }));
@@ -170,9 +238,9 @@ export async function updateEmailRecipientStatus(input: {
     return false;
   }
   const now = new Date().toISOString();
-  const { values, ...update } = feedbackUpdate(input.status, input.statusAt ?? now, now, "unused", {
+  const { values, ...update } = feedbackUpdate(input.status, input.statusAt ?? now, now, input.sesMessageId ?? "unused", {
     timestampField: "statusAt",
-    storeMessageId: false,
+    storeMessageId: Boolean(input.sesMessageId),
     preserveTimestamp: false
   });
   if (input.failureReason) {

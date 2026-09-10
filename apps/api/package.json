@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:vnpay": "npm run build:ts && node --test --test-isolation=none tests/vnpay.test.mjs",
     "test:email-feedback": "npm run build:ts && node --test tests/email-feedback.test.mjs",
+    "test:bulk-mailer": "npm run build:ts && node --test tests/bulk-mailer.test.mjs",
     "diagnose:vnpay": "tsx src/scripts/diagnose-vnpay-callback.ts",
     "package:lambda": "npm run build:ts && node scripts/package-lambda.js",
     "db:init": "tsx src/scripts/create-table.ts",
@@ -30,7 +31,8 @@
     "mail:test:ses-layout": "tsx src/scripts/test-ses-inventory-simulator.ts --scenario=layout",
     "mail:test:ses-layout-simulator": "tsx src/scripts/test-ses-inventory-simulator.ts --scenario=layout-simulator",
     "mail:test:ses-bounce": "tsx src/scripts/test-ses-inventory-simulator.ts --scenario=bounce",
-    "mail:test:ses-complaint": "tsx src/scripts/test-ses-inventory-simulator.ts --scenario=complaint"
+    "mail:test:ses-complaint": "tsx src/scripts/test-ses-inventory-simulator.ts --scenario=complaint",
+    "mail:test:ses-bulk": "tsx src/scripts/test-ses-bulk-simulator.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "3.1095.0",

@@ -582,9 +582,24 @@ exports.handler = async (event) => {
       displayName: "Supermarket Admin Alerts"
     });
     adminAlertsTopic.addSubscription(new subscriptions.EmailSubscription(adminReportEmail.valueAsString));
+    const sesFeedbackDeliveryStatusRole = new iam.Role(this, "SesFeedbackDeliveryStatusRole", {
+      assumedBy: new iam.ServicePrincipal("sns.amazonaws.com")
+    });
+    sesFeedbackDeliveryStatusRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      resources: ["*"]
+    }));
     const inventoryReportEventsTopic = new sns.Topic(this, "InventoryReportEventsTopic", {
       topicName: "supermarket-inventory-report-events",
-      displayName: "Supermarket Inventory Report SES Events"
+      displayName: "Supermarket Inventory Report SES Events",
+      // SNS writes sampled delivery records to its own CloudWatch log group,
+      // letting us distinguish "SES published" from "Lambda processed".
+      loggingConfigs: [{
+        protocol: sns.LoggingProtocol.LAMBDA,
+        successFeedbackRole: sesFeedbackDeliveryStatusRole,
+        failureFeedbackRole: sesFeedbackDeliveryStatusRole,
+        successFeedbackSampleRate: 100
+      }]
     });
     const inventoryReportConfigurationSet = new ses.CfnConfigurationSet(this, "InventoryReportConfigurationSet", {
       name: "supermarket-inventory-daily-report"
@@ -675,7 +690,7 @@ exports.handler = async (event) => {
       }));
 
       fn.addToRolePolicy(new iam.PolicyStatement({
-        actions: ["ses:SendEmail", "ses:SendRawEmail"],
+        actions: ["ses:SendEmail", "ses:SendRawEmail", "ses:SendBulkEmail", "ses:GetAccount", "ses:GetEmailIdentity"],
         resources: ["*"]
       }));
       fn.addToRolePolicy(new iam.PolicyStatement({

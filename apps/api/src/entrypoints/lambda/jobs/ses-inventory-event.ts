@@ -60,9 +60,21 @@ export async function processSesMessage(message: string) {
   const input = {
     status: mapping.status,
     statusAt: eventAt,
+    sesMessageId: event.mail.messageId,
     recipientEmails: recipientEmails?.length ? recipientEmails : undefined,
     failureReason: detail?.reason ?? detail?.errorMessage ?? detail?.bounceType
   };
+  // This is intentionally metadata-only: SES payloads can expose BCC addresses
+  // and headers, so raw events must not be copied into CloudWatch Logs.
+  console.info("[ses-feedback] event_resolved", {
+    sesMessageId: event.mail.messageId,
+    eventType: event.eventType,
+    emailId,
+    recipientId,
+    reportId,
+    affectedRecipientCount: input.recipientEmails?.length ?? 0,
+    correlation: recipientId ? "recipient_tag" : "affected_recipient_addresses"
+  });
   if (emailId) {
     // A pre-migration DETAIL item has no META. Its child update below remains
     // supported; current records persist the common SES message ID on META.
@@ -99,6 +111,13 @@ export async function processSesMessage(message: string) {
 export const handler = async (event: SnsEvent) => {
   const results = await Promise.allSettled((event.Records ?? []).map(async ({ Sns: sns }) => {
     if (!sns?.Message) throw new Error("Missing SNS message.");
+    // This log proves SNS has delivered a record to Lambda. It does not expose
+    // message content; `event_resolved` logs the safe SES metadata afterward.
+    console.info("[ses-feedback] sns_received", {
+      snsMessageId: sns.MessageId,
+      topicArn: sns.TopicArn,
+      messageBytes: Buffer.byteLength(sns.Message, "utf8")
+    });
     if (env.SES_EVENTS_TOPIC_ARN && sns.TopicArn !== env.SES_EVENTS_TOPIC_ARN) throw new Error("Unexpected SNS topic.");
     const result = await processSesMessage(sns.Message);
     console.info("[ses-feedback] processed", { snsMessageId: sns.MessageId, ...result });
