@@ -288,6 +288,24 @@ export class AwsApiStack extends Stack {
       }
     });
 
+    const emailJobsDlq = new sqs.Queue(this, "EmailJobsDlq", {
+      queueName: "supermarket-email-jobs-dlq",
+      visibilityTimeout: Duration.seconds(120),
+      retentionPeriod: Duration.days(14)
+    });
+
+    const emailJobsQueue = new sqs.Queue(this, "EmailJobsQueue", {
+      queueName: "supermarket-email-jobs",
+      // Must outlive the Email Worker timeout so SQS cannot redeliver a job
+      // while its SES request is still running.
+      visibilityTimeout: Duration.seconds(120),
+      retentionPeriod: Duration.days(4),
+      deadLetterQueue: {
+        queue: emailJobsDlq,
+        maxReceiveCount: 5
+      }
+    });
+
     const imageUploadsDlq = new sqs.Queue(this, "ImageUploadsDlq", {
       queueName: "supermarket-image-uploads-dlq",
       visibilityTimeout: Duration.seconds(30),
@@ -653,6 +671,7 @@ exports.handler = async (event) => {
       SQS_NOTIFICATIONS_QUEUE_URL: notificationsQueue.queueUrl,
       SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
       SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
+      SQS_EMAIL_JOBS_QUEUE_URL: emailJobsQueue.queueUrl,
       SQS_STOREFRONT_ORDERS_QUEUE_URL: storefrontOrdersQueue.queueUrl,
       SQS_IMAGE_UPLOADS_QUEUE_URL: imageUploadsQueue.queueUrl,
       SQS_NOTIFICATIONS_DLQ_URL: notificationsDlq.queueUrl,
@@ -701,7 +720,14 @@ exports.handler = async (event) => {
       }));
 
       fn.addToRolePolicy(new iam.PolicyStatement({
-        actions: ["ses:SendEmail", "ses:SendRawEmail", "ses:SendBulkEmail", "ses:GetAccount", "ses:GetEmailIdentity"],
+        actions: [
+          "ses:SendEmail",
+          "ses:SendRawEmail",
+          "ses:SendBulkEmail",
+          "ses:SendBulkTemplatedEmail",
+          "ses:GetAccount",
+          "ses:GetEmailIdentity"
+        ],
         resources: ["*"]
       }));
       fn.addToRolePolicy(new iam.PolicyStatement({
@@ -717,6 +743,7 @@ exports.handler = async (event) => {
           notificationsDlq.queueArn,
           storefrontOrdersDlq.queueArn,
           paymentEventsDlq.queueArn,
+          emailJobsDlq.queueArn,
           imageUploadsDlq.queueArn,
           eventBridgeTargetDlq.queueArn
         ]
@@ -748,6 +775,7 @@ exports.handler = async (event) => {
       auditQueue.grantSendMessages(fn);
       storefrontOrdersQueue.grantSendMessages(fn);
       paymentEventsQueue.grantSendMessages(fn);
+      emailJobsQueue.grantSendMessages(fn);
       imageUploadsQueue.grantSendMessages(fn);
     };
 
@@ -807,6 +835,13 @@ exports.handler = async (event) => {
       "src/lambda/handlers/payment-worker.handler",
       20,
       512
+    );
+    const emailWorkerFunction = createApplicationLambda(
+      "SupermarketEmailWorkerFunction",
+      "supermarket-email-worker-aws",
+      "src/lambda/handlers/email-worker.handler",
+      60,
+      1024
     );
     const weeklyAdminReportFunction = createApplicationLambda(
       "SupermarketWeeklyAdminReportFunction",
@@ -1068,6 +1103,11 @@ exports.handler = async (event) => {
       paymentEventsQueue,
       paymentWorkerFunction.functionArn
     );
+    const emailJobsPipeRole = createPipeRole(
+      "EmailJobsPipeRole",
+      emailJobsQueue,
+      emailWorkerFunction.functionArn
+    );
     const imageUploadsPipeRole = new iam.Role(this, "ImageUploadsPipeRole", {
       assumedBy: new iam.ServicePrincipal("pipes.amazonaws.com")
     });
@@ -1126,6 +1166,23 @@ exports.handler = async (event) => {
       sourceParameters: {
         sqsQueueParameters: {
           batchSize: 10
+        }
+      },
+      targetParameters: {
+        lambdaFunctionParameters: {
+          invocationType: "REQUEST_RESPONSE"
+        }
+      }
+    });
+
+    new pipes.CfnPipe(this, "EmailJobsPipe", {
+      name: "supermarket-email-jobs-pipe",
+      roleArn: emailJobsPipeRole.roleArn,
+      source: emailJobsQueue.queueArn,
+      target: emailWorkerFunction.functionArn,
+      sourceParameters: {
+        sqsQueueParameters: {
+          batchSize: 5
         }
       },
       targetParameters: {
@@ -1324,6 +1381,19 @@ exports.handler = async (event) => {
     const releaseExpiredOrdersSchedulerRole = new iam.Role(this, "ReleaseExpiredOrdersSchedulerRole", {
       assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
       description: "Allows EventBridge Scheduler to release expired awaiting-payment orders"
+    });
+
+    new events.Rule(this, "PlatformSaleCampaignEmailRule", {
+      eventBus: platformEventBus,
+      ruleName: "supermarket-platform-sale-campaign-email-rule",
+      eventPattern: {
+        source: ["supermarket.email"],
+        detailType: ["email.sale_campaign.requested"]
+      },
+      targets: [new eventsTargets.SqsQueue(emailJobsQueue, {
+        deadLetterQueue: eventBridgeTargetDlq,
+        retryAttempts: 2
+      })]
     });
     releaseExpiredOrdersSchedulerRole.addToPolicy(new iam.PolicyStatement({
       actions: ["lambda:InvokeFunction"],
@@ -1569,6 +1639,7 @@ exports.handler = async (event) => {
 
     createDlqAlarm("NotificationsDlqAlarm", notificationsDlq, "supermarket-notifications-dlq");
     createDlqAlarm("SesFeedbackDlqAlarm", sesFeedbackDlq, "supermarket-ses-feedback-dlq");
+    createDlqAlarm("EmailJobsDlqAlarm", emailJobsDlq, "supermarket-email-jobs-dlq");
     createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
     createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");

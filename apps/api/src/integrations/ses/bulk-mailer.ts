@@ -1,4 +1,5 @@
 import { GetAccountCommand, GetEmailIdentityCommand, SendBulkEmailCommand, SendEmailCommand } from "@aws-sdk/client-sesv2";
+import crypto from "node:crypto";
 import { env } from "../../config/env.js";
 import {
   createPendingEmailDeliveryBatch,
@@ -42,7 +43,25 @@ export type BulkSaleEmailInput = {
   relatedId?: string;
 };
 
+export type BulkSaleEmailBatchInput = BulkSaleEmailInput & {
+  // Stable across EventBridge/SQS redelivery. It is also the email delivery
+  // aggregate id, so a duplicate event never results in another SES request.
+  emailId: string;
+};
+
+export type BulkSaleEmailBatchResult = {
+  emailId: string;
+  status: "accepted" | "partial_sent" | "failed" | "unknown" | "already_processed";
+  // Safe operational context only. Recipient addresses are redacted before a
+  // worker writes this value to CloudWatch.
+  failureReason?: string;
+};
+
 function normalizeEmail(value: string) { return value.trim().toLowerCase(); }
+function safeErrorReason(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unknown SES bulk send failure";
+  return message.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]").slice(0, 500);
+}
 function chunks<T>(items: T[], size: number) {
   return Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, (index + 1) * size));
 }
@@ -163,11 +182,49 @@ export async function sendBulkSaleEmail(input: BulkSaleEmailInput) {
   const attempts: Array<{ emailId: string; status: "accepted" | "partial_sent" | "failed" | "unknown" }> = [];
 
   for (const recipientChunk of chunks(recipientEmails, maxRecipientsPerSend)) {
-    const { meta, recipients } = await createPendingEmailDeliveryBatch({
+    const result = await sendBulkSaleEmailBatch({ ...input, recipients: recipientChunk, emailId: crypto.randomUUID() });
+    // This synchronous compatibility path creates a fresh random id, so an
+    // idempotency collision cannot occur. Keep its public return contract.
+    if (result.status !== "already_processed") {
+      attempts.push({
+        emailId: result.emailId,
+        status: result.status as "accepted" | "partial_sent" | "failed" | "unknown"
+      });
+    }
+  }
+  return attempts;
+}
+
+/**
+ * Sends exactly one EventBridge email batch (at most 50 recipients). `emailId`
+ * must be stable for redelivery; creating the delivery record is the idempotency
+ * claim before calling SES.
+ */
+export async function sendBulkSaleEmailBatch(input: BulkSaleEmailBatchInput): Promise<BulkSaleEmailBatchResult> {
+  if (!env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME) throw new Error("Missing SES feedback configuration set.");
+  const recipientEmails = input.recipients.map(normalizeEmail);
+  if (!recipientEmails.length || recipientEmails.length > maxRecipientsPerSend || recipientEmails.some((email) => !emailShape.test(email))) {
+    throw new Error("An email job must contain from 1 to 50 valid recipient addresses.");
+  }
+  if (new Set(recipientEmails).size !== recipientEmails.length) throw new Error("A bulk recipient may appear only once.");
+
+  let created: Awaited<ReturnType<typeof createPendingEmailDeliveryBatch>>;
+  try {
+    created = await createPendingEmailDeliveryBatch({
       emailType: "sale_campaign", senderEmail: input.senderEmail, subject: input.subject,
-      recipients: recipientChunk.map((email) => ({ email })), relatedId: input.relatedId
+      recipients: recipientEmails.map((email) => ({ email })), relatedId: input.relatedId, emailId: input.emailId
     });
-    try {
+  } catch (error) {
+    // The conditional write is the idempotency barrier for EventBridge/SQS
+    // at-least-once delivery. Do not issue another SES request on a duplicate.
+    if ((error as { name?: string } | undefined)?.name === "TransactionCanceledException") {
+      return { emailId: input.emailId, status: "already_processed" };
+    }
+    throw error;
+  }
+
+  const { meta, recipients } = created;
+  try {
       const result = await sesClient.send(new SendBulkEmailCommand({
         FromEmailAddress: input.senderEmail,
         ConfigurationSetName: env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME,
@@ -190,9 +247,9 @@ export async function sendBulkSaleEmail(input: BulkSaleEmailInput) {
         emailId: meta.id, acceptedCount, recipientCount: recipients.length,
         failureReason: acceptedCount === recipients.length ? undefined : "One or more bulk recipients were not accepted by SES."
       });
-      attempts.push({ emailId: meta.id, status });
-    } catch (error) {
-      const failureReason = error instanceof Error ? error.message : "Unknown SES bulk send failure";
+      return { emailId: meta.id, status };
+  } catch (error) {
+      const failureReason = safeErrorReason(error);
       // A rejected API call can be ambiguous (notably network timeouts): SES
       // might have accepted it despite the caller seeing an error. `unknown`
       // is deliberately distinct from `failed`, but it must never look pending.
@@ -200,8 +257,6 @@ export async function sendBulkSaleEmail(input: BulkSaleEmailInput) {
         markEmailUnknown(meta.id, failureReason),
         ...recipients.map((recipient) => markEmailRecipientUnknown({ emailId: meta.id, recipientId: recipient.recipientId, failureReason }))
       ]);
-      attempts.push({ emailId: meta.id, status: "unknown" });
-    }
+    return { emailId: meta.id, status: "unknown", failureReason };
   }
-  return attempts;
 }
