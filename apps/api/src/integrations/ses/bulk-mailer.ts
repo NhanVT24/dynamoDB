@@ -110,7 +110,7 @@ export async function sendSharedEmail(input: SharedEmailInput) {
   if (recipients.length > maxRecipientsPerSend) throw new Error("A shared SES email may have at most 50 recipients.");
   const { meta, recipients: records } = await createPendingEmailDeliveryBatch({
     emailType: input.emailType, senderEmail: input.senderEmail, subject: input.subject,
-    recipients: recipients.map(({ email, type }) => ({ email, type })), relatedId: input.relatedId
+    recipients: recipients.map(({ email, type }) => ({ email, type })), relatedId: input.relatedId, html: input.html, text: input.text
   });
 
   let allowed: Array<{ recipient: SharedRecipient; record: typeof records[number]; allowed: boolean }>;
@@ -212,7 +212,7 @@ export async function sendBulkSaleEmailBatch(input: BulkSaleEmailBatchInput): Pr
   try {
     created = await createPendingEmailDeliveryBatch({
       emailType: "sale_campaign", senderEmail: input.senderEmail, subject: input.subject,
-      recipients: recipientEmails.map((email) => ({ email })), relatedId: input.relatedId, emailId: input.emailId
+      recipients: recipientEmails.map((email) => ({ email })), relatedId: input.relatedId, emailId: input.emailId, html: input.html, text: input.text
     });
   } catch (error) {
     // The conditional write is the idempotency barrier for EventBridge/SQS

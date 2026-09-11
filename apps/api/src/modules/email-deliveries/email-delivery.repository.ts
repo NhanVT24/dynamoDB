@@ -13,6 +13,9 @@ export type EmailType = "inventory_daily_report" | "order_confirmation" | "payme
 export type EmailDeliveryMeta = {
   PK: string; SK: "META"; entityType: "EMAIL"; id: string; emailType: EmailType;
   senderEmail: string; subject: string; recipientCount: number; reportId?: string; relatedId?: string;
+  // Kept server-side only so a safe retry can reuse the exact original body.
+  // Controllers must never expose these fields in delivery-history responses.
+  html?: string; text?: string;
   // This is the aggregate submit result, not the delivery outcome. Delivery is
   // tracked on each RECIPIENT item because a bulk send can succeed partially.
   sendStatus: "pending" | "accepted" | "partial_sent" | "failed" | "unknown";
@@ -57,7 +60,7 @@ export function sesTrackingTags(input: { emailId: string; recipientId?: string; 
 export async function createPendingEmailDeliveryBatch(input: {
   emailType: EmailType; senderEmail: string; subject: string;
   recipients: Array<{ email: string; type?: "to" | "cc" | "bcc" }>;
-  reportId?: string; relatedId?: string; emailId?: string;
+  reportId?: string; relatedId?: string; emailId?: string; html?: string; text?: string;
 }) {
   // SES accepts at most 50 recipients in a send. Larger campaigns are split
   // into independent bulk attempts by bulk-mailer.ts.
@@ -71,7 +74,7 @@ export async function createPendingEmailDeliveryBatch(input: {
   const meta: EmailDeliveryMeta = {
     ...metaKey(emailId), entityType: "EMAIL", id: emailId, emailType: input.emailType,
     senderEmail: input.senderEmail, subject: input.subject, recipientCount: normalized.length, sendStatus: "pending",
-    reportId: input.reportId, relatedId: input.relatedId, createdAt: now, updatedAt: now
+    reportId: input.reportId, relatedId: input.relatedId, html: input.html, text: input.text, createdAt: now, updatedAt: now
   };
   const recipients: EmailDeliveryRecord[] = normalized.map((recipient) => {
     const recipientId = crypto.randomUUID();
@@ -275,4 +278,25 @@ export async function listEmailRecipients(emailId: string) {
     cursor = result.LastEvaluatedKey;
   } while (cursor);
   return recipients;
+}
+
+export async function listEmailDeliveries(limit = 30) {
+  const result = await rawDb.send(new QueryCommand({
+    TableName,
+    IndexName: "EntityUpdatedAtIndex",
+    KeyConditionExpression: "entityType = :entityType",
+    ExpressionAttributeValues: item({ ":entityType": "EMAIL" }),
+    ScanIndexForward: false,
+    Limit: Math.min(Math.max(limit, 1), 100)
+  }));
+  return (result.Items ?? []).map((value) => unmarshall(value) as EmailDeliveryMeta);
+}
+
+export async function getEmailDelivery(emailId: string) {
+  const result = await rawDb.send(new GetItemCommand({ TableName, Key: item(metaKey(emailId)), ConsistentRead: true }));
+  if (!result.Item) return null;
+  return {
+    meta: unmarshall(result.Item) as EmailDeliveryMeta,
+    recipients: await listEmailRecipients(emailId)
+  };
 }
