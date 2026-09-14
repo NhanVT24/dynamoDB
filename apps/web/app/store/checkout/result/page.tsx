@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 
-import { readAuthSession } from "../../../lib/cognito-auth";
+import { authenticatedFetch, readAuthSession } from "../../../lib/cognito-auth";
 import { formatCurrency } from "../../../store/store-utils";
 import { useStorefront } from "../../store-client";
 
@@ -240,10 +240,7 @@ function CheckoutResultPageContent() {
     async function pollQueueResult() {
       attempts += 1;
       try {
-        const gateResponse = await fetch(`/api/lambda-proxy/api/storefront/orders/${requestId}/status`, {
-          headers: {
-            Authorization: `Bearer ${session.idToken}`
-          },
+        const gateResponse = await authenticatedFetch(`/api/lambda-proxy/api/storefront/orders/${requestId}/status`, {
           cache: "no-store"
         });
 
@@ -284,10 +281,7 @@ function CheckoutResultPageContent() {
           return;
         }
 
-        const notificationResponse = await fetch("/api/lambda-proxy/api/notifications/me", {
-          headers: {
-            Authorization: `Bearer ${session.idToken}`
-          },
+        const notificationResponse = await authenticatedFetch("/api/lambda-proxy/api/notifications/me", {
           cache: "no-store"
         });
 

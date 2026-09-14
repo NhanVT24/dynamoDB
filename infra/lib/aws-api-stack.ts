@@ -575,6 +575,13 @@ exports.handler = async (event) => {
     const userPoolClient = userPool.addClient("WebClient", {
       userPoolClientName: "supermarket-web-client",
       authFlows: { userPassword: true, userSrp: true },
+      // Five-minute access/ID tokens limit the impact of a leaked bearer JWT.
+      // Seven days gives users a reasonable inactive-session window; rotation
+      // issues a replacement refresh token for an actively used session.
+      accessTokenValidity: Duration.minutes(5),
+      idTokenValidity: Duration.minutes(5),
+      refreshTokenValidity: Duration.days(7),
+      refreshTokenRotationGracePeriod: Duration.seconds(30),
       preventUserExistenceErrors: true,
       generateSecret: false,
       supportedIdentityProviders: [

@@ -1,6 +1,6 @@
 "use client";
 
-import { readAuthSession } from "../lib/cognito-auth";
+import { authenticatedFetch } from "../lib/cognito-auth";
 import { storeCategories } from "./store-data";
 import type { StoreOrder, StoreProduct } from "./store-types";
 
@@ -168,16 +168,8 @@ export async function fetchStorefrontProductById(id: string) {
 }
 
 export async function fetchMyOrders() {
-  const session = readAuthSession();
-  if (!session?.idToken) {
-    throw new Error("You need to sign in to view your order history.");
-  }
-
-  const response = await fetch(`${getStorefrontBasePath()}/orders/me`, {
+  const response = await authenticatedFetch(`${getStorefrontBasePath()}/orders/me`, {
     method: "GET",
-    headers: {
-      Authorization: `Bearer ${session.idToken}`
-    },
     cache: "no-store"
   });
 

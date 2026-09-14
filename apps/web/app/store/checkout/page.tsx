@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { authSessionChangedEvent, readAuthSession, type AuthSession } from "../../lib/cognito-auth";
+import { authenticatedFetch, authSessionChangedEvent, readAuthSession, type AuthSession } from "../../lib/cognito-auth";
 import { useStorefront } from "../store-client";
 import { fetchStorefrontProducts } from "../store-api";
 import { formatCurrency } from "../store-utils";
@@ -127,11 +127,10 @@ export default function CheckoutPage() {
       }
 
       try {
-        const response = await fetch(`${apiBaseUrl}/api/storefront/orders/${requestId}/cancel`, {
+        const response = await authenticatedFetch(`${apiBaseUrl}/api/storefront/orders/${requestId}/cancel`, {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.idToken}`
+            "Content-Type": "application/json"
           },
           body: JSON.stringify({ requestId })
         });
@@ -240,11 +239,10 @@ export default function CheckoutPage() {
       }
 
       setGateMessage("Creating your order and holding inventory.");
-      const response = await fetch(`${apiBaseUrl}/api/storefront/orders`, {
+      const response = await authenticatedFetch(`${apiBaseUrl}/api/storefront/orders`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.idToken}`
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({
           items: items.map((item) => ({

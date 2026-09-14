@@ -2,6 +2,7 @@
 
 import type { ChangeEvent, CSSProperties, FormEvent, KeyboardEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { authenticatedFetch } from "../../auth/lib/cognito-auth";
 
 type Status = "active" | "low_stock" | "out_of_stock";
 type SearchField = "name" | "brand";
@@ -585,7 +586,7 @@ export default function ShoppingManager({
 
   async function loadMeta() {
     try {
-      const response = await fetch(`${apiUrl}/api/shopping-items/meta`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/shopping-items/meta`, {
         headers: buildRequestHeaders()
       });
       if (!response.ok) return;
@@ -612,7 +613,7 @@ export default function ShoppingManager({
         params.set("sortDirection", sortDirection);
       }
 
-      const response = await fetch(`${apiUrl}/api/shopping-items/all?${params.toString()}`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/shopping-items/all?${params.toString()}`, {
         headers: buildRequestHeaders()
       });
       if (!response.ok) throw new Error(await logApiFailure(response, "Failed to load product summary", "loadSummary"));
@@ -639,7 +640,7 @@ export default function ShoppingManager({
         params.set("sortDirection", sortDirection);
       }
 
-      const response = await fetch(`${apiUrl}/api/shopping-items?${params.toString()}`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/shopping-items?${params.toString()}`, {
         headers: buildRequestHeaders()
       });
       if (!response.ok) throw new Error(await logApiFailure(response, "Failed to load products", "loadItems"));
@@ -740,7 +741,7 @@ export default function ShoppingManager({
       throw new Error("Only image files are supported.");
     }
 
-    const presignResponse = await fetch(`${apiUrl}/api/uploads/presign`, {
+    const presignResponse = await authenticatedFetch(`${apiUrl}/api/uploads/presign`, {
       method: "POST",
       headers: buildRequestHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
@@ -856,7 +857,7 @@ export default function ShoppingManager({
         params.set("sortDirection", sortDirection);
       }
 
-      const cursorResponse = await fetch(`${apiUrl}/api/shopping-items/page-cursor?${params.toString()}`, {
+      const cursorResponse = await authenticatedFetch(`${apiUrl}/api/shopping-items/page-cursor?${params.toString()}`, {
         headers: buildRequestHeaders()
       });
       if (!cursorResponse.ok) throw new Error(await logApiFailure(cursorResponse, "Failed to resolve page cursor", "goToPage"));
@@ -890,7 +891,7 @@ export default function ShoppingManager({
 
     setBusy(true);
     try {
-      const response = await fetch(`${apiUrl}/api/shopping-items/${item.id}/increment`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/shopping-items/${item.id}/increment`, {
         method: "PATCH",
         headers: buildRequestHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ field: "stock", incrementBy: amount })
@@ -945,7 +946,7 @@ export default function ShoppingManager({
         soldCount: 0
       };
 
-      const response = await fetch(
+      const response = await authenticatedFetch(
         editingId ? `${apiUrl}/api/shopping-items/${editingId}` : `${apiUrl}/api/shopping-items`,
         {
           method: editingId ? "PATCH" : "POST",
@@ -1001,7 +1002,7 @@ export default function ShoppingManager({
   async function loadSaleCampaigns() {
     setSaleCampaignsLoading(true);
     try {
-      const response = await fetch(`${apiUrl}/api/sales`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/sales`, {
         headers: buildRequestHeaders()
       });
       if (!response.ok) throw new Error(await logApiFailure(response, "Failed to load sale campaigns", "loadSaleCampaigns"));
@@ -1017,7 +1018,7 @@ export default function ShoppingManager({
   async function cancelSaleCampaign(campaign: SaleCampaign) {
     setCancellingSaleId(campaign.id);
     try {
-      const response = await fetch(`${apiUrl}/api/sales/${campaign.id}/cancel`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/sales/${campaign.id}/cancel`, {
         method: "POST",
         headers: buildRequestHeaders()
       });
@@ -1036,7 +1037,7 @@ export default function ShoppingManager({
     setSelectedSaleProducts([]);
     setSaleProductsLoading(true);
     try {
-      const response = await fetch(`${apiUrl}/api/sales/${campaign.id}/products`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/sales/${campaign.id}/products`, {
         headers: buildRequestHeaders()
       });
       if (!response.ok) throw new Error(await logApiFailure(response, "Failed to load sale campaign products", "viewSaleCampaignProducts"));
@@ -1056,7 +1057,7 @@ export default function ShoppingManager({
 
     setRemovingSaleProductId(product.id);
     try {
-      const response = await fetch(`${apiUrl}/api/sales/${selectedSaleCampaign.id}/products/${product.id}/remove`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/sales/${selectedSaleCampaign.id}/products/${product.id}/remove`, {
         method: "POST",
         headers: buildRequestHeaders()
       });
@@ -1092,7 +1093,7 @@ export default function ShoppingManager({
 
     setBusy(true);
     try {
-      const response = await fetch(`${apiUrl}/api/sales`, {
+      const response = await authenticatedFetch(`${apiUrl}/api/sales`, {
         method: "POST",
         headers: buildRequestHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({

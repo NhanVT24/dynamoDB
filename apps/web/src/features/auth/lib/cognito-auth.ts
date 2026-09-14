@@ -5,6 +5,7 @@ import {
   ConfirmForgotPasswordCommand,
   ConfirmSignUpCommand,
   ForgotPasswordCommand,
+  GetTokensFromRefreshTokenCommand,
   InitiateAuthCommand,
   ResendConfirmationCodeCommand,
   SignUpCommand
@@ -15,6 +16,9 @@ export type AuthSession = {
   accessToken: string;
   idToken: string;
   refreshToken?: string;
+  // Cognito doesn't include a refresh-token expiry in the authentication
+  // response. This is client-side metadata matching the app-client policy.
+  refreshExpiresAt?: number;
   expiresAt: number;
   email: string;
   name: string;
@@ -39,6 +43,12 @@ type CognitoErrorLike = {
 
 const sessionStorageKey = "cognito-auth-session";
 const postLoginRedirectStorageKey = "cognito-post-login-redirect";
+const accessTokenRefreshLeewayMs = 10_000;
+// Keep this aligned with the UserPoolClient configuration in infra/lib/aws-api-stack.ts.
+// Seven days is the maximum idle-session window; refresh-token rotation renews
+// it for an actively used session.
+const refreshTokenValidityMs = 7 * 24 * 60 * 60 * 1000;
+let refreshInFlight: Promise<AuthSession | null> | undefined;
 export const authSessionChangedEvent = "cognito-auth-session-changed";
 
 function clearPostLoginRedirect() {
@@ -209,8 +219,21 @@ export function readAuthSession() {
 
   try {
     const session = JSON.parse(raw) as AuthSession;
-    if (!session.accessToken || !session.idToken || Date.now() >= session.expiresAt) {
+    if (!session.accessToken || !session.idToken) {
       window.localStorage.removeItem(sessionStorageKey);
+      return null;
+    }
+
+    if (session.refreshExpiresAt && Date.now() >= session.refreshExpiresAt) {
+      window.localStorage.removeItem(sessionStorageKey);
+      return null;
+    }
+
+    if (Date.now() >= session.expiresAt) {
+      // The synchronous API cannot return a refreshed session. Start a
+      // best-effort refresh; callers should use getValidAuthSession before an
+      // authenticated request when they require a token immediately.
+      void refreshAuthSession();
       return null;
     }
 
@@ -242,6 +265,99 @@ export function clearAuthSession(options?: { notify?: boolean }) {
   if (options?.notify !== false) {
     dispatchAuthSessionChanged();
   }
+}
+
+function readStoredSession() {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(sessionStorageKey);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as AuthSession;
+  } catch {
+    window.localStorage.removeItem(sessionStorageKey);
+    return null;
+  }
+}
+
+function shouldRefresh(session: AuthSession) {
+  return Date.now() >= session.expiresAt - accessTokenRefreshLeewayMs;
+}
+
+function isInvalidRefreshTokenError(error: unknown) {
+  const name = String((error as CognitoErrorLike | undefined)?.name ?? "");
+  return ["NotAuthorizedException", "InvalidParameterException", "ForbiddenException"].includes(name);
+}
+
+/**
+ * Exchanges a still-valid Cognito refresh token for new access and ID tokens.
+ * With refresh-token rotation enabled, Cognito also returns a new refresh
+ * token. An expired/revoked refresh token cannot be renewed silently: the user
+ * must authenticate again.
+ */
+export async function refreshAuthSession(): Promise<AuthSession | null> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const current = readStoredSession();
+    if (!current?.refreshToken) return null;
+    if (current.refreshExpiresAt && Date.now() >= current.refreshExpiresAt) {
+      clearAuthSession();
+      return null;
+    }
+
+    try {
+      const client = getCognitoClient();
+      const command = new GetTokensFromRefreshTokenCommand({
+        ClientId: getCognitoClientId(),
+        RefreshToken: current.refreshToken
+      });
+      const result = await client.send(command);
+      return buildSession(result.AuthenticationResult ?? {}, current);
+    } catch (error) {
+      if (isInvalidRefreshTokenError(error)) {
+        clearAuthSession();
+        return null;
+      }
+      // A network/5xx failure must not log a user out. A later authenticated
+      // request can retry while the refresh token remains valid.
+      console.warn("Unable to refresh Cognito session; will retry.", error);
+      return null;
+    }
+  })();
+
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = undefined;
+  }
+}
+
+/** Returns a usable session, refreshing it first when the access token is near expiry. */
+export async function getValidAuthSession(): Promise<AuthSession | null> {
+  const session = readStoredSession();
+  if (!session) return null;
+  if (session.refreshExpiresAt && Date.now() >= session.refreshExpiresAt) {
+    clearAuthSession();
+    return null;
+  }
+  if (shouldRefresh(session) || Date.now() >= session.expiresAt) {
+    return refreshAuthSession();
+  }
+  return session;
+}
+
+/**
+ * Fetches an authenticated API endpoint with a freshly validated ID token.
+ * Keep browser callers behind this helper so an expired token is never sent
+ * merely because a React component still holds an older session snapshot.
+ */
+export async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const session = await getValidAuthSession();
+  if (!session?.idToken) throw new Error("Your session has expired. Please sign in again.");
+
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${session.idToken}`);
+  return fetch(input, { ...init, headers });
 }
 
 export function signOutLocally(options?: { notify?: boolean }) {
@@ -340,7 +456,7 @@ function buildSession(authenticationResult: {
   IdToken?: string;
   RefreshToken?: string;
   ExpiresIn?: number;
-}) {
+}, previousSession?: AuthSession) {
   if (!authenticationResult.AccessToken || !authenticationResult.IdToken || !authenticationResult.ExpiresIn) {
     throw new Error("Missing authentication result from Cognito");
   }
@@ -351,7 +467,10 @@ function buildSession(authenticationResult: {
     subject: String(idPayload.sub ?? "").trim() || undefined,
     accessToken: authenticationResult.AccessToken,
     idToken: authenticationResult.IdToken,
-    refreshToken: authenticationResult.RefreshToken,
+    refreshToken: authenticationResult.RefreshToken ?? previousSession?.refreshToken,
+    refreshExpiresAt: authenticationResult.RefreshToken
+      ? Date.now() + refreshTokenValidityMs
+      : previousSession?.refreshExpiresAt,
     expiresAt: Date.now() + authenticationResult.ExpiresIn * 1000,
     email: repairMojibake(idPayload.principal_email) || repairMojibake(idPayload.email) || "unknown@example.com",
     name: repairMojibake(idPayload.display_name) || repairMojibake(idPayload.name) || repairMojibake(idPayload.email) || "Cognito User",

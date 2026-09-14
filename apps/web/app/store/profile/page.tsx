@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { readAuthSession } from "../../lib/cognito-auth";
+import { authenticatedFetch, readAuthSession } from "../../lib/cognito-auth";
 import { useStorefront } from "../store-client";
 import { fetchMyOrders } from "../store-api";
 import type { StoreOrder } from "../store-types";
@@ -204,11 +204,10 @@ export default function StoreProfilePage() {
     setIsUploadingAvatar(true);
     setError("");
     try {
-      const presignResponse = await fetch(avatarUploadEndpoint, {
+      const presignResponse = await authenticatedFetch(avatarUploadEndpoint, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.idToken}`
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({ fileName: file.name, contentType: file.type, scope: "avatars" })
       });
