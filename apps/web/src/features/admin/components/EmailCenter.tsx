@@ -12,6 +12,21 @@ type Detail = { meta: Delivery; recipients: Recipient[] };
 type RecoveryQueueKey = "emailEventbridgeDelivery" | "emailJobs";
 type DlqMessage = { messageId: string; body: string; messageAttributes?: Record<string, string> };
 type DlqSnapshot = { configured: boolean; messageCount: number; notVisibleCount: number; messages: DlqMessage[] };
+type PublishFailure = {
+  emailJobId: string;
+  campaignId: string;
+  batchIndex: number;
+  batchCount: number;
+  subject?: string;
+  recipientCount?: number;
+  eventBusName?: string;
+  eventSource: string;
+  eventDetailType: string;
+  publishAttempts: number;
+  manualRetryCount: number;
+  failureReason?: string;
+  failedAt: string;
+};
 
 const statusColor: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800", accepted: "bg-sky-100 text-sky-800", delivered: "bg-emerald-100 text-emerald-800",
@@ -35,6 +50,9 @@ export default function EmailCenter({ authToken }: Props) {
   const [recoveryQueues, setRecoveryQueues] = useState<Partial<Record<RecoveryQueueKey, DlqSnapshot>>>({});
   const [loadingRecovery, setLoadingRecovery] = useState(true);
   const [replayingMessageId, setReplayingMessageId] = useState<string | null>(null);
+  const [publishFailures, setPublishFailures] = useState<PublishFailure[]>([]);
+  const [loadingPublishFailures, setLoadingPublishFailures] = useState(true);
+  const [retryingPublishId, setRetryingPublishId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   function notify(message: string) {
@@ -117,6 +135,28 @@ export default function EmailCenter({ authToken }: Props) {
     finally { setReplayingMessageId(null); }
   }
 
+  async function loadPublishFailures() {
+    setLoadingPublishFailures(true);
+    try {
+      const data = await request<{ items: PublishFailure[] }>("/api/admin/email-deliveries/publish-failures?limit=50");
+      setPublishFailures(data.items ?? []);
+    } catch (error) { notify(error instanceof Error ? error.message : "Could not load EventBridge publish failures."); }
+    finally { setLoadingPublishFailures(false); }
+  }
+
+  async function retryPublishFailure(failure: PublishFailure) {
+    if (!window.confirm("Fix the root cause first. Start a new cycle of up to 5 publish attempts?")) return;
+    setRetryingPublishId(failure.emailJobId);
+    try {
+      await request(`/api/admin/email-deliveries/publish-failures/${encodeURIComponent(failure.emailJobId)}/retry`, {
+        method: "POST"
+      });
+      notify("Publish retry scheduled. The recovery worker will process it shortly.");
+      await loadPublishFailures();
+    } catch (error) { notify(error instanceof Error ? error.message : "Could not schedule the publish retry."); }
+    finally { setRetryingPublishId(null); }
+  }
+
   function recoveryMessageLabel(message: DlqMessage) {
     try {
       const payload = JSON.parse(message.body) as { "detail-type"?: string; detail?: { subject?: string; campaignId?: string } };
@@ -124,7 +164,7 @@ export default function EmailCenter({ authToken }: Props) {
     } catch { return `Invalid JSON · ${message.messageId}`; }
   }
 
-  useEffect(() => { void loadHistory(); void loadRecoveryQueues(); }, [authToken]);
+  useEffect(() => { void loadHistory(); void loadRecoveryQueues(); void loadPublishFailures(); }, [authToken]);
   useEffect(() => {
     const abort = new AbortController();
     request<VerifiedCustomer[]>("/api/admin/customers?limit=100", { signal: abort.signal })
@@ -168,6 +208,34 @@ export default function EmailCenter({ authToken }: Props) {
       <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">Delivery attempts</h2><p className="mt-1 text-sm text-slate-600">Select a batch to inspect each recipient.</p></div><button type="button" onClick={() => void loadHistory()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">Refresh</button></div>
         <div className="mt-4 max-h-52 space-y-2 overflow-y-auto">{loadingHistory ? <p className="text-sm text-slate-500">Loading history…</p> : !deliveries.length ? <p className="text-sm text-slate-500">No email delivery batches yet.</p> : deliveries.map((delivery) => <button type="button" key={delivery.id} onClick={() => void viewDelivery(delivery.id)} className={`w-full rounded-xl border p-3 text-left ${detail?.meta.id === delivery.id ? "border-cyan-500 bg-cyan-50" : "border-slate-200 hover:bg-slate-50"}`}><div className="flex justify-between gap-3"><span className="truncate text-sm font-bold text-slate-800">{delivery.subject}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${statusColor[delivery.sendStatus] ?? "bg-slate-100 text-slate-700"}`}>{delivery.sendStatus}</span></div><p className="mt-1 text-xs text-slate-500">{delivery.recipientCount} recipient(s) · {new Date(delivery.createdAt).toLocaleString()}</p></button>)}</div>
         {detail ? <div className="mt-4 border-t border-slate-200 pt-4"><div className="flex items-start justify-between gap-3"><p className="min-w-0 flex-1 break-all text-sm font-bold text-slate-800">Recipients — {detail.meta.subject}</p>{detail.recipients.some((recipient) => ["failed", "not_sent", "rejected"].includes(recipient.status)) ? <button type="button" disabled={isRetrying} onClick={() => void retryDelivery()} className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800 disabled:opacity-60">{isRetrying ? "Queueing…" : "Retry safe failures"}</button> : null}</div><div className="mt-2 max-h-52 space-y-2 overflow-y-auto">{detail.recipients.map((recipient) => <div key={recipient.recipientId} className="rounded-xl bg-slate-50 p-3"><div className="flex items-center justify-between gap-3"><span className="truncate text-sm text-slate-700">{recipient.recipientEmail}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${statusColor[recipient.status] ?? "bg-slate-100 text-slate-700"}`}>{recipient.status}</span></div>{recipient.failureReason ? <p className="mt-1 text-xs text-rose-700">{recipient.failureReason}</p> : null}</div>)}</div></div> : <div className="mt-4 rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">Select a delivery batch to view recipient status.</div>}</section>
+    </section>
+    <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Event publish failures</h2>
+          <p className="mt-1 text-sm text-slate-600">Producer retries are exhausted. Fix the root cause before starting a new bounded retry cycle.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-700">{publishFailures.length}</span>
+          <button type="button" onClick={() => void loadPublishFailures()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">Refresh</button>
+        </div>
+      </div>
+      <div className="mt-4 max-h-80 space-y-3 overflow-y-auto">
+        {loadingPublishFailures ? <p className="text-sm text-slate-500">Loading publish failures...</p> : !publishFailures.length ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No terminal publish failures.</p> : publishFailures.map((failure) => <div key={failure.emailJobId} className="rounded-2xl border border-rose-100 bg-rose-50/50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold text-slate-900">{failure.subject || failure.eventDetailType}</p>
+              <p className="mt-1 break-all font-mono text-[10px] text-slate-500">{failure.emailJobId}</p>
+              <p className="mt-2 text-xs text-slate-600">Bus: {failure.eventBusName || "default"} - attempts: {failure.publishAttempts} - manual retries: {failure.manualRetryCount}</p>
+              <p className="mt-1 text-xs text-slate-500">Batch {failure.batchIndex + 1}/{failure.batchCount}{typeof failure.recipientCount === "number" ? ` - ${failure.recipientCount} recipient(s)` : ""} - {new Date(failure.failedAt).toLocaleString()}</p>
+              {failure.failureReason ? <p className="mt-2 break-words text-xs font-semibold text-rose-700">{failure.failureReason}</p> : null}
+            </div>
+            <button type="button" disabled={retryingPublishId === failure.emailJobId} onClick={() => void retryPublishFailure(failure)} className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800 disabled:cursor-not-allowed disabled:opacity-60">
+              {retryingPublishId === failure.emailJobId ? "Scheduling..." : "Retry publish"}
+            </button>
+          </div>
+        </div>)}
+      </div>
     </section>
     <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">

@@ -1,14 +1,17 @@
 import crypto from "node:crypto";
-import { BadRequestException, Body, Controller, Get, Logger, NotFoundException, Param, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, Get, Logger, NotFoundException, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { getEmailDelivery, listEmailDeliveries } from "./email-delivery.repository.js";
 import {
   ensureEmailRoute,
+  listFailedEmailRoutePublishes,
   markEmailRoutePublished,
-  markEmailRoutePublishUnknown
+  markEmailRoutePublishRetry,
+  retryFailedEmailRoutePublish
 } from "./email-route.repository.js";
+import { nextEmailPublishRetryAt } from "./email-publish-retry.js";
 
 const saleCampaignSchema = z.object({
   recipients: z.array(z.string().email()).min(1).max(1000).transform((items) => [...new Set(items.map((item) => item.trim().toLowerCase()))]),
@@ -51,31 +54,34 @@ export class EmailDeliveriesController {
     html: string;
     text: string;
   }) {
+    const trackedEvent = {
+      busName: env.EVENTBRIDGE_PLATFORM_BUS_NAME,
+      source: "supermarket.email",
+      detailType: "email.sale_campaign.requested",
+      detail: {
+        type: "email.sale_campaign.requested",
+        campaignId: input.campaignId,
+        emailJobId: input.emailJobId,
+        batchIndex: input.batchIndex,
+        batchCount: input.batchCount,
+        senderEmail: input.senderEmail,
+        recipients: input.recipients,
+        subject: input.subject,
+        html: input.html,
+        text: input.text
+      }
+    };
+
     await ensureEmailRoute({
       emailJobId: input.emailJobId,
       campaignId: input.campaignId,
       batchIndex: input.batchIndex,
-      batchCount: input.batchCount
+      batchCount: input.batchCount,
+      event: trackedEvent
     });
 
     try {
-      const event = await publishEventBridgeEvent({
-        busName: env.EVENTBRIDGE_PLATFORM_BUS_NAME,
-        source: "supermarket.email",
-        detailType: "email.sale_campaign.requested",
-        detail: {
-          type: "email.sale_campaign.requested",
-          campaignId: input.campaignId,
-          emailJobId: input.emailJobId,
-          batchIndex: input.batchIndex,
-          batchCount: input.batchCount,
-          senderEmail: input.senderEmail,
-          recipients: input.recipients,
-          subject: input.subject,
-          html: input.html,
-          text: input.text
-        }
-      });
+      const event = await publishEventBridgeEvent(trackedEvent);
 
       await markEmailRoutePublished({
         emailJobId: input.emailJobId,
@@ -87,10 +93,18 @@ export class EmailDeliveriesController {
       // event even when the caller did not receive a response. Never call this
       // a definite failure or blindly generate a new emailJobId.
       try {
-        await markEmailRoutePublishUnknown({
+        const recoveryScheduled = await markEmailRoutePublishRetry({
           emailJobId: input.emailJobId,
-          reason: error instanceof Error ? error.message : "Unknown EventBridge publish failure"
+          reason: error instanceof Error ? error.message : "Unknown EventBridge publish failure",
+          attempt: 1,
+          nextPublishAt: nextEmailPublishRetryAt(1)
         });
+        return {
+          eventBusName: trackedEvent.busName ?? "",
+          eventId: "",
+          recoveryScheduled,
+          publishOutcome: recoveryScheduled ? "RETRY_SCHEDULED" as const : "ACCEPTED_OR_ALREADY_ADVANCED" as const
+        };
       } catch (trackingError) {
         this.logger.error(JSON.stringify({
           flow: "email_routing",
@@ -98,8 +112,8 @@ export class EmailDeliveriesController {
           emailJobId: input.emailJobId,
           message: trackingError instanceof Error ? trackingError.message : "unknown"
         }));
+        throw error;
       }
-      throw error;
     }
   }
 
@@ -108,6 +122,47 @@ export class EmailDeliveriesController {
     const parsedLimit = Number(limit);
     const items = await listEmailDeliveries(Number.isFinite(parsedLimit) ? parsedLimit : 30);
     return { items: items.map((item) => publicMeta(item)) };
+  }
+
+  @Get("publish-failures")
+  async publishFailures(@Query("limit") limit = "50") {
+    const parsedLimit = Number(limit);
+    const routes = await listFailedEmailRoutePublishes(Number.isFinite(parsedLimit) ? parsedLimit : 50);
+    return {
+      items: routes.map((route) => ({
+        emailJobId: route.emailJobId,
+        campaignId: route.campaignId,
+        batchIndex: route.batchIndex,
+        batchCount: route.batchCount,
+        subject: typeof route.eventDetail?.subject === "string" ? route.eventDetail.subject : undefined,
+        recipientCount: Array.isArray(route.eventDetail?.recipients) ? route.eventDetail.recipients.length : undefined,
+        eventBusName: route.eventBusName,
+        eventSource: route.eventSource,
+        eventDetailType: route.eventDetailType,
+        publishAttempts: route.publishAttempts,
+        manualRetryCount: route.manualRetryCount ?? 0,
+        failureReason: route.publishFailureReason,
+        failedAt: route.updatedAt
+      }))
+    };
+  }
+
+  @Post("publish-failures/:emailJobId/retry")
+  async retryPublishFailure(@Param("emailJobId") emailJobId: string) {
+    const normalizedId = emailJobId.trim();
+    if (!normalizedId || normalizedId.length > 128) throw new BadRequestException("Invalid email job ID.");
+
+    const scheduled = await retryFailedEmailRoutePublish(normalizedId);
+    if (!scheduled) {
+      throw new ConflictException("This publish is missing, already being retried, or has already advanced.");
+    }
+
+    this.logger.warn(JSON.stringify({
+      flow: "email_routing",
+      stage: "admin_publish_retry_scheduled",
+      emailJobId: normalizedId
+    }));
+    return { status: "retry_scheduled", emailJobId: normalizedId };
   }
 
   @Get(":emailId")
@@ -142,8 +197,8 @@ export class EmailDeliveriesController {
       html: source.meta.html,
       text: source.meta.text
     });
-    this.logger.log(JSON.stringify({ flow: "email_campaign", stage: "retry_eventbridge_published", sourceEmailId: source.meta.id, emailJobId: retryEmailJobId, eventId: event.eventId, recipientCount: recipients.length }));
-    return { status: "queued", emailJobId: retryEmailJobId, recipientCount: recipients.length };
+    this.logger.log(JSON.stringify({ flow: "email_campaign", stage: event.eventId ? "retry_eventbridge_published" : "retry_eventbridge_recovery_scheduled", sourceEmailId: source.meta.id, emailJobId: retryEmailJobId, eventId: event.eventId, recipientCount: recipients.length }));
+    return { status: event.eventId ? "queued" : "retry_scheduled", emailJobId: retryEmailJobId, recipientCount: recipients.length };
   }
 
   @Post("sale")
@@ -174,7 +229,7 @@ export class EmailDeliveriesController {
       });
       this.logger.log(JSON.stringify({
         flow: "email_campaign",
-        stage: "eventbridge_published",
+        stage: event.eventId ? "eventbridge_published" : "eventbridge_recovery_scheduled",
         campaignId,
         emailJobId,
         eventId: event.eventId,
@@ -182,7 +237,7 @@ export class EmailDeliveriesController {
         batchIndex,
         recipientCount: recipients.length
       }));
-      return { emailJobId, eventId: event.eventId, recipientCount: recipients.length };
+      return { emailJobId, eventId: event.eventId, recoveryScheduled: "recoveryScheduled" in event ? event.recoveryScheduled : false, recipientCount: recipients.length };
     }));
 
     return {

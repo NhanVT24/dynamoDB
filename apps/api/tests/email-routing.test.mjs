@@ -12,6 +12,7 @@ Object.assign(process.env, {
 
 const { rawDb } = await import("../dist/src/database/dynamodb/client.js");
 const routing = await import("../dist/src/modules/email-deliveries/email-route.repository.js");
+const retryPolicy = await import("../dist/src/modules/email-deliveries/email-publish-retry.js");
 const routeTracker = await import("../dist/src/entrypoints/lambda/jobs/email-route-tracker.js");
 
 const rows = new Map();
@@ -32,11 +33,18 @@ rawDb.send = async (command) => {
 
   if (command.constructor.name === "QueryCommand") {
     const values = unmarshall(input.ExpressionAttributeValues);
-    const items = [...rows.values()].filter((value) =>
-      value.entityType === values[":entityType"]
-      && value.updatedAt <= values[":updatedBefore"]
-      && value.status === values[":published"]
-    );
+    const items = [...rows.values()].filter((value) => {
+      if (input.IndexName === "StatusTimelineIndex") {
+        if (!input.FilterExpression) return value.status === values[":failed"];
+        const dueField = input.FilterExpression.split(" ")[0];
+        return value.status === values[":status"]
+          && value.updatedAt <= values[":now"]
+          && value[dueField] <= values[":now"];
+      }
+      return value.entityType === values[":entityType"]
+        && value.updatedAt <= values[":updatedBefore"]
+        && value.status === values[":published"];
+    });
     return { Items: items.map((value) => marshall(value)), ScannedCount: rows.size };
   }
 
@@ -49,6 +57,60 @@ rawDb.send = async (command) => {
   if (input.UpdateExpression.startsWith("SET eventId")) {
     current.eventId = values[":eventId"];
     current.publishedAt ??= values[":publishedAt"];
+    return {};
+  }
+
+  if (input.UpdateExpression.includes("ADD publishAttempts")) {
+    const due = (current.status === values[":retry"] && current.nextPublishAt <= values[":now"])
+      || (current.status === values[":publishing"] && current.publishLeaseUntil <= values[":now"]);
+    if (current.routeStage !== values[":publishingStage"]
+      || current.publishAttempts !== values[":expectedAttempt"]
+      || current.publishAttempts >= values[":maxAttempts"]
+      || !due) throw conditionalFailure();
+    current.status = values[":publishing"];
+    current.publishLeaseUntil = values[":leaseUntil"];
+    current.updatedAt = values[":now"];
+    current.publishAttempts += values[":one"];
+    delete current.nextPublishAt;
+    return { Attributes: marshall(current) };
+  }
+
+  if (input.UpdateExpression.includes("nextPublishAt = :nextPublishAt")) {
+    if (current.routeStage !== values[":publishingStage"]
+      || current.status !== values[":publishing"]
+      || current.publishAttempts !== values[":attempt"]) throw conditionalFailure();
+    current.status = values[":status"];
+    current.publishFailureReason = values[":reason"];
+    current.nextPublishAt = values[":nextPublishAt"];
+    current.updatedAt = values[":now"];
+    delete current.publishLeaseUntil;
+    return {};
+  }
+
+  if (values[":failed"] && input.UpdateExpression.includes("#status = :failed")) {
+    if (current.routeStage !== values[":publishingStage"]
+      || ![values[":publishing"], values[":retry"]].includes(current.status)
+      || current.publishAttempts !== values[":attempt"]) throw conditionalFailure();
+    current.status = values[":failed"];
+    current.publishFailureReason = values[":reason"];
+    current.alertStatus = values[":pending"];
+    current.updatedAt = values[":now"];
+    delete current.nextPublishAt;
+    delete current.publishLeaseUntil;
+    return {};
+  }
+
+  if (input.UpdateExpression.includes("lastManualRetryAt")) {
+    if (current.routeStage !== values[":publishingStage"] || current.status !== values[":failed"]) throw conditionalFailure();
+    current.status = values[":retry"];
+    current.publishAttempts = values[":zero"];
+    current.nextPublishAt = values[":now"];
+    current.lastManualRetryAt = values[":now"];
+    current.updatedAt = values[":now"];
+    current.manualRetryCount = (current.manualRetryCount ?? 0) + values[":one"];
+    delete current.publishLeaseUntil;
+    delete current.alertStatus;
+    delete current.alertMessageId;
     return {};
   }
 
@@ -92,7 +154,18 @@ rawDb.send = async (command) => {
 };
 
 async function create(job = "a".repeat(64)) {
-  return routing.ensureEmailRoute({ emailJobId: job, campaignId: "campaign-1", batchIndex: 0, batchCount: 1 });
+  return routing.ensureEmailRoute({
+    emailJobId: job,
+    campaignId: "campaign-1",
+    batchIndex: 0,
+    batchCount: 1,
+    event: {
+      busName: "platform-bus",
+      source: "supermarket.email",
+      detailType: "email.sale_campaign.requested",
+      detail: { emailJobId: job, campaignId: "campaign-1" }
+    }
+  });
 }
 
 test("late API acknowledgement cannot move RULE_MATCHED back to PUBLISHED", async () => {
@@ -185,4 +258,87 @@ test("isolated failure and replay events are acknowledged by the real Rule track
   } finally {
     console.log = originalLog;
   }
+});
+
+test("publish recovery uses exponential backoff with a cap", () => {
+  const base = Date.parse("2026-09-16T00:00:00.000Z");
+  assert.equal(retryPolicy.nextEmailPublishRetryAt(1, base, () => 0), "2026-09-16T00:01:00.000Z");
+  assert.equal(retryPolicy.nextEmailPublishRetryAt(2, base, () => 0), "2026-09-16T00:02:00.000Z");
+  assert.equal(retryPolicy.nextEmailPublishRetryAt(5, base, () => 0), "2026-09-16T00:15:00.000Z");
+});
+
+test("a failed publish is leased and retried up to attempt five before becoming PUBLISH_FAILED", async () => {
+  const emailJobId = "h".repeat(64);
+  await create(emailJobId);
+  let attempt = 1;
+  let dueAt = "2099-01-01T00:00:00.000Z";
+  assert.equal(await routing.markEmailRoutePublishRetry({
+    emailJobId,
+    attempt,
+    reason: "temporary",
+    nextPublishAt: dueAt
+  }), true);
+  assert.deepEqual(
+    (await routing.findDueEmailRoutePublishes(dueAt)).map((route) => route.emailJobId),
+    [emailJobId]
+  );
+
+  while (attempt < 5) {
+    const claimed = await routing.claimEmailRoutePublish({
+      emailJobId,
+      expectedAttempt: attempt,
+      maxAttempts: 5,
+      now: dueAt,
+      leaseUntil: "2099-01-01T00:02:00.000Z"
+    });
+    assert.ok(claimed);
+    attempt += 1;
+    assert.equal(claimed.publishAttempts, attempt);
+
+    if (attempt < 5) {
+      dueAt = `2099-01-01T00:0${attempt}:00.000Z`;
+      assert.equal(await routing.markEmailRoutePublishRetry({
+        emailJobId,
+        attempt,
+        reason: "still temporary",
+        nextPublishAt: dueAt
+      }), true);
+    }
+  }
+
+  assert.equal(await routing.markEmailRoutePublishFailed({
+    emailJobId,
+    attempt: 5,
+    reason: "attempts exhausted"
+  }), true);
+  const record = rows.get(`EMAIL_ROUTE#${emailJobId}/STATUS`);
+  assert.equal(record.status, "PUBLISH_FAILED");
+  assert.equal(record.publishAttempts, 5);
+  assert.equal(record.routeStage, 10);
+  assert.equal(record.alertStatus, "PENDING");
+});
+
+test("admin can schedule exactly one fresh bounded retry cycle for a failed publish", async () => {
+  const emailJobId = "i".repeat(64);
+  await create(emailJobId);
+  assert.equal(await routing.markEmailRoutePublishFailed({
+    emailJobId,
+    attempt: 1,
+    reason: "Event bus does not exist"
+  }), true);
+
+  const failed = await routing.listFailedEmailRoutePublishes(50);
+  assert.deepEqual(failed.map((route) => route.emailJobId), [emailJobId]);
+
+  const retryAt = "2026-09-16T09:30:00.000Z";
+  assert.equal(await routing.retryFailedEmailRoutePublish(emailJobId, retryAt), true);
+  assert.equal(await routing.retryFailedEmailRoutePublish(emailJobId, retryAt), false);
+
+  const record = rows.get(`EMAIL_ROUTE#${emailJobId}/STATUS`);
+  assert.equal(record.status, "PUBLISH_RETRY");
+  assert.equal(record.publishAttempts, 0);
+  assert.equal(record.nextPublishAt, retryAt);
+  assert.equal(record.manualRetryCount, 1);
+  assert.equal(record.lastManualRetryAt, retryAt);
+  assert.equal(record.alertStatus, undefined);
 });

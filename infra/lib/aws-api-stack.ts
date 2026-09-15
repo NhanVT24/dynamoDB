@@ -327,6 +327,14 @@ export class AwsApiStack extends Stack {
       enforceSSL: true
     });
 
+    const emailPublishRecoveryDlq = new sqs.Queue(this, "EmailPublishRecoveryDlq", {
+      queueName: "supermarket-email-publish-recovery-dlq",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true
+    });
+
     // Disabled-by-default, isolated resources used only to verify the
     // EventBridge target-delivery DLQ path. They are never part of mail flow.
     const emailEventBridgeFailureTestTargetQueue = new sqs.Queue(this, "EmailEventBridgeFailureTestTargetQueue", {
@@ -740,6 +748,10 @@ exports.handler = async (event) => {
       EVENTBRIDGE_COMMERCE_ARCHIVE_ARN: commerceArchive.attrArn,
       EVENTBRIDGE_PAYMENT_ARCHIVE_ARN: paymentArchive.attrArn,
       EVENTBRIDGE_PLATFORM_ARCHIVE_ARN: platformArchive.attrArn,
+      EMAIL_EVENT_PUBLISH_MAX_ATTEMPTS: "5",
+      EMAIL_EVENT_PUBLISH_RETRY_BASE_SECONDS: "60",
+      EMAIL_EVENT_PUBLISH_RETRY_MAX_SECONDS: "900",
+      EMAIL_EVENT_PUBLISH_LEASE_SECONDS: "120",
       CHECKOUT_TX_RACE_LOGGING: "false",
       SNS_ADMIN_ALERTS_TOPIC_ARN: adminAlertsTopic.topicArn,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
@@ -916,6 +928,13 @@ exports.handler = async (event) => {
       256
     );
     emailRoutingWatchdogFunction.addEnvironment("EMAIL_ROUTING_ACK_TIMEOUT_SECONDS", "300");
+    const emailPublishRecoveryFunction = createApplicationLambda(
+      "SupermarketEmailPublishRecoveryFunction",
+      "supermarket-email-publish-recovery-aws",
+      "src/lambda/handlers/email-publish-recovery.handler",
+      30,
+      256
+    );
     new lambda.EventInvokeConfig(this, "EmailRouteTrackerInvokeConfig", {
       function: emailRouteTrackerFunction,
       maxEventAge: Duration.hours(1),
@@ -927,6 +946,12 @@ exports.handler = async (event) => {
       maxEventAge: Duration.hours(1),
       retryAttempts: 2,
       onFailure: new lambdaDestinations.SqsDestination(emailRoutingWatchdogDlq)
+    });
+    new lambda.EventInvokeConfig(this, "EmailPublishRecoveryInvokeConfig", {
+      function: emailPublishRecoveryFunction,
+      maxEventAge: Duration.hours(1),
+      retryAttempts: 2,
+      onFailure: new lambdaDestinations.SqsDestination(emailPublishRecoveryDlq)
     });
     const weeklyAdminReportFunction = createApplicationLambda(
       "SupermarketWeeklyAdminReportFunction",
@@ -1505,6 +1530,37 @@ exports.handler = async (event) => {
       }
     });
 
+    const emailPublishRecoverySchedulerRole = new iam.Role(this, "EmailPublishRecoverySchedulerRole", {
+      assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+      description: "Allows EventBridge Scheduler to invoke the email publish recovery worker"
+    });
+    emailPublishRecoverySchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["lambda:InvokeFunction"],
+      resources: [emailPublishRecoveryFunction.functionArn]
+    }));
+    emailPublishRecoverySchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["sqs:SendMessage"],
+      resources: [emailPublishRecoveryDlq.queueArn]
+    }));
+
+    new scheduler.CfnSchedule(this, "EmailPublishRecoverySchedule", {
+      name: "supermarket-email-publish-recovery",
+      description: "Retries due EventBridge email publishes with persisted exponential backoff state.",
+      groupName: "default",
+      scheduleExpression: "rate(1 minute)",
+      flexibleTimeWindow: { mode: "OFF" },
+      target: {
+        arn: emailPublishRecoveryFunction.functionArn,
+        roleArn: emailPublishRecoverySchedulerRole.roleArn,
+        deadLetterConfig: { arn: emailPublishRecoveryDlq.queueArn },
+        retryPolicy: {
+          maximumEventAgeInSeconds: 300,
+          maximumRetryAttempts: 2
+        },
+        input: JSON.stringify({ source: "scheduler.email-publish-recovery" })
+      }
+    });
+
     new events.Rule(this, "PlatformSaleCampaignEmailRule", {
       eventBus: platformEventBus,
       ruleName: "supermarket-platform-sale-campaign-email-rule",
@@ -1835,6 +1891,7 @@ exports.handler = async (event) => {
     createDlqAlarm("EmailEventBridgeDeliveryDlqAlarm", emailEventBridgeDeliveryDlq, "supermarket-email-eventbridge-delivery-dlq");
     createDlqAlarm("EmailRouteTrackerDlqAlarm", emailRouteTrackerDlq, "supermarket-email-route-tracker-dlq");
     createDlqAlarm("EmailRoutingWatchdogDlqAlarm", emailRoutingWatchdogDlq, "supermarket-email-routing-watchdog-dlq");
+    createDlqAlarm("EmailPublishRecoveryDlqAlarm", emailPublishRecoveryDlq, "supermarket-email-publish-recovery-dlq");
     createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
     createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");
@@ -2050,6 +2107,14 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "EmailRoutingWatchdogDlqUrl", {
       value: emailRoutingWatchdogDlq.queueUrl
+    });
+
+    new CfnOutput(this, "EmailPublishRecoveryFunctionName", {
+      value: emailPublishRecoveryFunction.functionName
+    });
+
+    new CfnOutput(this, "EmailPublishRecoveryDlqUrl", {
+      value: emailPublishRecoveryDlq.queueUrl
     });
 
     new CfnOutput(this, "EmailEventBridgeFailureTestRuleName", {
