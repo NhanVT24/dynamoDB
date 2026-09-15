@@ -119,6 +119,13 @@ export class AwsApiStack extends Stack {
       description: "Verified SES sender email address"
     });
 
+    const emailWorkerTestMode = new CfnParameter(this, "EmailWorkerTestMode", {
+      type: "String",
+      default: "disabled",
+      allowedValues: ["disabled", "fail", "recover"],
+      description: "TEST ONLY: email worker mode; use disabled outside an isolated test environment"
+    });
+
     const adminReportEmail = new CfnParameter(this, "AdminReportEmail", {
       type: "String",
       default: "vonhan2432005@gmail.com",
@@ -294,6 +301,27 @@ export class AwsApiStack extends Stack {
       retentionPeriod: Duration.days(14)
     });
 
+    // This queue receives failures before an email job reaches the primary
+    // SQS queue (for example, EventBridge cannot SendMessage to the target).
+    // It is deliberately separate from EmailJobsDlq: the latter contains jobs
+    // that did reach the queue but failed in Pipe/Lambda processing.
+    const emailEventBridgeDeliveryDlq = new sqs.Queue(this, "EmailEventBridgeDeliveryDlq", {
+      queueName: "supermarket-email-eventbridge-delivery-dlq",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14)
+    });
+
+    // Disabled-by-default, isolated resources used only to verify the
+    // EventBridge target-delivery DLQ path. They are never part of mail flow.
+    const emailEventBridgeFailureTestTargetQueue = new sqs.Queue(this, "EmailEventBridgeFailureTestTargetQueue", {
+      queueName: "supermarket-email-eventbridge-failure-test-target",
+      retentionPeriod: Duration.hours(1)
+    });
+    const emailEventBridgeSuccessTestQueue = new sqs.Queue(this, "EmailEventBridgeSuccessTestQueue", {
+      queueName: "supermarket-email-eventbridge-success-test-target",
+      retentionPeriod: Duration.hours(1)
+    });
+
     const emailJobsQueue = new sqs.Queue(this, "EmailJobsQueue", {
       queueName: "supermarket-email-jobs",
       // Must outlive the Email Worker timeout so SQS cannot redeliver a job
@@ -348,7 +376,7 @@ export class AwsApiStack extends Stack {
     });
     const platformArchive = new events.CfnArchive(this, "SupermarketPlatformArchive", {
       archiveName: "supermarket-platform-archive",
-      description: "Lưu lịch sử event platform để replay khi cần.",
+      description: "Saves the history of platform events for replay when needed.",
       sourceArn: platformEventBus.eventBusArn,
       retentionDays: 30
     });
@@ -684,8 +712,10 @@ exports.handler = async (event) => {
       SQS_NOTIFICATIONS_DLQ_URL: notificationsDlq.queueUrl,
       SQS_STOREFRONT_ORDERS_DLQ_URL: storefrontOrdersDlq.queueUrl,
       SQS_PAYMENT_EVENTS_DLQ_URL: paymentEventsDlq.queueUrl,
+      SQS_EMAIL_JOBS_DLQ_URL: emailJobsDlq.queueUrl,
       SQS_IMAGE_UPLOADS_DLQ_URL: imageUploadsDlq.queueUrl,
       SQS_EVENTBRIDGE_TARGET_DLQ_URL: eventBridgeTargetDlq.queueUrl,
+      SQS_EMAIL_EVENTBRIDGE_DELIVERY_DLQ_URL: emailEventBridgeDeliveryDlq.queueUrl,
       EVENTBRIDGE_BUS_NAME: platformEventBus.eventBusName,
       EVENTBRIDGE_DEFAULT_BUS_NAME: platformEventBus.eventBusName,
       EVENTBRIDGE_COMMERCE_BUS_NAME: commerceEventBus.eventBusName,
@@ -752,7 +782,8 @@ exports.handler = async (event) => {
           paymentEventsDlq.queueArn,
           emailJobsDlq.queueArn,
           imageUploadsDlq.queueArn,
-          eventBridgeTargetDlq.queueArn
+          eventBridgeTargetDlq.queueArn,
+          emailEventBridgeDeliveryDlq.queueArn
         ]
       }));
       fn.addToRolePolicy(new iam.PolicyStatement({
@@ -849,6 +880,10 @@ exports.handler = async (event) => {
       "src/lambda/handlers/email-worker.handler",
       60,
       1024
+    );
+    emailWorkerFunction.addEnvironment(
+      "EMAIL_WORKER_TEST_MODE",
+      emailWorkerTestMode.valueAsString
     );
     const weeklyAdminReportFunction = createApplicationLambda(
       "SupermarketWeeklyAdminReportFunction",
@@ -1398,9 +1433,48 @@ exports.handler = async (event) => {
         detailType: ["email.sale_campaign.requested"]
       },
       targets: [new eventsTargets.SqsQueue(emailJobsQueue, {
-        deadLetterQueue: eventBridgeTargetDlq,
+        deadLetterQueue: emailEventBridgeDeliveryDlq,
         retryAttempts: 2
       })]
+    });
+
+    const emailEventBridgeFailureTestRule = new events.Rule(this, "EmailEventBridgeFailureTestRule", {
+      eventBus: platformEventBus,
+      ruleName: "supermarket-email-eventbridge-failure-test-rule",
+      enabled: false,
+      eventPattern: {
+        source: ["supermarket.email.test"],
+        detailType: ["email.eventbridge.delivery-failure.test"]
+      },
+      targets: [new eventsTargets.SqsQueue(emailEventBridgeFailureTestTargetQueue, {
+        // Use the real email delivery DLQ so Admin UI exercises the same
+        // controlled replay path as production failures.
+        deadLetterQueue: emailEventBridgeDeliveryDlq,
+        retryAttempts: 0
+      })]
+    });
+    // Explicit Deny wins over the Allow CDK adds for the target. The test
+    // rule therefore fails delivery immediately and proves its own DLQ path.
+    emailEventBridgeFailureTestTargetQueue.addToResourcePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.DENY,
+      principals: [new iam.ServicePrincipal("events.amazonaws.com")],
+      actions: ["sqs:SendMessage"],
+      resources: [emailEventBridgeFailureTestTargetQueue.queueArn],
+      conditions: { ArnEquals: { "aws:SourceArn": emailEventBridgeFailureTestRule.ruleArn } }
+    }));
+
+    new events.Rule(this, "EmailEventBridgeSuccessTestRule", {
+      eventBus: platformEventBus,
+      ruleName: "supermarket-email-eventbridge-success-test-rule",
+      enabled: false,
+      eventPattern: {
+        source: ["supermarket.email.test"],
+        detailType: [
+          "email.eventbridge.delivery-success.test",
+          "email.eventbridge.delivery-failure.test"
+        ]
+      },
+      targets: [new eventsTargets.SqsQueue(emailEventBridgeSuccessTestQueue)]
     });
     releaseExpiredOrdersSchedulerRole.addToPolicy(new iam.PolicyStatement({
       actions: ["lambda:InvokeFunction"],
@@ -1647,6 +1721,7 @@ exports.handler = async (event) => {
     createDlqAlarm("NotificationsDlqAlarm", notificationsDlq, "supermarket-notifications-dlq");
     createDlqAlarm("SesFeedbackDlqAlarm", sesFeedbackDlq, "supermarket-ses-feedback-dlq");
     createDlqAlarm("EmailJobsDlqAlarm", emailJobsDlq, "supermarket-email-jobs-dlq");
+    createDlqAlarm("EmailEventBridgeDeliveryDlqAlarm", emailEventBridgeDeliveryDlq, "supermarket-email-eventbridge-delivery-dlq");
     createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
     createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");
@@ -1834,6 +1909,26 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "PaymentEventsDlqUrl", {
       value: paymentEventsDlq.queueUrl
+    });
+
+    new CfnOutput(this, "EmailJobsQueueUrl", {
+      value: emailJobsQueue.queueUrl
+    });
+
+    new CfnOutput(this, "EmailJobsDlqUrl", {
+      value: emailJobsDlq.queueUrl
+    });
+
+    new CfnOutput(this, "EmailEventBridgeDeliveryDlqUrl", {
+      value: emailEventBridgeDeliveryDlq.queueUrl
+    });
+
+    new CfnOutput(this, "EmailEventBridgeFailureTestRuleName", {
+      value: emailEventBridgeFailureTestRule.ruleName
+    });
+
+    new CfnOutput(this, "EmailEventBridgeSuccessTestQueueUrl", {
+      value: emailEventBridgeSuccessTestQueue.queueUrl
     });
 
     new CfnOutput(this, "AdminAlertsTopicArn", {

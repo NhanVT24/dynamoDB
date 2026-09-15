@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
 import { z } from "zod";
 import { AdminOpsService } from "./admin-ops.service.js";
 
-const dlqQueueSchema = z.enum(["notifications", "storefrontOrders", "paymentEvents", "imageUploads", "eventbridgeTargets"]);
+const dlqQueueSchema = z.enum(["notifications", "storefrontOrders", "paymentEvents", "emailJobs", "imageUploads", "eventbridgeTargets", "emailEventbridgeDelivery"]);
 const archiveKeySchema = z.enum(["commerce", "payment", "platform"]);
 
 const listDlqQuerySchema = z.object({

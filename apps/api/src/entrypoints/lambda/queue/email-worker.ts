@@ -15,7 +15,32 @@ const emailJobSchema = z.object({
   text: z.string().min(1).max(100_000)
 });
 
-type SqsRecord = { body?: string; messageId?: string; eventSource?: string };
+type SqsRecord = {
+  body?: string;
+  messageId?: string;
+  eventSource?: string;
+  attributes?: { ApproximateReceiveCount?: string };
+};
+
+const testOnlyDirectiveSchema = z.object({
+  failUntilReceiveCount: z.number().int().min(0).max(10),
+  skipSesOnSuccess: z.literal(true)
+});
+
+function getTestOnlyDirective(record: SqsRecord) {
+  if (process.env.EMAIL_WORKER_TEST_MODE === "disabled" || !process.env.EMAIL_WORKER_TEST_MODE) return undefined;
+
+  const envelope = JSON.parse(String(record.body ?? "")) as { detail?: unknown };
+  const detail = envelope.detail ?? envelope;
+  if (!detail || typeof detail !== "object") return undefined;
+  const parsed = z.object({ testOnly: testOnlyDirectiveSchema.optional() }).safeParse(detail);
+  return parsed.success ? parsed.data.testOnly : undefined;
+}
+
+function receiveCount(record: SqsRecord) {
+  const value = Number(record.attributes?.ApproximateReceiveCount ?? "1");
+  return Number.isSafeInteger(value) && value > 0 ? value : 1;
+}
 
 function detailFromRecord(record: SqsRecord) {
   const envelope = JSON.parse(String(record.body ?? "")) as { detail?: unknown };
@@ -50,6 +75,8 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
   for (const record of records) {
     try {
       const job = detailFromRecord(record);
+      const testOnly = getTestOnlyDirective(record);
+      const currentReceiveCount = receiveCount(record);
       console.log(JSON.stringify({
         flow: "email_campaign",
         stage: "email_worker_started",
@@ -60,6 +87,24 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
         recipientCount: job.recipients.length,
         sqsMessageId: record.messageId ?? ""
       }));
+
+      // This opt-in hook is disabled by default. Test mode "fail" drives a
+      // message to the DLQ; after an operator fixes the cause, mode "recover"
+      // lets the same redriven message succeed without calling SES.
+      if (testOnly && process.env.EMAIL_WORKER_TEST_MODE === "fail") {
+        throw new Error(`Injected failure for DLQ test at receive ${currentReceiveCount}.`);
+      }
+      if (testOnly?.skipSesOnSuccess && process.env.EMAIL_WORKER_TEST_MODE === "recover") {
+        console.log(JSON.stringify({
+          flow: "email_campaign",
+          stage: "email_worker_test_recovered",
+          campaignId: job.campaignId,
+          emailJobId: job.emailJobId,
+          receiveCount: currentReceiveCount,
+          sqsMessageId: record.messageId ?? ""
+        }));
+        continue;
+      }
 
       const result = await sendBulkSaleEmailBatch({
         emailId: job.emailJobId,

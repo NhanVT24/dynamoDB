@@ -5,12 +5,13 @@ import {
 } from "@aws-sdk/client-eventbridge";
 import {
   ChangeMessageVisibilityBatchCommand,
+  DeleteMessageCommand,
   DeleteMessageBatchCommand,
   GetQueueAttributesCommand,
   ReceiveMessageCommand,
   SendMessageCommand
 } from "@aws-sdk/client-sqs";
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { env } from "../../config/env.js";
 import { eventBridgeClient } from "../../integrations/eventbridge/client.js";
 import { sqsClient } from "../../integrations/sqs/client.js";
@@ -31,6 +32,11 @@ const queueConfig = {
     replayType: "sqs",
     targetQueueUrl: env.SQS_PAYMENT_EVENTS_QUEUE_URL
   },
+  emailJobs: {
+    dlqUrl: env.SQS_EMAIL_JOBS_DLQ_URL,
+    replayType: "sqs",
+    targetQueueUrl: env.SQS_EMAIL_JOBS_QUEUE_URL
+  },
   imageUploads: {
     dlqUrl: env.SQS_IMAGE_UPLOADS_DLQ_URL,
     replayType: "sqs",
@@ -39,21 +45,28 @@ const queueConfig = {
   eventbridgeTargets: {
     dlqUrl: env.SQS_EVENTBRIDGE_TARGET_DLQ_URL,
     replayType: "eventbridge"
+  },
+  emailEventbridgeDelivery: {
+    dlqUrl: env.SQS_EMAIL_EVENTBRIDGE_DELIVERY_DLQ_URL,
+    replayType: "eventbridge"
   }
 } as const;
 
 const archiveConfig = {
   commerce: {
     archiveName: "supermarket-commerce-archive",
-    archiveArn: env.EVENTBRIDGE_COMMERCE_ARCHIVE_ARN
+    archiveArn: env.EVENTBRIDGE_COMMERCE_ARCHIVE_ARN,
+    eventBusName: env.EVENTBRIDGE_COMMERCE_BUS_NAME
   },
   payment: {
     archiveName: "supermarket-payment-archive",
-    archiveArn: env.EVENTBRIDGE_PAYMENT_ARCHIVE_ARN
+    archiveArn: env.EVENTBRIDGE_PAYMENT_ARCHIVE_ARN,
+    eventBusName: env.EVENTBRIDGE_PAYMENT_BUS_NAME
   },
   platform: {
     archiveName: "supermarket-platform-archive",
-    archiveArn: env.EVENTBRIDGE_PLATFORM_ARCHIVE_ARN
+    archiveArn: env.EVENTBRIDGE_PLATFORM_ARCHIVE_ARN,
+    eventBusName: env.EVENTBRIDGE_PLATFORM_BUS_NAME
   }
 } as const;
 
@@ -118,8 +131,18 @@ function tryParseJson(value: string): unknown {
   }
 }
 
+function eventBusArnFromArchiveArn(archiveArn: string, eventBusName: string): string {
+  const arnSegments = archiveArn.split(":");
+  if (arnSegments.length < 6 || arnSegments[2] !== "events" || !eventBusName.trim()) {
+    throw new Error("Không thể xác định EventBridge bus ARN từ cấu hình archive.");
+  }
+  return `${arnSegments.slice(0, 5).join(":")}:event-bus/${eventBusName.trim()}`;
+}
+
 @Injectable()
 export class AdminOpsService {
+  private readonly logger = new Logger(AdminOpsService.name);
+
   listArchives() {
     return {
       archives: getArchiveKeys().map((key) => ({
@@ -142,6 +165,9 @@ export class AdminOpsService {
     if (!config.archiveArn) {
       throw new Error(`Archive ${config.archiveName} chưa được cấu hình ARN.`);
     }
+    if (!config.eventBusName) {
+      throw new Error(`Archive ${config.archiveName} chưa được cấu hình EventBus name.`);
+    }
 
     const replayName = input.replayName?.trim() || `${config.archiveName}-${Date.now()}`;
     const eventStartTime = new Date(input.eventStartTime);
@@ -155,15 +181,40 @@ export class AdminOpsService {
       throw new Error("Thời gian bắt đầu phải nhỏ hơn thời gian kết thúc.");
     }
 
+    this.logger.log(JSON.stringify({
+      flow: "eventbridge_archive_replay",
+      stage: "requested",
+      archive: input.archive,
+      archiveName: config.archiveName,
+      eventBusName: config.eventBusName,
+      replayName,
+      eventStartTime: eventStartTime.toISOString(),
+      eventEndTime: eventEndTime.toISOString(),
+      filterRuleCount: input.ruleArns?.length ?? 0
+    }));
+
     const response = await eventBridgeClient.send(new StartReplayCommand({
       ReplayName: replayName,
       Description: input.description?.trim() || `Replay từ archive ${config.archiveName}`,
       EventSourceArn: config.archiveArn,
       EventStartTime: eventStartTime,
       EventEndTime: eventEndTime,
-      Destination: input.ruleArns?.length
-        ? { Arn: input.ruleArns[0], FilterArns: input.ruleArns }
-        : undefined
+      // Destination.Arn must be the source event bus ARN. Rule ARNs are only
+      // valid in FilterArns; passing a rule ARN as Arn makes StartReplay fail.
+      Destination: {
+        Arn: eventBusArnFromArchiveArn(config.archiveArn, config.eventBusName),
+        ...(input.ruleArns?.length ? { FilterArns: input.ruleArns } : {})
+      }
+    }));
+
+    this.logger.log(JSON.stringify({
+      flow: "eventbridge_archive_replay",
+      stage: "started",
+      archive: input.archive,
+      replayName,
+      replayArn: response.ReplayArn ?? "",
+      state: response.State ?? "UNKNOWN",
+      replayStartTime: response.ReplayStartTime?.toISOString() ?? null
     }));
 
     return {
@@ -180,6 +231,15 @@ export class AdminOpsService {
   async getArchiveReplayStatus(replayName: string) {
     const response = await eventBridgeClient.send(new DescribeReplayCommand({
       ReplayName: replayName
+    }));
+
+    this.logger.log(JSON.stringify({
+      flow: "eventbridge_archive_replay",
+      stage: "status_checked",
+      replayName,
+      state: response.State ?? "UNKNOWN",
+      stateReason: response.StateReason ?? "",
+      eventLastReplayedTime: response.EventLastReplayedTime?.toISOString() ?? null
     }));
 
     return {
@@ -210,6 +270,14 @@ export class AdminOpsService {
     dryRun: boolean;
     messageIds?: string[];
   }) {
+    this.logger.log(JSON.stringify({
+      flow: "dlq_replay",
+      stage: "requested",
+      queue: input.queue ?? "all",
+      maxMessages: input.maxMessages,
+      selectedMessageCount: input.messageIds?.length ?? 0,
+      dryRun: input.dryRun
+    }));
     const queueKeys = input.queue ? [input.queue] : getDlqKeys();
     const queues = [];
 
@@ -217,7 +285,7 @@ export class AdminOpsService {
       queues.push(await this.replayQueueMessages(queueKey, input.maxMessages, input.dryRun, input.messageIds));
     }
 
-    return {
+    const response = {
       dryRun: input.dryRun,
       queues,
       summary: {
@@ -226,6 +294,8 @@ export class AdminOpsService {
         failed: queues.reduce((sum, queue) => sum + queue.failed, 0)
       }
     };
+    this.logger.log(JSON.stringify({ flow: "dlq_replay", stage: "completed", ...response.summary, dryRun: input.dryRun }));
+    return response;
   }
 
   private async inspectQueue(queueKey: DlqKey, maxMessages: number) {
@@ -291,6 +361,24 @@ export class AdminOpsService {
     const selectedMessages = messageIds?.length
       ? receivedMessages.filter((message) => messageIds.includes(message.messageId))
       : receivedMessages;
+    const selectedIds = new Set(selectedMessages.map((message) => message.messageId));
+    const unselectedMessages = receivedMessages.filter((message) => !selectedIds.has(message.messageId));
+
+    // A selective replay still receives a batch from SQS. Release messages
+    // that were not selected instead of hiding them for the full timeout.
+    if (!dryRun && unselectedMessages.length > 0) {
+      await this.resetVisibility(config.dlqUrl, unselectedMessages);
+    }
+
+    this.logger.log(JSON.stringify({
+      flow: "dlq_replay",
+      stage: "messages_received",
+      queue: queueKey,
+      received: receivedMessages.length,
+      selected: selectedMessages.length,
+      releasedUnselected: unselectedMessages.length,
+      dryRun
+    }));
 
     const result: ReplayQueueResult = {
       queueKey,
@@ -335,6 +423,13 @@ export class AdminOpsService {
           status: "replayed",
           destination: replayDestination
         });
+        this.logger.log(JSON.stringify({
+          flow: "dlq_replay",
+          stage: "message_replayed",
+          queue: queueKey,
+          messageId: message.messageId,
+          destination: replayDestination
+        }));
       } catch (error) {
         failedMessages.push(message);
         result.failed += 1;
@@ -343,13 +438,46 @@ export class AdminOpsService {
           status: "failed",
           error: error instanceof Error ? error.message : "Replay thất bại không rõ nguyên nhân."
         });
+        this.logger.error(JSON.stringify({
+          flow: "dlq_replay",
+          stage: "message_replay_failed",
+          queue: queueKey,
+          messageId: message.messageId,
+          message: error instanceof Error ? error.message : "unknown"
+        }));
       }
     }
 
     if (successfulDeletes.length > 0) {
-      await sqsClient.send(new DeleteMessageBatchCommand({
+      const deleteResponse = await sqsClient.send(new DeleteMessageBatchCommand({
         QueueUrl: config.dlqUrl,
         Entries: successfulDeletes
+      }));
+      const failedDeleteIds = new Set((deleteResponse.Failed ?? []).map((entry) => entry.Id).filter(Boolean));
+      for (const entry of successfulDeletes.filter((candidate) => failedDeleteIds.has(candidate.Id))) {
+        // DeleteMessageBatch can partially fail. Retry only the failed delete;
+        // never publish the event again merely because cleanup failed.
+        try {
+          await sqsClient.send(new DeleteMessageCommand({
+            QueueUrl: config.dlqUrl,
+            ReceiptHandle: entry.ReceiptHandle
+          }));
+        } catch (error) {
+          this.logger.error(JSON.stringify({
+            flow: "dlq_replay",
+            stage: "replayed_message_delete_failed",
+            queue: queueKey,
+            messageId: entry.Id,
+            message: error instanceof Error ? error.message : "unknown"
+          }));
+        }
+      }
+      this.logger.log(JSON.stringify({
+        flow: "dlq_replay",
+        stage: "replayed_messages_deleted",
+        queue: queueKey,
+        requested: successfulDeletes.length,
+        batchDeleteFailed: failedDeleteIds.size
       }));
     }
 
@@ -414,6 +542,16 @@ export class AdminOpsService {
     if (Number(response.FailedEntryCount ?? 0) > 0) {
       throw new Error(response.Entries?.[0]?.ErrorMessage || "EventBridge replay thất bại.");
     }
+
+    this.logger.log(JSON.stringify({
+      flow: "dlq_replay",
+      stage: "eventbridge_put_accepted",
+      queue: queueKey,
+      source: String(eventPayload.source ?? ""),
+      detailType: String(eventPayload["detail-type"] ?? ""),
+      eventBusName,
+      eventId: response.Entries?.[0]?.EventId ?? ""
+    }));
 
     return eventBusName;
   }

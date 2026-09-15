@@ -9,6 +9,9 @@ type VerifiedCustomer = { email: string; displayName: string; emailVerified: tru
 type Recipient = { recipientId: string; recipientEmail: string; status: string; failureReason?: string };
 type Delivery = { id: string; subject: string; recipientCount: number; sendStatus: string; createdAt: string };
 type Detail = { meta: Delivery; recipients: Recipient[] };
+type RecoveryQueueKey = "emailEventbridgeDelivery" | "emailJobs";
+type DlqMessage = { messageId: string; body: string; messageAttributes?: Record<string, string> };
+type DlqSnapshot = { configured: boolean; messageCount: number; notVisibleCount: number; messages: DlqMessage[] };
 
 const statusColor: Record<string, string> = {
   pending: "bg-amber-100 text-amber-800", accepted: "bg-sky-100 text-sky-800", delivered: "bg-emerald-100 text-emerald-800",
@@ -29,6 +32,9 @@ export default function EmailCenter({ authToken }: Props) {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [recoveryQueues, setRecoveryQueues] = useState<Partial<Record<RecoveryQueueKey, DlqSnapshot>>>({});
+  const [loadingRecovery, setLoadingRecovery] = useState(true);
+  const [replayingMessageId, setReplayingMessageId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   function notify(message: string) {
@@ -80,7 +86,45 @@ export default function EmailCenter({ authToken }: Props) {
     finally { setIsRetrying(false); }
   }
 
-  useEffect(() => { void loadHistory(); }, [authToken]);
+  async function loadRecoveryQueues() {
+    setLoadingRecovery(true);
+    try {
+      const entries = await Promise.all((["emailEventbridgeDelivery", "emailJobs"] as const).map(async (queue) => [
+        queue,
+        await request<DlqSnapshot>(`/api/admin/ops/dlq?queue=${queue}&maxMessages=10`)
+      ] as const));
+      setRecoveryQueues(Object.fromEntries(entries));
+    } catch (error) { notify(error instanceof Error ? error.message : "Could not load email recovery queues."); }
+    finally { setLoadingRecovery(false); }
+  }
+
+  async function replayDlqMessage(queue: RecoveryQueueKey, messageId: string) {
+    const destination = queue === "emailEventbridgeDelivery" ? "EventBridge" : "the email queue";
+    if (!window.confirm(`Fix the root cause first. Replay this message to ${destination}?`)) return;
+    setReplayingMessageId(messageId);
+    try {
+      const result = await request<{ summary: { succeeded: number; failed: number } }>("/api/admin/ops/dlq/replay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ queue, maxMessages: 10, messageIds: [messageId], dryRun: false })
+      });
+      if (result.summary.succeeded !== 1) {
+        throw new Error(result.summary.failed ? "Replay failed; the DLQ message was kept." : "Message not available; refresh and retry.");
+      }
+      notify(queue === "emailEventbridgeDelivery" ? "Event replayed to EventBridge." : "Email job redriven to the primary queue.");
+      await loadRecoveryQueues();
+    } catch (error) { notify(error instanceof Error ? error.message : "Could not replay DLQ message."); }
+    finally { setReplayingMessageId(null); }
+  }
+
+  function recoveryMessageLabel(message: DlqMessage) {
+    try {
+      const payload = JSON.parse(message.body) as { "detail-type"?: string; detail?: { subject?: string; campaignId?: string } };
+      return payload.detail?.subject || payload["detail-type"] || payload.detail?.campaignId || message.messageId;
+    } catch { return `Invalid JSON · ${message.messageId}`; }
+  }
+
+  useEffect(() => { void loadHistory(); void loadRecoveryQueues(); }, [authToken]);
   useEffect(() => {
     const abort = new AbortController();
     request<VerifiedCustomer[]>("/api/admin/customers?limit=100", { signal: abort.signal })
@@ -124,6 +168,40 @@ export default function EmailCenter({ authToken }: Props) {
       <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">Delivery attempts</h2><p className="mt-1 text-sm text-slate-600">Select a batch to inspect each recipient.</p></div><button type="button" onClick={() => void loadHistory()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">Refresh</button></div>
         <div className="mt-4 max-h-52 space-y-2 overflow-y-auto">{loadingHistory ? <p className="text-sm text-slate-500">Loading history…</p> : !deliveries.length ? <p className="text-sm text-slate-500">No email delivery batches yet.</p> : deliveries.map((delivery) => <button type="button" key={delivery.id} onClick={() => void viewDelivery(delivery.id)} className={`w-full rounded-xl border p-3 text-left ${detail?.meta.id === delivery.id ? "border-cyan-500 bg-cyan-50" : "border-slate-200 hover:bg-slate-50"}`}><div className="flex justify-between gap-3"><span className="truncate text-sm font-bold text-slate-800">{delivery.subject}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${statusColor[delivery.sendStatus] ?? "bg-slate-100 text-slate-700"}`}>{delivery.sendStatus}</span></div><p className="mt-1 text-xs text-slate-500">{delivery.recipientCount} recipient(s) · {new Date(delivery.createdAt).toLocaleString()}</p></button>)}</div>
         {detail ? <div className="mt-4 border-t border-slate-200 pt-4"><div className="flex items-start justify-between gap-3"><p className="min-w-0 flex-1 break-all text-sm font-bold text-slate-800">Recipients — {detail.meta.subject}</p>{detail.recipients.some((recipient) => ["failed", "not_sent", "rejected"].includes(recipient.status)) ? <button type="button" disabled={isRetrying} onClick={() => void retryDelivery()} className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800 disabled:opacity-60">{isRetrying ? "Queueing…" : "Retry safe failures"}</button> : null}</div><div className="mt-2 max-h-52 space-y-2 overflow-y-auto">{detail.recipients.map((recipient) => <div key={recipient.recipientId} className="rounded-xl bg-slate-50 p-3"><div className="flex items-center justify-between gap-3"><span className="truncate text-sm text-slate-700">{recipient.recipientEmail}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${statusColor[recipient.status] ?? "bg-slate-100 text-slate-700"}`}>{recipient.status}</span></div>{recipient.failureReason ? <p className="mt-1 text-xs text-rose-700">{recipient.failureReason}</p> : null}</div>)}</div></div> : <div className="mt-4 rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">Select a delivery batch to view recipient status.</div>}</section>
+    </section>
+    <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Queue recovery</h2>
+          <p className="mt-1 text-sm text-slate-600">Fix the root cause, then replay one failed message at a time.</p>
+        </div>
+        <button type="button" onClick={() => void loadRecoveryQueues()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">Refresh</button>
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {(["emailEventbridgeDelivery", "emailJobs"] as const).map((queue) => {
+          const snapshot = recoveryQueues[queue];
+          const isEventBridge = queue === "emailEventbridgeDelivery";
+          return <div key={queue} className="rounded-2xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">{isEventBridge ? "EventBridge delivery DLQ" : "Email processing DLQ"}</h3>
+                <p className="mt-1 text-xs text-slate-500">{isEventBridge ? "Bus could not deliver to the primary queue." : "Pipe/Lambda could not process the queued job."}</p>
+              </div>
+              <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-700">{snapshot?.messageCount ?? 0}</span>
+            </div>
+            <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
+              {loadingRecovery ? <p className="text-xs text-slate-500">Loading…</p> : !snapshot?.messages?.length ? <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">No failed messages.</p> : snapshot.messages.map((message) => <div key={message.messageId} className="rounded-xl bg-slate-50 p-3">
+                <p className="truncate text-xs font-bold text-slate-800">{recoveryMessageLabel(message)}</p>
+                <p className="mt-1 truncate font-mono text-[10px] text-slate-500">{message.messageId}</p>
+                {message.messageAttributes?.ERROR_CODE ? <p className="mt-1 text-xs text-rose-700">{message.messageAttributes.ERROR_CODE}: {message.messageAttributes.ERROR_MESSAGE}</p> : null}
+                <button type="button" disabled={replayingMessageId === message.messageId} onClick={() => void replayDlqMessage(queue, message.messageId)} className="mt-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800 disabled:opacity-60">
+                  {replayingMessageId === message.messageId ? "Replaying…" : isEventBridge ? "Replay to EventBus" : "Redrive to email queue"}
+                </button>
+              </div>)}
+            </div>
+          </div>;
+        })}
+      </div>
     </section>
   </div>;
 }

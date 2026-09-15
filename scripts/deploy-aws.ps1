@@ -13,10 +13,10 @@ $env:AWS_PROFILE = $AwsProfile
 Write-Host "Deploying with AWS profile: $AwsProfile"
 & aws sts get-caller-identity
 if ($LASTEXITCODE -ne 0) {
-  Write-Host "AWS credentials are missing or expired. Starting AWS SSO login..."
-  & aws sso login --profile $AwsProfile
+  Write-Host "AWS credentials are missing or expired. Starting AWS login..."
+  & aws login --profile $AwsProfile
   if ($LASTEXITCODE -ne 0) {
-    throw "AWS SSO login failed for profile '$AwsProfile'."
+    throw "AWS login failed for profile '$AwsProfile'."
   }
 
   & aws sts get-caller-identity

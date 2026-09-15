@@ -24,6 +24,9 @@ const zipPath = join(distRoot, "lambda.zip");
 const packageJsonPath = join(appRoot, "package.json");
 const packageLockPath = join(workspaceRoot, "package-lock.json");
 const manifestPath = join(distRoot, "lambda-build-manifest.json");
+// Bump this whenever archive creation changes so a previous artifact is never
+// reused with a different packaging implementation.
+const archiveFormatVersion = "zipfile-v2";
 
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
 
@@ -168,25 +171,31 @@ function createZipArchive() {
   console.log("Creating lambda.zip...");
   rmSync(zipPath, { force: true });
 
-  try {
-    execFileSync("tar", ["-a", "-cf", zipPath, "-C", lambdaRoot, "."], {
-      stdio: "inherit"
-    });
-  } catch {
+  if (process.platform === "win32") {
+    // Windows tar can create ZIPs that are readable locally but rejected by
+    // Lambda's unzip implementation. Use .NET's standard ZIP writer instead.
     execFileSync(
-      "powershell",
+      "powershell.exe",
       [
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory($pwd.Path, '..\\lambda.zip')"
+        "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::CreateFromDirectory($env:LAMBDA_PACKAGE_SOURCE, $env:LAMBDA_PACKAGE_ZIP)"
       ],
       {
-        cwd: lambdaRoot,
-        stdio: "inherit"
+        stdio: "inherit",
+        env: {
+          ...process.env,
+          LAMBDA_PACKAGE_SOURCE: lambdaRoot,
+          LAMBDA_PACKAGE_ZIP: zipPath
+        }
       }
     );
+  } else {
+    execFileSync("tar", ["-a", "-cf", zipPath, "-C", lambdaRoot, "."], {
+      stdio: "inherit"
+    });
   }
 
   if (!existsSync(zipPath)) {
@@ -203,6 +212,7 @@ mkdirSync(lambdaRoot, { recursive: true });
 
 const sourceHash = createDigest([buildRoot]);
 const dependencyHash = createDigest([
+  archiveFormatVersion,
   JSON.stringify(packageJson.dependencies ?? {}),
   existsSync(packageLockPath) ? readFileSync(packageLockPath, "utf8") : ""
 ]);
