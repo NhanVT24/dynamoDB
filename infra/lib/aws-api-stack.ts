@@ -311,6 +311,22 @@ export class AwsApiStack extends Stack {
       retentionPeriod: Duration.days(14)
     });
 
+    const emailRouteTrackerDlq = new sqs.Queue(this, "EmailRouteTrackerDlq", {
+      queueName: "supermarket-email-route-tracker-dlq",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true
+    });
+
+    const emailRoutingWatchdogDlq = new sqs.Queue(this, "EmailRoutingWatchdogDlq", {
+      queueName: "supermarket-email-routing-watchdog-dlq",
+      visibilityTimeout: Duration.seconds(30),
+      retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true
+    });
+
     // Disabled-by-default, isolated resources used only to verify the
     // EventBridge target-delivery DLQ path. They are never part of mail flow.
     const emailEventBridgeFailureTestTargetQueue = new sqs.Queue(this, "EmailEventBridgeFailureTestTargetQueue", {
@@ -885,6 +901,33 @@ exports.handler = async (event) => {
       "EMAIL_WORKER_TEST_MODE",
       emailWorkerTestMode.valueAsString
     );
+    const emailRouteTrackerFunction = createApplicationLambda(
+      "SupermarketEmailRouteTrackerFunction",
+      "supermarket-email-route-tracker-aws",
+      "src/lambda/handlers/email-route-tracker.handler",
+      10,
+      256
+    );
+    const emailRoutingWatchdogFunction = createApplicationLambda(
+      "SupermarketEmailRoutingWatchdogFunction",
+      "supermarket-email-routing-watchdog-aws",
+      "src/lambda/handlers/email-routing-watchdog.handler",
+      30,
+      256
+    );
+    emailRoutingWatchdogFunction.addEnvironment("EMAIL_ROUTING_ACK_TIMEOUT_SECONDS", "300");
+    new lambda.EventInvokeConfig(this, "EmailRouteTrackerInvokeConfig", {
+      function: emailRouteTrackerFunction,
+      maxEventAge: Duration.hours(1),
+      retryAttempts: 2,
+      onFailure: new lambdaDestinations.SqsDestination(emailRouteTrackerDlq)
+    });
+    new lambda.EventInvokeConfig(this, "EmailRoutingWatchdogInvokeConfig", {
+      function: emailRoutingWatchdogFunction,
+      maxEventAge: Duration.hours(1),
+      retryAttempts: 2,
+      onFailure: new lambdaDestinations.SqsDestination(emailRoutingWatchdogDlq)
+    });
     const weeklyAdminReportFunction = createApplicationLambda(
       "SupermarketWeeklyAdminReportFunction",
       "supermarket-weekly-admin-report-aws",
@@ -1425,6 +1468,43 @@ exports.handler = async (event) => {
       description: "Allows EventBridge Scheduler to release expired awaiting-payment orders"
     });
 
+    const emailRoutingWatchdogSchedulerRole = new iam.Role(this, "EmailRoutingWatchdogSchedulerRole", {
+      assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+      description: "Allows EventBridge Scheduler to invoke the email routing watchdog"
+    });
+    emailRoutingWatchdogSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["lambda:InvokeFunction"],
+      resources: [emailRoutingWatchdogFunction.functionArn]
+    }));
+    emailRoutingWatchdogSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["sqs:SendMessage"],
+      resources: [emailRoutingWatchdogDlq.queueArn]
+    }));
+
+    new scheduler.CfnSchedule(this, "EmailRoutingWatchdogSchedule", {
+      name: "supermarket-email-routing-watchdog",
+      description: "Detects email events accepted by the bus but not acknowledged by the routing rule within five minutes.",
+      groupName: "default",
+      scheduleExpression: "rate(1 minute)",
+      flexibleTimeWindow: {
+        mode: "OFF"
+      },
+      target: {
+        arn: emailRoutingWatchdogFunction.functionArn,
+        roleArn: emailRoutingWatchdogSchedulerRole.roleArn,
+        deadLetterConfig: {
+          arn: emailRoutingWatchdogDlq.queueArn
+        },
+        retryPolicy: {
+          maximumEventAgeInSeconds: 300,
+          maximumRetryAttempts: 2
+        },
+        input: JSON.stringify({
+          source: "scheduler.email-routing-watchdog"
+        })
+      }
+    });
+
     new events.Rule(this, "PlatformSaleCampaignEmailRule", {
       eventBus: platformEventBus,
       ruleName: "supermarket-platform-sale-campaign-email-rule",
@@ -1432,10 +1512,20 @@ exports.handler = async (event) => {
         source: ["supermarket.email"],
         detailType: ["email.sale_campaign.requested"]
       },
-      targets: [new eventsTargets.SqsQueue(emailJobsQueue, {
-        deadLetterQueue: emailEventBridgeDeliveryDlq,
-        retryAttempts: 2
-      })]
+      targets: [
+        new eventsTargets.SqsQueue(emailJobsQueue, {
+          deadLetterQueue: emailEventBridgeDeliveryDlq,
+          retryAttempts: 2
+        }),
+        // Acknowledges that this exact rule matched the event. Without this
+        // second target, a stale PUBLISHED record cannot be distinguished from
+        // target delivery or worker backlog using per-event data alone.
+        new eventsTargets.LambdaFunction(emailRouteTrackerFunction, {
+          deadLetterQueue: emailRouteTrackerDlq,
+          retryAttempts: 2,
+          maxEventAge: Duration.hours(1)
+        })
+      ]
     });
 
     const emailEventBridgeFailureTestRule = new events.Rule(this, "EmailEventBridgeFailureTestRule", {
@@ -1446,12 +1536,24 @@ exports.handler = async (event) => {
         source: ["supermarket.email.test"],
         detailType: ["email.eventbridge.delivery-failure.test"]
       },
-      targets: [new eventsTargets.SqsQueue(emailEventBridgeFailureTestTargetQueue, {
-        // Use the real email delivery DLQ so Admin UI exercises the same
-        // controlled replay path as production failures.
-        deadLetterQueue: emailEventBridgeDeliveryDlq,
-        retryAttempts: 0
-      })]
+      targets: [
+        new eventsTargets.SqsQueue(emailEventBridgeFailureTestTargetQueue, {
+          // Use the real email delivery DLQ so Admin UI exercises the same
+          // controlled replay path as production failures. NO_PERMISSIONS is
+          // permanent and may bypass retries, but the policy is intentionally
+          // identical to production for retryable failures.
+          deadLetterQueue: emailEventBridgeDeliveryDlq,
+          retryAttempts: 2
+        }),
+        // The isolated test event also goes through the real acknowledgement
+        // handler. This proves that a Rule can be RULE_MATCHED while another
+        // target (the SQS delivery) independently fails into its DLQ.
+        new eventsTargets.LambdaFunction(emailRouteTrackerFunction, {
+          deadLetterQueue: emailRouteTrackerDlq,
+          retryAttempts: 2,
+          maxEventAge: Duration.hours(1)
+        })
+      ]
     });
     // Explicit Deny wins over the Allow CDK adds for the target. The test
     // rule therefore fails delivery immediately and proves its own DLQ path.
@@ -1474,7 +1576,16 @@ exports.handler = async (event) => {
           "email.eventbridge.delivery-failure.test"
         ]
       },
-      targets: [new eventsTargets.SqsQueue(emailEventBridgeSuccessTestQueue)]
+      targets: [
+        new eventsTargets.SqsQueue(emailEventBridgeSuccessTestQueue),
+        // Archive Replay of an event missed by a disabled/non-matching Rule
+        // must restore both delivery and the per-event tracking state.
+        new eventsTargets.LambdaFunction(emailRouteTrackerFunction, {
+          deadLetterQueue: emailRouteTrackerDlq,
+          retryAttempts: 2,
+          maxEventAge: Duration.hours(1)
+        })
+      ]
     });
     releaseExpiredOrdersSchedulerRole.addToPolicy(new iam.PolicyStatement({
       actions: ["lambda:InvokeFunction"],
@@ -1722,6 +1833,8 @@ exports.handler = async (event) => {
     createDlqAlarm("SesFeedbackDlqAlarm", sesFeedbackDlq, "supermarket-ses-feedback-dlq");
     createDlqAlarm("EmailJobsDlqAlarm", emailJobsDlq, "supermarket-email-jobs-dlq");
     createDlqAlarm("EmailEventBridgeDeliveryDlqAlarm", emailEventBridgeDeliveryDlq, "supermarket-email-eventbridge-delivery-dlq");
+    createDlqAlarm("EmailRouteTrackerDlqAlarm", emailRouteTrackerDlq, "supermarket-email-route-tracker-dlq");
+    createDlqAlarm("EmailRoutingWatchdogDlqAlarm", emailRoutingWatchdogDlq, "supermarket-email-routing-watchdog-dlq");
     createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
     createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");
@@ -1921,6 +2034,22 @@ exports.handler = async (event) => {
 
     new CfnOutput(this, "EmailEventBridgeDeliveryDlqUrl", {
       value: emailEventBridgeDeliveryDlq.queueUrl
+    });
+
+    new CfnOutput(this, "EmailRouteTrackerFunctionName", {
+      value: emailRouteTrackerFunction.functionName
+    });
+
+    new CfnOutput(this, "EmailRouteTrackerDlqUrl", {
+      value: emailRouteTrackerDlq.queueUrl
+    });
+
+    new CfnOutput(this, "EmailRoutingWatchdogFunctionName", {
+      value: emailRoutingWatchdogFunction.functionName
+    });
+
+    new CfnOutput(this, "EmailRoutingWatchdogDlqUrl", {
+      value: emailRoutingWatchdogDlq.queueUrl
     });
 
     new CfnOutput(this, "EmailEventBridgeFailureTestRuleName", {

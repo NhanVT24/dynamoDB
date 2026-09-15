@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:vnpay": "npm run build:ts && node --test --test-isolation=none tests/vnpay.test.mjs",
     "test:email-feedback": "npm run build:ts && node --test tests/email-feedback.test.mjs",
+    "test:email-routing": "npm run build:ts && node --test --test-isolation=none tests/email-routing.test.mjs",
     "test:bulk-mailer": "npm run build:ts && node --test tests/bulk-mailer.test.mjs",
     "diagnose:vnpay": "tsx src/scripts/diagnose-vnpay-callback.ts",
     "package:lambda": "npm run build:ts && node scripts/package-lambda.js",

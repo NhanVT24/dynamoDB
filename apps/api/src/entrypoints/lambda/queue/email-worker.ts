@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { z } from "zod";
 import { sendBulkSaleEmailBatch } from "../../../integrations/ses/bulk-mailer.js";
+import { markEmailRouteProcessing } from "../../../modules/email-deliveries/email-route.repository.js";
 
 const emailJobSchema = z.object({
   type: z.literal("email.sale_campaign.requested"),
@@ -77,6 +78,7 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
       const job = detailFromRecord(record);
       const testOnly = getTestOnlyDirective(record);
       const currentReceiveCount = receiveCount(record);
+      const routeAdvanced = await markEmailRouteProcessing(job.emailJobId);
       console.log(JSON.stringify({
         flow: "email_campaign",
         stage: "email_worker_started",
@@ -85,7 +87,8 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
         batchIndex: job.batchIndex,
         batchCount: job.batchCount,
         recipientCount: job.recipients.length,
-        sqsMessageId: record.messageId ?? ""
+        sqsMessageId: record.messageId ?? "",
+        routeTracked: routeAdvanced
       }));
 
       // This opt-in hook is disabled by default. Test mode "fail" drives a

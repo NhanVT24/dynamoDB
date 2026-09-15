@@ -4,6 +4,11 @@ import { z } from "zod";
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { getEmailDelivery, listEmailDeliveries } from "./email-delivery.repository.js";
+import {
+  ensureEmailRoute,
+  markEmailRoutePublished,
+  markEmailRoutePublishUnknown
+} from "./email-route.repository.js";
 
 const saleCampaignSchema = z.object({
   recipients: z.array(z.string().email()).min(1).max(1000).transform((items) => [...new Set(items.map((item) => item.trim().toLowerCase()))]),
@@ -35,6 +40,69 @@ function plainTextAsHtml(value: string) {
 export class EmailDeliveriesController {
   private readonly logger = new Logger(EmailDeliveriesController.name);
 
+  private async publishTrackedSaleEvent(input: {
+    campaignId: string;
+    emailJobId: string;
+    batchIndex: number;
+    batchCount: number;
+    senderEmail: string;
+    recipients: string[];
+    subject: string;
+    html: string;
+    text: string;
+  }) {
+    await ensureEmailRoute({
+      emailJobId: input.emailJobId,
+      campaignId: input.campaignId,
+      batchIndex: input.batchIndex,
+      batchCount: input.batchCount
+    });
+
+    try {
+      const event = await publishEventBridgeEvent({
+        busName: env.EVENTBRIDGE_PLATFORM_BUS_NAME,
+        source: "supermarket.email",
+        detailType: "email.sale_campaign.requested",
+        detail: {
+          type: "email.sale_campaign.requested",
+          campaignId: input.campaignId,
+          emailJobId: input.emailJobId,
+          batchIndex: input.batchIndex,
+          batchCount: input.batchCount,
+          senderEmail: input.senderEmail,
+          recipients: input.recipients,
+          subject: input.subject,
+          html: input.html,
+          text: input.text
+        }
+      });
+
+      await markEmailRoutePublished({
+        emailJobId: input.emailJobId,
+        eventId: event.eventId
+      });
+      return event;
+    } catch (error) {
+      // SDK/network errors can be ambiguous: EventBridge may have accepted the
+      // event even when the caller did not receive a response. Never call this
+      // a definite failure or blindly generate a new emailJobId.
+      try {
+        await markEmailRoutePublishUnknown({
+          emailJobId: input.emailJobId,
+          reason: error instanceof Error ? error.message : "Unknown EventBridge publish failure"
+        });
+      } catch (trackingError) {
+        this.logger.error(JSON.stringify({
+          flow: "email_routing",
+          stage: "publish_unknown_tracking_failed",
+          emailJobId: input.emailJobId,
+          message: trackingError instanceof Error ? trackingError.message : "unknown"
+        }));
+      }
+      throw error;
+    }
+  }
+
   @Get()
   async list(@Query("limit") limit = "30") {
     const parsedLimit = Number(limit);
@@ -63,22 +131,16 @@ export class EmailDeliveriesController {
     const input = retrySchema.parse(body);
     const retryKey = input.idempotencyKey ?? crypto.randomUUID();
     const retryEmailJobId = crypto.createHash("sha256").update(`${source.meta.id}:retry:${retryKey}`).digest("hex");
-    const event = await publishEventBridgeEvent({
-      busName: env.EVENTBRIDGE_PLATFORM_BUS_NAME,
-      source: "supermarket.email",
-      detailType: "email.sale_campaign.requested",
-      detail: {
-        type: "email.sale_campaign.requested",
-        campaignId: source.meta.relatedId ?? source.meta.id,
-        emailJobId: retryEmailJobId,
-        batchIndex: 0,
-        batchCount: 1,
-        senderEmail: source.meta.senderEmail,
-        recipients,
-        subject: source.meta.subject,
-        html: source.meta.html,
-        text: source.meta.text
-      }
+    const event = await this.publishTrackedSaleEvent({
+      campaignId: source.meta.relatedId ?? source.meta.id,
+      emailJobId: retryEmailJobId,
+      batchIndex: 0,
+      batchCount: 1,
+      senderEmail: source.meta.senderEmail,
+      recipients,
+      subject: source.meta.subject,
+      html: source.meta.html,
+      text: source.meta.text
     });
     this.logger.log(JSON.stringify({ flow: "email_campaign", stage: "retry_eventbridge_published", sourceEmailId: source.meta.id, emailJobId: retryEmailJobId, eventId: event.eventId, recipientCount: recipients.length }));
     return { status: "queued", emailJobId: retryEmailJobId, recipientCount: recipients.length };
@@ -97,24 +159,18 @@ export class EmailDeliveriesController {
 
     const published = await Promise.all(recipientBatches.map(async (recipients, batchIndex) => {
       const emailJobId = crypto.createHash("sha256").update(`${campaignId}:${batchIndex}`).digest("hex");
-      const event = await publishEventBridgeEvent({
-        busName: env.EVENTBRIDGE_PLATFORM_BUS_NAME,
-        source: "supermarket.email",
-        detailType: "email.sale_campaign.requested",
-        detail: {
-          type: "email.sale_campaign.requested",
-          campaignId,
-          emailJobId,
-          batchIndex,
-          batchCount: recipientBatches.length,
-          senderEmail: env.SES_FROM_EMAIL,
-          recipients,
-          subject: input.subject,
-          // The composer is plain text. Escaping prevents admin draft text
-          // from becoming arbitrary HTML in the recipient inbox.
-          html: plainTextAsHtml(input.body),
-          text: input.body
-        }
+      const event = await this.publishTrackedSaleEvent({
+        campaignId,
+        emailJobId,
+        batchIndex,
+        batchCount: recipientBatches.length,
+        senderEmail: env.SES_FROM_EMAIL!,
+        recipients,
+        subject: input.subject,
+        // The composer is plain text. Escaping prevents admin draft text
+        // from becoming arbitrary HTML in the recipient inbox.
+        html: plainTextAsHtml(input.body),
+        text: input.body
       });
       this.logger.log(JSON.stringify({
         flow: "email_campaign",
