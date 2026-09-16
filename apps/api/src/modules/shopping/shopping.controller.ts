@@ -75,6 +75,13 @@ export class ShoppingController {
     return this.shoppingService.getShoppingItemsPageCursor(query);
   }
 
+  @Get("mine")
+  async listMyShoppingItems(@Req() request: FastifyRequest) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal) throw new ForbiddenException("A signed-in account is required.");
+    return this.shoppingService.listOwnedShoppingItems(principal.subject);
+  }
+
   @Get(":id")
   async getShoppingItemById(@Param() params: Record<string, string>) {
     const { id } = shoppingParamsSchema.parse(params);

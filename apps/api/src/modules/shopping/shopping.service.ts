@@ -83,6 +83,16 @@ export class ShoppingService {
     return createShoppingItem(input, ownerSub);
   }
 
+  async listOwnedShoppingItems(ownerSub: string) {
+    const result = await listAllShoppingItems(100, 20, {
+      sortBy: "updatedAt",
+      sortDirection: "desc"
+    });
+    return {
+      items: result.items.filter((item) => String(item.ownerSub ?? "") === ownerSub)
+    };
+  }
+
   async updateShoppingItem(id: string, patch: Record<string, any>, version: number, principal: CognitoPrincipal) {
     const current = await getShoppingItem(id);
     this.assertCanManageProduct(current, principal);
