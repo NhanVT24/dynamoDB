@@ -10,6 +10,9 @@ import {
   ResendConfirmationCodeCommand,
   SignUpCommand
 } from "@aws-sdk/client-cognito-identity-provider";
+import { jwtDecode } from "jwt-decode";
+
+export type ProductPermission = "products:create" | "products:update-own" | "products:delete-own";
 
 export type AuthSession = {
   subject?: string;
@@ -23,6 +26,7 @@ export type AuthSession = {
   email: string;
   name: string;
   role: "admin" | "customer" | "viewer";
+  permissions: ProductPermission[];
 };
 
 type JwtPayload = {
@@ -34,6 +38,7 @@ type JwtPayload = {
   auth_provider?: string;
   principal_email?: string;
   "cognito:groups"?: string[];
+  permissions?: unknown;
 };
 
 type CognitoErrorLike = {
@@ -135,10 +140,18 @@ function getCognitoClient() {
 }
 
 function decodeJwtPayload<T>(token: string): T {
-  const [, payload = ""] = token.split(".");
-  const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
-  return JSON.parse(atob(padded)) as T;
+  return jwtDecode<T>(token);
+}
+
+function readPermissions(value: unknown): ProductPermission[] {
+  const supported = new Set<ProductPermission>([
+    "products:create",
+    "products:update-own",
+    "products:delete-own"
+  ]);
+  return Array.isArray(value)
+    ? [...new Set(value.filter((item): item is ProductPermission => typeof item === "string" && supported.has(item as ProductPermission)))]
+    : [];
 }
 
 function mapCognitoError(target: string, error: CognitoErrorLike) {
@@ -223,6 +236,7 @@ export function readAuthSession() {
       window.localStorage.removeItem(sessionStorageKey);
       return null;
     }
+    session.permissions = readPermissions(session.permissions ?? decodeJwtPayload<JwtPayload>(session.accessToken).permissions);
 
     if (session.refreshExpiresAt && Date.now() >= session.refreshExpiresAt) {
       window.localStorage.removeItem(sessionStorageKey);
@@ -272,7 +286,9 @@ function readStoredSession() {
   const raw = window.localStorage.getItem(sessionStorageKey);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as AuthSession;
+    const session = JSON.parse(raw) as AuthSession;
+    session.permissions = readPermissions(session.permissions ?? decodeJwtPayload<JwtPayload>(session.accessToken).permissions);
+    return session;
   } catch {
     window.localStorage.removeItem(sessionStorageKey);
     return null;
@@ -353,10 +369,10 @@ export async function getValidAuthSession(): Promise<AuthSession | null> {
  */
 export async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   const session = await getValidAuthSession();
-  if (!session?.idToken) throw new Error("Your session has expired. Please sign in again.");
+  if (!session?.accessToken) throw new Error("Your session has expired. Please sign in again.");
 
   const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${session.idToken}`);
+  headers.set("Authorization", `Bearer ${session.accessToken}`);
   return fetch(input, { ...init, headers });
 }
 
@@ -388,7 +404,7 @@ export function beginGoogleSignIn() {
   url.searchParams.set("redirect_uri", getRedirectUri());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", getCognitoClientId());
-  url.searchParams.set("scope", "openid email profile");
+  url.searchParams.set("scope", "openid email profile supermarket-api/access");
   window.location.assign(url.toString());
 }
 
@@ -437,10 +453,10 @@ export function signOutFromCognitoHostedUi() {
   window.location.assign(url.toString());
 }
 
-export function resolvePostLoginRoute(session: Pick<AuthSession, "role">, redirectPath?: string | null) {
+export function resolvePostLoginRoute(session: Pick<AuthSession, "role" | "permissions">, redirectPath?: string | null) {
   const normalizedRedirect = String(redirectPath ?? "").trim();
 
-  if (session.role === "admin") {
+  if (session.role === "admin" || session.permissions.length > 0) {
     return normalizedRedirect.startsWith("/admin") ? normalizedRedirect : "/admin";
   }
 
@@ -462,6 +478,7 @@ function buildSession(authenticationResult: {
   }
 
   const idPayload = decodeJwtPayload<JwtPayload>(authenticationResult.IdToken);
+  const accessPayload = decodeJwtPayload<JwtPayload>(authenticationResult.AccessToken);
 
   const session: AuthSession = {
     subject: String(idPayload.sub ?? "").trim() || undefined,
@@ -482,7 +499,8 @@ function buildSession(authenticationResult: {
           ? "admin"
           : idPayload["cognito:groups"]?.some((group) => String(group).toLowerCase() === "customer")
             ? "customer"
-            : "viewer"
+            : "viewer",
+    permissions: readPermissions(accessPayload.permissions)
   };
 
   persistAuthSession(session);

@@ -7,7 +7,8 @@ import { FastifyAdapter } from "@nestjs/platform-fastify";
 
 Object.assign(process.env, {
   VNPAY_TMN_CODE: "TEST0001", VNPAY_HASH_SECRET: "local-test-only-secret",
-  VNPAY_RETURN_URL: "http://localhost/result", VNPAY_IPN_URL: "http://localhost/ipn"
+  VNPAY_RETURN_URL: "http://localhost/result", VNPAY_IPN_URL: "http://localhost/ipn",
+  AUTH_ALLOW_UNVERIFIED_JWT: "true"
 });
 const { StorefrontController } = await import("../dist/src/modules/storefront/storefront.controller.js");
 const { StorefrontService } = await import("../dist/src/modules/storefront/storefront.service.js");
@@ -27,7 +28,7 @@ test("order routes dispatch authenticated requests; legacy checkout routes are a
   await app.getHttpAdapter().getInstance().ready();
   try {
     // This fixture exercises the existing principal-to-controller contract only.
-    const token = "fixture." + Buffer.from(JSON.stringify({ email: "customer@example.com", role: "customer" })).toString("base64url") + ".fixture";
+    const token = "fixture." + Buffer.from(JSON.stringify({ sub: "test-customer-sub", email: "customer@example.com", role: "customer" })).toString("base64url") + ".fixture";
     const requestId = "11111111-1111-4111-8111-111111111111";
     const routes = [
       ["POST", "/orders", { items: [{ productId: requestId, quantity: 1 }] }, 202],

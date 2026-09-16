@@ -493,13 +493,14 @@ async function querySearchUntilEnough(limit: number, cursor?: string, filters: S
   return { items: results, nextCursor: null };
 }
 
-export async function createShoppingItem(input: ProductRecord) {
+export async function createShoppingItem(input: ProductRecord, ownerSub: string) {
   const now = new Date().toISOString();
   const item = toProductRecord(
     {
       ...input,
       id: crypto.randomUUID(),
       entityType: "PRODUCT",
+      ownerSub,
       searchName: normalizeText(input.name),
       // A new low-stock product has not been included in an inventory alert yet.
       inventoryAlertSent: false,
@@ -529,7 +530,7 @@ export async function getShoppingItem(id: string) {
   return fromDynamoItem(result.Item);
 }
 
-export async function incrementItemValue(id: string, field: string, incrementBy = 1) {
+export async function incrementItemValue(id: string, field: string, incrementBy = 1, expectedOwnerSub?: string) {
   if (!INCREMENTABLE_FIELDS.has(field)) {
     throw new Error(`Field "${field}" is not allowed for increment.`);
   }
@@ -561,7 +562,9 @@ export async function incrementItemValue(id: string, field: string, incrementBy 
       "#version = #version + :one",
       ...(field === "stock" ? ["#inventoryAlertSent = :inventoryAlertSent"] : [])
     ].join(", ") + (field === "stock" ? " REMOVE inventoryAlertSentAt" : ""),
-    ConditionExpression: "attribute_exists(PK)",
+    ConditionExpression: expectedOwnerSub
+      ? "attribute_exists(PK) AND ownerSub = :expectedOwnerSub"
+      : "attribute_exists(PK)",
     ExpressionAttributeNames: {
       "#field": field,
       "#status": "status",
@@ -575,6 +578,7 @@ export async function incrementItemValue(id: string, field: string, incrementBy 
       ":searchName": nextRecord.searchName,
       ":updatedAt": nextRecord.updatedAt,
       ":one": 1,
+      ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}),
       ...(field === "stock" ? { ":inventoryAlertSent": false } : {})
     }),
     ReturnValues: "ALL_NEW"
@@ -787,7 +791,7 @@ async function listAllShoppingItemsBase(pageLimit = 50, maxPages = 20, filters: 
   };
 }
 
-export async function updateShoppingItem(id: string, patch: ProductRecord, version: number) {
+export async function updateShoppingItem(id: string, patch: ProductRecord, version: number, expectedOwnerSub?: string) {
   const current = await getShoppingItem(id);
   if (!current) {
     const error = new Error("Product not found");
@@ -844,19 +848,26 @@ export async function updateShoppingItem(id: string, patch: ProductRecord, versi
     TableName,
     Key: toDynamoItem(keys.product(id)),
     UpdateExpression: `SET ${setters.join(", ")}${stockChanged ? " REMOVE inventoryAlertSentAt" : ""}`,
-    ConditionExpression: "attribute_exists(PK) AND #version = :expectedVersion",
+    ConditionExpression: expectedOwnerSub
+      ? "attribute_exists(PK) AND #version = :expectedVersion AND ownerSub = :expectedOwnerSub"
+      : "attribute_exists(PK) AND #version = :expectedVersion",
     ExpressionAttributeNames: names,
-    ExpressionAttributeValues: toDynamoItem(values),
+    ExpressionAttributeValues: toDynamoItem({ ...values, ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}) }),
     ReturnValues: "ALL_NEW"
   }));
 
   return fromDynamoItem(result.Attributes);
 }
 
-export async function deleteShoppingItem(id: string) {
+export async function deleteShoppingItem(id: string, expectedOwnerSub?: string) {
   await rawDb.send(new DeleteItemCommand({
     TableName,
     Key: toDynamoItem(keys.product(id)),
-    ConditionExpression: "attribute_exists(PK)"
+    ConditionExpression: expectedOwnerSub
+      ? "attribute_exists(PK) AND ownerSub = :expectedOwnerSub"
+      : "attribute_exists(PK)",
+    ExpressionAttributeValues: expectedOwnerSub
+      ? toDynamoItem({ ":expectedOwnerSub": expectedOwnerSub })
+      : undefined
   }));
 }

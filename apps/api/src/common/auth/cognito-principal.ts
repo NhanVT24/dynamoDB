@@ -1,20 +1,23 @@
+import { CognitoJwtVerifier } from "aws-jwt-verify";
+import { env } from "../../config/env.js";
+import { normalizePermissions, type ProductPermission } from "./permissions.js";
+
 type JwtPayload = {
+  sub?: string;
   email?: string;
   principal_email?: string;
   role?: string;
   "cognito:groups"?: string | string[];
+  permissions?: unknown;
 };
 
-function decodeJwtPayload<T>(token: string): T | null {
-  try {
-    const [, payload = ""] = token.split(".");
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), "=");
-    return JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as T;
-  } catch {
-    return null;
-  }
-}
+const verifier = env.COGNITO_USER_POOL_ID && env.COGNITO_CLIENT_ID
+  ? CognitoJwtVerifier.create({
+      userPoolId: env.COGNITO_USER_POOL_ID,
+      clientId: env.COGNITO_CLIENT_ID,
+      tokenUse: "access"
+    })
+  : null;
 
 function toGroups(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim().toLowerCase()).filter(Boolean);
@@ -22,13 +25,29 @@ function toGroups(value: string | string[] | undefined) {
   return [];
 }
 
+function decodeUnverifiedTestPayload(token: string): JwtPayload | null {
+  if (!env.AUTH_ALLOW_UNVERIFIED_JWT) return null;
+  try {
+    const [, encodedPayload = ""] = token.split(".");
+    return JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as JwtPayload;
+  } catch {
+    return null;
+  }
+}
+
 export type CognitoPrincipal = {
+  subject: string;
   email: string;
   role: "admin" | "customer" | "viewer";
   groups: string[];
+  permissions: ProductPermission[];
 };
 
-export function extractCognitoPrincipal(headers: Record<string, unknown>): CognitoPrincipal | null {
+export function hasPermission(principal: CognitoPrincipal, permission: ProductPermission) {
+  return principal.role === "admin" || principal.permissions.includes(permission);
+}
+
+export async function extractCognitoPrincipal(headers: Record<string, unknown>): Promise<CognitoPrincipal | null> {
   const authorization = headers.authorization;
   if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
     return null;
@@ -37,20 +56,27 @@ export function extractCognitoPrincipal(headers: Record<string, unknown>): Cogni
   const token = authorization.slice("Bearer ".length).trim();
   if (!token) return null;
 
-  const payload = decodeJwtPayload<JwtPayload>(token);
-  if (!payload) return null;
+  try {
+    const payload = env.AUTH_ALLOW_UNVERIFIED_JWT
+      ? decodeUnverifiedTestPayload(token)
+      : verifier
+        ? await verifier.verify(token) as JwtPayload
+        : null;
+    if (!payload) return null;
+    const groups = toGroups(payload["cognito:groups"]);
+    const role = String(payload.role || "").toLowerCase();
+    const resolvedRole: CognitoPrincipal["role"] =
+      role === "admin" || groups.includes("admin")
+        ? "admin"
+        : role === "customer" || groups.includes("customer")
+          ? "customer"
+          : "viewer";
+    const subject = String(payload.sub || "").trim();
+    const email = String(payload.principal_email || payload.email || "").trim().toLowerCase();
+    if (!subject || !email) return null;
 
-  const groups = toGroups(payload["cognito:groups"]);
-  const role = String(payload.role || "").toLowerCase();
-  const resolvedRole: CognitoPrincipal["role"] =
-    role === "admin" || groups.includes("admin")
-      ? "admin"
-      : role === "customer" || groups.includes("customer")
-        ? "customer"
-        : "viewer";
-
-  const email = String(payload.principal_email || payload.email || "").trim().toLowerCase();
-  if (!email) return null;
-
-  return { email, role: resolvedRole, groups };
+    return { subject, email, role: resolvedRole, groups, permissions: normalizePermissions(payload.permissions) };
+  } catch {
+    return null;
+  }
 }

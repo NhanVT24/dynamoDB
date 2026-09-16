@@ -32,7 +32,7 @@ export class VnpayController {
     @Headers() headers: Record<string, unknown>
   ) {
     const input = createVnpayFailureTestSchema.parse(rawBody);
-    const principal = extractCognitoPrincipal(headers);
+    const principal = await extractCognitoPrincipal(headers);
 
     if (!principal) {
       return {

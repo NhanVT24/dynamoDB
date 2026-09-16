@@ -24,7 +24,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
   app.flushLogs();
 
   app.enableCors({
-    methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Correlation-Id", "X-Request-Id"],
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
@@ -74,6 +74,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     // Customer email/consent is personal data. Unlike most reads, this route
     // must reach the admin guard below.
     const isAdminCustomerRequest = url.startsWith("/api/admin/customers");
+    const isAdminAuthorizationRequest = url.startsWith("/api/admin/authorizations");
     // Delivery history and producer failure details contain recipient and
     // infrastructure metadata, so admin GETs must not use the public-read path.
     const isAdminEmailDeliveryRequest = url.startsWith("/api/admin/email-deliveries");
@@ -89,17 +90,18 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const isStorefrontCheckoutCancelMutation = method === "POST" && url === "/api/storefront/checkout/cancel";
     const isAvatarUploadPresignMutation = method === "POST" && url === "/api/uploads/avatar/presign";
     const isVnpayFailureTestMutation = method === "POST" && url === "/api/payments/vnpay/test/fail";
+    const isShoppingProductMutation = !isReadOnlyMethod && url.startsWith("/api/shopping-items");
     const isPublicVnpayRequest =
       url === "/api/payments/vnpay" ||
       url.startsWith("/api/payments/vnpay/") ||
       url.startsWith("/api/payments/vnpay?");
 
-    if ((!isSalesRequest && !isAdminCustomerRequest && !isAdminEmailDeliveryRequest && isReadOnlyMethod) || isPublicStorefrontRead || isPublicProductsRead || isPublicVnpayRequest || isNotificationsMeRead) {
+    if ((!isSalesRequest && !isAdminCustomerRequest && !isAdminAuthorizationRequest && !isAdminEmailDeliveryRequest && isReadOnlyMethod) || isPublicStorefrontRead || isPublicProductsRead || isPublicVnpayRequest || isNotificationsMeRead) {
       return;
     }
 
     if (isStorefrontOrderMutation) {
-      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
       if (principal && (principal.role === "customer" || principal.role === "admin")) {
         return;
       }
@@ -112,7 +114,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isStorefrontCheckoutPrepareMutation) {
-      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
       if (principal && (principal.role === "customer" || principal.role === "admin")) {
         return;
       }
@@ -125,7 +127,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isStorefrontCheckoutPaymentSessionMutation) {
-      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
       if (principal && (principal.role === "customer" || principal.role === "admin")) {
         return;
       }
@@ -138,7 +140,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isStorefrontCheckoutCancelMutation) {
-      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
       if (principal && (principal.role === "customer" || principal.role === "admin")) {
         return;
       }
@@ -151,7 +153,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isAvatarUploadPresignMutation) {
-      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
       if (principal) {
         return;
       }
@@ -164,7 +166,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isVnpayFailureTestMutation) {
-      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
       if (principal && (principal.role === "customer" || principal.role === "admin")) {
         return;
       }
@@ -177,7 +179,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isNotificationReadMutation || isNotificationDeleteMutation || isNotificationDeleteAllMutation) {
-      const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
       if (principal) {
         return;
       }
@@ -189,7 +191,17 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       return;
     }
 
-    if (isAdminRequest(request.headers as Record<string, unknown>)) {
+    // Product ownership and the exact delegated permission are enforced in
+    // ShoppingController/ShoppingService. This global gate only requires a
+    // verified principal so non-admin creators can reach that policy layer.
+    if (isShoppingProductMutation) {
+      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      if (principal) return;
+      reply.status(403).send({ statusCode: 403, message: "A signed-in account is required." });
+      return;
+    }
+
+    if (await isAdminRequest(request.headers as Record<string, unknown>)) {
       return;
     }
 

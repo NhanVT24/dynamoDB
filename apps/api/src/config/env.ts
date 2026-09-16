@@ -14,6 +14,8 @@ export const env = z.object({
   DYNAMODB_ENDPOINT: z.string().optional(),
   DYNAMODB_TABLE_NAME: z.string().default("MarketplaceProducts"),
   COGNITO_USER_POOL_ID: z.string().min(1).optional(),
+  COGNITO_CLIENT_ID: z.string().min(1).optional(),
+  AUTH_ALLOW_UNVERIFIED_JWT: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   S3_BUCKET_NAME: z.string().optional(),
   S3_ENDPOINT: z.string().optional(),
   S3_PUBLIC_BASE_URL: z.string().optional(),

@@ -155,7 +155,7 @@ async function seedProducts(count: number) {
   const products = buildProducts(count);
 
   for (const product of products) {
-    await createShoppingItem(product);
+    await createShoppingItem(product, "SYSTEM#SEED");
   }
 
   return products;

@@ -3,6 +3,7 @@
 import type { ChangeEvent, CSSProperties, FormEvent, KeyboardEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authenticatedFetch } from "../../auth/lib/cognito-auth";
+import type { ProductPermission } from "../../auth/lib/cognito-auth";
 
 type Status = "active" | "low_stock" | "out_of_stock";
 type SearchField = "name" | "brand";
@@ -23,6 +24,7 @@ type ProductItem = {
   createdAt?: string;
   imageUrl?: string;
   version?: number;
+  ownerSub?: string;
 };
 type PanelMode = "product" | "sale";
 type SaleCampaignStatus = "scheduled" | "active" | "ended" | "cancelled";
@@ -95,6 +97,8 @@ type ShoppingManagerProps = {
   tabNavigation?: ReactNode;
   workspaceContent?: ReactNode;
   canManageProducts?: boolean;
+  currentUserSubject?: string;
+  permissions?: ProductPermission[];
 };
 
 type PresignedUploadResponse = {
@@ -514,7 +518,9 @@ export default function ShoppingManager({
   headerActions = null,
   tabNavigation = null,
   workspaceContent = null,
-  canManageProducts = false
+  canManageProducts = false,
+  currentUserSubject = "",
+  permissions = []
 }: ShoppingManagerProps) {
   const [items, setItems] = useState<ProductItem[]>([]);
   const [allItems, setAllItems] = useState<ProductItem[]>([]);
@@ -555,7 +561,13 @@ export default function ShoppingManager({
   const previewBasePrice = parseFormattedNumber(form.basePriceInput);
   const previewDiscount = Math.min(99, Math.max(0, Number(form.discountPercent) || 0));
   const previewSalePrice = computeSalePrice(previewBasePrice, previewDiscount);
-  const isViewerOnly = !canManageProducts;
+  const canCreateProduct = canManageProducts || permissions.includes("products:create");
+  const canUpdateOwnProduct = canManageProducts || permissions.includes("products:update-own");
+  const canDeleteOwnProduct = canManageProducts || permissions.includes("products:delete-own");
+  const isViewerOnly = !canCreateProduct && !canUpdateOwnProduct && !canDeleteOwnProduct;
+  const ownsProduct = (item: ProductItem) => canManageProducts || Boolean(currentUserSubject && item.ownerSub === currentUserSubject);
+  const canUpdateProduct = (item: ProductItem) => canUpdateOwnProduct && ownsProduct(item);
+  const canDeleteProduct = (item: ProductItem) => canDeleteOwnProduct && ownsProduct(item);
   const isInitialLoading = busy && items.length === 0 && allItems.length === 0;
   const liveOrUpcomingSaleCampaigns = saleCampaigns.filter((campaign) => campaign.campaignStatus === "scheduled" || campaign.campaignStatus === "active");
   const displayedProducts = selectedSaleCampaign ? selectedSaleProducts : items;
@@ -716,8 +728,8 @@ export default function ShoppingManager({
   }
 
   function startEdit(item: ProductItem) {
-    if (isViewerOnly) {
-      setMessage("account does not have permission to edit products");
+    if (!canUpdateProduct(item)) {
+      setMessage("Bạn chỉ có thể sửa sản phẩm do chính mình tạo.");
       return;
     }
 
@@ -881,8 +893,8 @@ export default function ShoppingManager({
   }
 
   async function updateStock(item: ProductItem, incrementBy: number) {
-    if (isViewerOnly) {
-      setMessage("Account does not have permission to update stock.");
+    if (!canUpdateProduct(item)) {
+      setMessage("Bạn chỉ có thể cập nhật tồn kho của sản phẩm do chính mình tạo.");
       return;
     }
 
@@ -911,8 +923,8 @@ export default function ShoppingManager({
   async function submitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (isViewerOnly) {
-      setMessage("Account does not have permission to create or update products.");
+    if ((!editingId && !canCreateProduct) || (editingId && !canUpdateOwnProduct)) {
+      setMessage(editingId ? "Bạn không có quyền sửa sản phẩm." : "Bạn không có quyền thêm sản phẩm.");
       return;
     }
 
@@ -997,6 +1009,27 @@ export default function ShoppingManager({
     setSaleProductIds((current) => current.includes(productId)
       ? current.filter((id) => id !== productId)
       : [...current, productId]);
+  }
+
+  async function deleteProduct(item: ProductItem) {
+    if (!canDeleteProduct(item)) {
+      setMessage("Bạn chỉ có thể xóa sản phẩm do chính mình tạo.");
+      return;
+    }
+    if (!window.confirm(`Xóa sản phẩm "${item.name}"?`)) return;
+    setBusy(true);
+    try {
+      const response = await authenticatedFetch(`${apiUrl}/api/shopping-items/${item.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await logApiFailure(response, "Failed to delete product", "deleteProduct"));
+      setItems((current) => current.filter((row) => row.id !== item.id));
+      setAllItems((current) => current.filter((row) => row.id !== item.id));
+      if (editingId === item.id) resetForm();
+      setMessage(`Đã xóa sản phẩm "${item.name}".`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Không thể xóa sản phẩm.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function loadSaleCampaigns() {
@@ -1272,7 +1305,7 @@ export default function ShoppingManager({
                     <tr
                       key={item.id}
                       onDoubleClick={() => {
-                        if (!isViewerOnly && !selectedSaleCampaign) {
+                        if (canUpdateProduct(item) && !selectedSaleCampaign) {
                           startEdit(item);
                         }
                       }}
@@ -1313,7 +1346,7 @@ export default function ShoppingManager({
                             onMouseLeave={stopStockHold}
                             onTouchStart={() => startStockHold(item, -1)}
                             onTouchEnd={stopStockHold}
-                            disabled={busy || isViewerOnly || Number(item.stock) <= 0}
+                            disabled={busy || !canUpdateProduct(item) || Number(item.stock) <= 0}
                             className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`}
                             style={{ minWidth: "32px", padding: "0 8px" }}
                           >
@@ -1328,7 +1361,7 @@ export default function ShoppingManager({
                             onMouseLeave={stopStockHold}
                             onTouchStart={() => startStockHold(item, 1)}
                             onTouchEnd={stopStockHold}
-                            disabled={busy || isViewerOnly}
+                            disabled={busy || !canUpdateProduct(item)}
                             className={`${actionButtonClassName} bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
                             style={{ minWidth: "32px", padding: "0 8px" }}
                           >
@@ -1347,13 +1380,14 @@ export default function ShoppingManager({
                       {selectedSaleCampaign ? <td style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-100">
                         <button type="button" onClick={() => void removeProductFromSaleCampaign(item)} disabled={removingSaleProductId === item.id} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ minWidth: "92px", padding: "0 10px" }}>{removingSaleProductId === item.id ? "Removing..." : "Remove"}</button>
                       </td> : panelMode === "product" ? <td style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-100">
-                        {isViewerOnly ? (
+                        {!canUpdateProduct(item) && !canDeleteProduct(item) ? (
                           <span className="inline-flex h-9 items-center rounded-lg bg-slate-100 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                             View only
                           </span>
                         ) : (
                           <div style={{ display: "flex", flexWrap: "nowrap", gap: "6px", width: "100%" }}>
-                            <button type="button" onClick={() => startEdit(item)} disabled={busy} className={`${actionButtonClassName} bg-blue-50 text-blue-700 hover:bg-blue-100`} style={{ flex: "1 1 0", minWidth: "48px", padding: "0 8px" }}>Edit</button>
+                            {canUpdateProduct(item) ? <button type="button" onClick={() => startEdit(item)} disabled={busy} className={`${actionButtonClassName} bg-blue-50 text-blue-700 hover:bg-blue-100`} style={{ flex: "1 1 0", minWidth: "48px", padding: "0 8px" }}>Edit</button> : null}
+                            {canDeleteProduct(item) ? <button type="button" onClick={() => void deleteProduct(item)} disabled={busy} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ flex: "1 1 0", minWidth: "56px", padding: "0 8px" }}>Delete</button> : null}
                           </div>
                         )}
                       </td> : null}
@@ -1390,23 +1424,25 @@ export default function ShoppingManager({
           </div> : null}
         </div>
 
-        {isViewerOnly ? (
+        {isViewerOnly || (!canCreateProduct && !editingId) ? (
           <section className="product-manager-panel grid h-full content-start gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
             <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "16px" }}>
               <h2 className="text-xl font-semibold text-slate-900" style={{ margin: 0, fontSize: "20px", fontWeight: 600 }}>
-                Viewer Mode
+                {isViewerOnly ? "Viewer Mode" : "Select your product"}
               </h2>
               <p className="mt-1 text-sm text-slate-500" style={{ margin: "4px 0 0", fontSize: "14px", color: "#64748b" }}>
-                This account does not have permission to create or edit products. You can view the product list, but you cannot make any changes.
+                {isViewerOnly
+                  ? "This account does not have permission to create, edit, or delete products."
+                  : "Use Edit or Delete on products you created. Products owned by another account remain read-only."}
               </p>
             </div>
           </section>
         ) : (
         <form onSubmit={panelMode === "product" ? submitForm : submitSale} className="product-manager-panel grid h-full gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
           <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "16px" }}>
-            <div className="mb-4 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
-              <button type="button" onClick={() => { clearSaleCampaignProducts(); setPanelMode("product"); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${panelMode === "product" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>Add Product</button>
-              <button type="button" onClick={() => { resetForm(); clearSaleCampaignProducts(); setPanelMode("sale"); void loadSaleCampaigns(); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${panelMode === "sale" ? "bg-orange-600 text-white shadow-sm" : "text-slate-500"}`}>Schedule Sale</button>
+            <div className={`mb-4 grid ${canManageProducts ? "grid-cols-2" : "grid-cols-1"} rounded-xl bg-slate-100 p-1`}>
+              {canCreateProduct || editingId ? <button type="button" onClick={() => { clearSaleCampaignProducts(); setPanelMode("product"); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${panelMode === "product" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>{editingId ? "Edit Product" : "Add Product"}</button> : null}
+              {canManageProducts ? <button type="button" onClick={() => { resetForm(); clearSaleCampaignProducts(); setPanelMode("sale"); void loadSaleCampaigns(); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${panelMode === "sale" ? "bg-orange-600 text-white shadow-sm" : "text-slate-500"}`}>Schedule Sale</button> : null}
             </div>
             <h2 className="text-xl font-semibold text-slate-900" style={{ margin: 0, fontSize: "20px", fontWeight: 600 }}>
               {panelMode === "sale" ? "Schedule Sale Campaign" : editingId ? "Edit Product" : "Add Product"}
@@ -1547,7 +1583,7 @@ export default function ShoppingManager({
           </div>
 
           <div style={{ marginTop: "auto", display: "flex", flexWrap: "wrap", gap: "12px", paddingTop: "8px" }}>
-            <button disabled={busy} type="submit" className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" style={primaryButtonStyle}>
+            <button disabled={busy || (!editingId && !canCreateProduct)} type="submit" className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" style={primaryButtonStyle}>
               {editingId ? "Save Changes" : "Create Product"}
             </button>
             {editingId ? (

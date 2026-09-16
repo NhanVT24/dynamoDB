@@ -25,9 +25,9 @@ export class StorefrontController {
 
   @Post("orders")
   @HttpCode(HttpStatus.ACCEPTED)
-  createOrder(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+  async createOrder(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
     this.logger.log(`[storefront-controller] create_order_request url=${request.url} hasAuth=${Boolean(request.headers.authorization)} bodyKeys=${Object.keys(rawBody ?? {}).join(",")}`);
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     this.logger.log(`[storefront-controller] create_order_principal_resolved url=${request.url} hasPrincipal=${Boolean(principal)} role=${principal?.role ?? "none"}`);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
       throw new ForbiddenException("Only customer or admin can create orders.");
@@ -39,16 +39,16 @@ export class StorefrontController {
   }
 
   @Get("orders/:orderId/status")
-  getOrderStatus(@Req() request: FastifyRequest, @Param("orderId") orderId: string) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+  async getOrderStatus(@Req() request: FastifyRequest, @Param("orderId") orderId: string) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal) throw new ForbiddenException("Sign in to view your order.");
     return this.storefrontService.getOrderStatus(principal.email, orderId);
   }
 
   @Post("orders/:orderId/cancel")
   @HttpCode(HttpStatus.OK)
-  cancelOrder(@Req() request: FastifyRequest, @Param("orderId") orderId: string) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+  async cancelOrder(@Req() request: FastifyRequest, @Param("orderId") orderId: string) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
       throw new ForbiddenException("Only customer or admin can cancel orders.");
     }
@@ -57,8 +57,8 @@ export class StorefrontController {
   }
 
   @Get("orders/me")
-  listMyOrders(@Req() request: FastifyRequest) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+  async listMyOrders(@Req() request: FastifyRequest) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal) {
       throw new ForbiddenException("Only logged-in users can view their orders.");
     }

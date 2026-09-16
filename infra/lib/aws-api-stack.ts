@@ -412,6 +412,9 @@ export class AwsApiStack extends Stack {
       handler: "index.handler",
       timeout: Duration.seconds(10),
       memorySize: 256,
+      environment: {
+        DYNAMODB_TABLE_NAME: dynamoTableName.valueAsString
+      },
       code: lambda.Code.fromInline(`
 const {
   CognitoIdentityProviderClient,
@@ -421,8 +424,10 @@ const {
   AdminListGroupsForUserCommand,
   AdminGetUserCommand
 } = require("@aws-sdk/client-cognito-identity-provider");
+const { DynamoDBClient, GetItemCommand } = require("@aws-sdk/client-dynamodb");
 
 const client = new CognitoIdentityProviderClient({});
+const dynamo = new DynamoDBClient({});
 
 function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
@@ -506,6 +511,20 @@ async function handleTokenGeneration(event) {
   const email = normalizeEmail(getAttribute(user.UserAttributes, "email"));
   const displayName = getAttribute(user.UserAttributes, "name") || email || "Cognito User";
   const identitiesRaw = getAttribute(user.UserAttributes, "identities");
+  const subject = getAttribute(user.UserAttributes, "sub");
+  const authorization = subject ? await dynamo.send(new GetItemCommand({
+    TableName: process.env.DYNAMODB_TABLE_NAME,
+    Key: {
+      PK: { S: "USER#" + subject },
+      SK: { S: "AUTHORIZATION" }
+    },
+    ConsistentRead: true,
+    ProjectionExpression: "#permissions",
+    ExpressionAttributeNames: {
+      "#permissions": "permissions"
+    }
+  })) : {};
+  const permissions = authorization.Item?.permissions?.SS || [];
 
   let authProvider = "COGNITO";
   if (identitiesRaw) {
@@ -515,13 +534,24 @@ async function handleTokenGeneration(event) {
     } catch {}
   }
 
-  event.response = {
-    claimsOverrideDetails: {
-      claimsToAddOrOverride: {
+  const identityClaims = {
         role,
         auth_provider: authProvider,
         principal_email: email,
         display_name: displayName
+  };
+
+  event.response = {
+    claimsAndScopeOverrideDetails: {
+      idTokenGeneration: {
+        claimsToAddOrOverride: identityClaims
+      },
+      accessTokenGeneration: {
+        claimsToAddOrOverride: {
+          ...identityClaims,
+          permissions
+        },
+        scopesToAdd: ["supermarket-api/access"]
       },
       groupOverrideDetails: {
         groupsToOverride: groups.length > 0 ? groups : ["customer"]
@@ -572,6 +602,10 @@ exports.handler = async (event) => {
             "cognito-idp:ListUsers"
           ],
           resources: ["*"]
+        }),
+        new iam.PolicyStatement({
+          actions: ["dynamodb:GetItem"],
+          resources: [table.attrArn]
         })
       ]
     });
@@ -579,6 +613,7 @@ exports.handler = async (event) => {
     const userPool = new cognito.UserPool(this, "AdminUserPool", {
       userPoolName: "supermarket-admin-users",
       selfSignUpEnabled: true,
+      featurePlan: cognito.FeaturePlan.ESSENTIALS,
       signInAliases: { email: true },
       autoVerify: { email: true },
       mfa: cognito.Mfa.OFF,
@@ -597,15 +632,31 @@ exports.handler = async (event) => {
       },
       lambdaTriggers: {
         preSignUp: cognitoTriggerFunction,
-        postConfirmation: cognitoTriggerFunction,
-        preTokenGeneration: cognitoTriggerFunction
+        postConfirmation: cognitoTriggerFunction
       }
     });
+    userPool.addTrigger(
+      cognito.UserPoolOperation.PRE_TOKEN_GENERATION_CONFIG,
+      cognitoTriggerFunction,
+      cognito.LambdaVersion.V2_0
+    );
 
     const customerGroup = new cognito.CfnUserPoolGroup(this, "CustomerGroup", {
       userPoolId: userPool.userPoolId,
       groupName: "customer",
       description: "Customers can browse products and place orders"
+    });
+    // The admin group predates this CDK stack and is managed operationally in
+    // the existing user pool. Declaring it here would make CloudFormation try
+    // to create the same physical group and fail with AlreadyExists.
+
+    const apiAccessScope = new cognito.ResourceServerScope({
+      scopeName: "access",
+      scopeDescription: "Access the supermarket API"
+    });
+    const apiResourceServer = userPool.addResourceServer("ApiResourceServer", {
+      identifier: "supermarket-api",
+      scopes: [apiAccessScope]
     });
 
     const googleClientId = new CfnDynamicReference(
@@ -642,7 +693,12 @@ exports.handler = async (event) => {
       ],
       oAuth: {
         flows: { authorizationCodeGrant: true },
-        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+        scopes: [
+          cognito.OAuthScope.OPENID,
+          cognito.OAuthScope.EMAIL,
+          cognito.OAuthScope.PROFILE,
+          cognito.OAuthScope.resourceServer(apiResourceServer, apiAccessScope)
+        ],
         callbackUrls: [callbackUrl.valueAsString],
         logoutUrls: [logoutUrl.valueAsString]
       }
@@ -725,6 +781,7 @@ exports.handler = async (event) => {
     const sharedEnvironment = {
       DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString,
       COGNITO_USER_POOL_ID: userPool.userPoolId,
+      COGNITO_CLIENT_ID: userPoolClient.userPoolClientId,
       S3_BUCKET_NAME: productImagesBucket.bucketName,
       S3_PUBLIC_BASE_URL: `https://${productImagesBucket.bucketName}.s3.${this.region}.amazonaws.com`,
       SQS_NOTIFICATIONS_QUEUE_URL: notificationsQueue.queueUrl,
@@ -1982,7 +2039,8 @@ exports.handler = async (event) => {
     const proxyResource = api.root.addResource("{proxy+}");
     proxyResource.addMethod("ANY", httpIntegration, {
       authorizer: cognitoAuthorizer,
-      authorizationType: apigateway.AuthorizationType.COGNITO
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+      authorizationScopes: ["supermarket-api/access"]
     });
 
     new CfnOutput(this, "TableName", {

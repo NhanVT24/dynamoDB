@@ -8,8 +8,8 @@ export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get("me")
-  listMyNotifications(@Req() request: FastifyRequest) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+  async listMyNotifications(@Req() request: FastifyRequest) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal) {
       return { items: [], pendingCount: 0 };
     }
@@ -18,8 +18,8 @@ export class NotificationsController {
   }
 
   @Patch(":id/read")
-  markAsRead(@Req() request: FastifyRequest, @Param("id") id: string) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+  async markAsRead(@Req() request: FastifyRequest, @Param("id") id: string) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal) {
       return { success: false };
     }
@@ -28,8 +28,8 @@ export class NotificationsController {
   }
 
   @Delete(":id")
-  remove(@Req() request: FastifyRequest, @Param("id") id: string) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+  async remove(@Req() request: FastifyRequest, @Param("id") id: string) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal) {
       return { success: false };
     }
@@ -38,8 +38,8 @@ export class NotificationsController {
   }
 
   @Delete()
-  removeAll(@Req() request: FastifyRequest) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+  async removeAll(@Req() request: FastifyRequest) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal) {
       return { success: false };
     }
@@ -47,7 +47,6 @@ export class NotificationsController {
     return this.notificationsService.removeAllForPrincipal(principal);
   }
 }
-
 
 
 

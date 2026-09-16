@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import ShoppingManager from "../components/ShoppingManager";
 import EmailCenter from "../components/EmailCenter";
+import UserPermissionManager from "../components/UserPermissionManager";
 import {
   beginGoogleSignIn,
   clearAuthSession,
@@ -428,7 +429,7 @@ export default function Home() {
   const searchParams = useSearchParams();
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
-  const [adminTab, setAdminTab] = useState<"products" | "email">("products");
+  const [adminTab, setAdminTab] = useState<"products" | "email" | "permissions">("products");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [message, setMessage] = useState("Dùng tài khoản Cognito để truy cập API admin trên AWS.");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -497,13 +498,13 @@ export default function Home() {
       return;
     }
 
-    if (session.role !== "admin") {
+    if (session.role !== "admin" && session.permissions.length === 0) {
       setMessage(`The account ${session.email} has the role ${session.role}. To access the admin panel, please log in with a user from the admin group.`);
     }
   }, [ready, router, session]);
 
   useEffect(() => {
-    if (!ready || !session || session.role === "admin") {
+    if (!ready || !session || session.role === "admin" || session.permissions.length > 0) {
       return;
     }
 
@@ -720,7 +721,8 @@ export default function Home() {
   }
 
   const singleActionMode = authMode === "register" || authMode === "confirm" || authMode === "forgot" || authMode === "reset";
-  const showAdminLoginScreen = !session || session.role !== "admin";
+  const hasProductWorkspaceAccess = Boolean(session && (session.role === "admin" || session.permissions.length > 0));
+  const showAdminLoginScreen = !hasProductWorkspaceAccess;
 
   return (
     <div
@@ -730,7 +732,7 @@ export default function Home() {
           : ""
       }`}
     >
-      {!session || session.role !== "admin" ? (
+      {!hasProductWorkspaceAccess ? (
         <section className="mx-auto w-full max-w-md rounded-[28px] border border-white/80 bg-white/95 p-6 shadow-[0_30px_100px_rgba(15,23,42,0.12)] backdrop-blur">
           <div className="mb-5 text-center">
             <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
@@ -958,20 +960,27 @@ export default function Home() {
         </section>
       ) : null}
 
-      {session && session.role === "admin" ? (
+      {session && hasProductWorkspaceAccess ? (
         <ShoppingManager
-          authToken={session.idToken}
+          authToken={session.accessToken}
           canManageProducts={session.role === "admin"}
-          workspaceContent={adminTab === "email" ? <EmailCenter authToken={session.idToken} /> : null}
+          currentUserSubject={session.subject}
+          permissions={session.permissions}
+          workspaceContent={adminTab === "email"
+            ? <EmailCenter authToken={session.accessToken} />
+            : adminTab === "permissions"
+              ? <UserPermissionManager />
+              : null}
           tabNavigation={(
           <nav className="flex w-full justify-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-          <button type="button" onClick={() => setAdminTab("products")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "products" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Products & Sales</button>
-          <button type="button" onClick={() => setAdminTab("email")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "email" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Email Center</button>
+          <button type="button" onClick={() => setAdminTab("products")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "products" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Products</button>
+          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("email")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "email" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Email Center</button> : null}
+          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("permissions")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "permissions" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Permissions</button> : null}
           </nav>
           )}
           headerActions={(
             <div className="relative z-50 flex items-center gap-3">
-              <AdminNotificationBell authToken={session.idToken} />
+              <AdminNotificationBell authToken={session.accessToken} />
               <div className="hidden rounded-2xl bg-cyan-50 px-4 py-3 text-right ring-1 ring-cyan-200 md:block">
                 <p className="text-sm font-semibold text-slate-900">{session.name}</p>
                 <p className="text-xs text-slate-500">{session.email}</p>

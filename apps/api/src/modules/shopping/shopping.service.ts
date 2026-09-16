@@ -1,4 +1,5 @@
-import { ConflictException, Injectable } from "@nestjs/common";
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import type { CognitoPrincipal } from "../../common/auth/cognito-principal.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import {
   createShoppingItem,
@@ -78,26 +79,37 @@ export class ShoppingService {
     return getShoppingItem(id);
   }
 
-  createShoppingItem(input: Record<string, any>) {
-    return createShoppingItem(input);
+  createShoppingItem(input: Record<string, any>, ownerSub: string) {
+    return createShoppingItem(input, ownerSub);
   }
 
-  async updateShoppingItem(id: string, patch: Record<string, any>, version: number) {
+  async updateShoppingItem(id: string, patch: Record<string, any>, version: number, principal: CognitoPrincipal) {
     const current = await getShoppingItem(id);
-    const updated = await updateShoppingItem(id, patch, version);
+    this.assertCanManageProduct(current, principal);
+    const updated = await updateShoppingItem(id, patch, version, principal.role === "admin" ? undefined : principal.subject);
     await this.publishInventoryAlertIfNeeded(current, updated, "admin.update");
     return updated;
   }
 
-  async incrementShoppingItemField(id: string, field: string, incrementBy: number) {
+  async incrementShoppingItemField(id: string, field: string, incrementBy: number, principal: CognitoPrincipal) {
     const current = await getShoppingItem(id);
-    const updated = await incrementItemValue(id, field, incrementBy);
+    this.assertCanManageProduct(current, principal);
+    const updated = await incrementItemValue(id, field, incrementBy, principal.role === "admin" ? undefined : principal.subject);
     await this.publishInventoryAlertIfNeeded(current, updated, "admin.increment");
     return updated;
   }
 
-  deleteShoppingItem(id: string) {
-    return deleteShoppingItem(id);
+  async deleteShoppingItem(id: string, principal: CognitoPrincipal) {
+    const current = await getShoppingItem(id);
+    this.assertCanManageProduct(current, principal);
+    return deleteShoppingItem(id, principal.role === "admin" ? undefined : principal.subject);
+  }
+
+  private assertCanManageProduct(product: Record<string, any> | null, principal: CognitoPrincipal) {
+    if (!product) throw new NotFoundException("Product not found");
+    if (principal.role !== "admin" && String(product.ownerSub ?? "") !== principal.subject) {
+      throw new ForbiddenException("You can only modify products that you created.");
+    }
   }
 
   private async publishInventoryAlertIfNeeded(

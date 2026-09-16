@@ -72,7 +72,7 @@ async function proxy(request: Request, context: RouteContext) {
     const responseHeaders = new Headers(response.headers);
     responseHeaders.set("x-correlation-id", response.headers.get("x-correlation-id") || correlationId);
     responseHeaders.set("Access-Control-Allow-Origin", "*");
-    responseHeaders.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+    responseHeaders.set("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     responseHeaders.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Correlation-Id, X-Request-Id");
 
     return new Response(response.body, {
@@ -88,7 +88,7 @@ async function proxy(request: Request, context: RouteContext) {
         status: 500,
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+          "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Correlation-Id, X-Request-Id"
         }
       }
@@ -101,6 +101,10 @@ export async function GET(request: Request, context: RouteContext) {
 }
 
 export async function POST(request: Request, context: RouteContext) {
+  return proxy(request, context);
+}
+
+export async function PUT(request: Request, context: RouteContext) {
   return proxy(request, context);
 }
 
@@ -117,7 +121,7 @@ export async function OPTIONS() {
     status: 204,
     headers: {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+      "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Correlation-Id, X-Request-Id"
     }
   });

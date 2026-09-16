@@ -10,8 +10,12 @@ import {
   Param,
   Patch,
   Post,
-  Query
+  Query,
+  Req,
+  ForbiddenException
 } from "@nestjs/common";
+import type { FastifyRequest } from "fastify";
+import { extractCognitoPrincipal, hasPermission } from "../../common/auth/cognito-principal.js";
 import { ShoppingService } from "./shopping.service.js";
 import {
   createShoppingItemSchema,
@@ -81,30 +85,46 @@ export class ShoppingController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  createShoppingItem(@Body() rawBody: Record<string, unknown>) {
+  async createShoppingItem(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || !hasPermission(principal, "products:create")) {
+      throw new ForbiddenException("Missing permission: products:create");
+    }
     const input = createShoppingItemSchema.parse(rawBody);
-    return this.shoppingService.createShoppingItem(input);
+    return this.shoppingService.createShoppingItem(input, principal.subject);
   }
 
   @Patch(":id")
-  updateShoppingItem(@Param() params: Record<string, string>, @Body() rawBody: Record<string, unknown>) {
+  async updateShoppingItem(@Req() request: FastifyRequest, @Param() params: Record<string, string>, @Body() rawBody: Record<string, unknown>) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || !hasPermission(principal, "products:update-own")) {
+      throw new ForbiddenException("Missing permission: products:update-own");
+    }
     const { id } = shoppingParamsSchema.parse(params);
     const body = updateShoppingItemSchema.merge(shoppingUpdateBodySchema).parse(rawBody);
     const { version, ...patch } = body;
-    return this.shoppingService.updateShoppingItem(id, patch, version);
+    return this.shoppingService.updateShoppingItem(id, patch, version, principal);
   }
 
   @Patch(":id/increment")
-  incrementShoppingItemField(@Param() params: Record<string, string>, @Body() rawBody: Record<string, unknown>) {
+  async incrementShoppingItemField(@Req() request: FastifyRequest, @Param() params: Record<string, string>, @Body() rawBody: Record<string, unknown>) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || !hasPermission(principal, "products:update-own")) {
+      throw new ForbiddenException("Missing permission: products:update-own");
+    }
     const { id } = shoppingParamsSchema.parse(params);
     const body = shoppingIncrementBodySchema.parse(rawBody);
-    return this.shoppingService.incrementShoppingItemField(id, body.field, body.incrementBy);
+    return this.shoppingService.incrementShoppingItemField(id, body.field, body.incrementBy, principal);
   }
 
   @Delete(":id")
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteShoppingItem(@Param() params: Record<string, string>) {
+  async deleteShoppingItem(@Req() request: FastifyRequest, @Param() params: Record<string, string>) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || !hasPermission(principal, "products:delete-own")) {
+      throw new ForbiddenException("Missing permission: products:delete-own");
+    }
     const { id } = shoppingParamsSchema.parse(params);
-    await this.shoppingService.deleteShoppingItem(id);
+    await this.shoppingService.deleteShoppingItem(id, principal);
   }
 }

@@ -10,8 +10,8 @@ export class UploadsController {
 
   @Post("presign")
   @HttpCode(HttpStatus.CREATED)
-  createPresign(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+  async createPresign(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
       throw new ForbiddenException("You need a customer or admin account to upload an image.");
     }
@@ -22,8 +22,8 @@ export class UploadsController {
 
   @Post("avatar/presign")
   @HttpCode(HttpStatus.CREATED)
-  createAvatarPresign(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
-    const principal = extractCognitoPrincipal(request.headers as Record<string, unknown>);
+  async createAvatarPresign(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!principal) {
       throw new ForbiddenException("You need to sign in before uploading an avatar.");
     }

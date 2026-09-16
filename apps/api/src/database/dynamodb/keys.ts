@@ -9,5 +9,11 @@ export const keys = {
       PK: `PRODUCT#${normalizedId}`,
       SK: "DETAIL"
     };
+  },
+  userAuthorization(subject: string) {
+    return {
+      PK: `USER#${String(subject).trim()}`,
+      SK: "AUTHORIZATION"
+    };
   }
 };
