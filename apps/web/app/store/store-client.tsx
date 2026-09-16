@@ -5,7 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, ReactNode } from "react";
 import { storeCategories, storeProducts } from "./store-data";
-import { fetchStorefrontProductById, fetchStorefrontProducts } from "./store-api";
+import { fetchStorefrontProductById, fetchStorefrontProducts, toStoreProduct } from "./store-api";
+import ProductEditor from "./products/product-editor";
 import {
   beginGoogleSignIn,
   confirmForgotPassword,
@@ -23,7 +24,7 @@ import {
   resolvePostLoginRoute,
   type AuthSession
 } from "../lib/cognito-auth";
-import type { CartItem, StoreProduct } from "./store-types";
+import type { CartItem, ManagedProduct, StoreProduct } from "./store-types";
 import { calculateShipping, calculateSubtotal, formatCurrency, formatShortDate } from "./store-utils";
 
 type ThemeMode = "light" | "dark";
@@ -71,6 +72,7 @@ const pendingCheckoutStorageKey = "web-storefront-pending-checkout";
 const resumeCheckoutAfterLoginStorageKey = "web-storefront-resume-checkout-after-login";
 const processedPaymentPrefix = "web-storefront-payment-processed-";
 const pendingOrderRequestPrefix = "web-storefront-order-request-";
+const managementApiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 
 function readLocalNotifications(): StoreNotification[] {
   if (typeof window === "undefined") {
@@ -2040,6 +2042,18 @@ export function ProductDetailClient({ slug }: { slug: string }) {
   const [relatedProducts, setRelatedProducts] = useState<StoreProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [managedProduct, setManagedProduct] = useState<ManagedProduct | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
+
+  useEffect(() => {
+    const syncSession = () => setSession(readAuthSession());
+    syncSession();
+    window.addEventListener(authSessionChangedEvent, syncSession);
+    return () => window.removeEventListener(authSessionChangedEvent, syncSession);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2102,6 +2116,35 @@ export function ProductDetailClient({ slug }: { slug: string }) {
       cancelled = true;
     };
   }, [slug]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const mayManage = session && (
+      session.role === "admin"
+      || session.permissions.includes("products:update-own")
+      || session.permissions.includes("products:delete-own")
+    );
+    if (!product?.id || !mayManage) {
+      setManagedProduct(null);
+      return;
+    }
+
+    authenticatedFetch(`${managementApiUrl}/api/shopping-items/${product.id}`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`Cannot load product ownership (HTTP ${response.status}).`);
+        return response.json() as Promise<ManagedProduct>;
+      })
+      .then((item) => {
+        if (!cancelled) setManagedProduct(item);
+      })
+      .catch((error) => {
+        if (!cancelled) setActionMessage(error instanceof Error ? error.message : "Cannot load product ownership.");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [product?.id, session?.accessToken]);
 
   if (isLoading) {
     return (
@@ -2193,6 +2236,48 @@ export function ProductDetailClient({ slug }: { slug: string }) {
   }
 
   const canAdd = product.status !== "out_of_stock" && !product.isLocked;
+  const ownsProduct = Boolean(
+    session
+    && managedProduct
+    && (session.role === "admin" || (session.subject && managedProduct.ownerSub === session.subject))
+  );
+  const canUpdateProduct = Boolean(
+    ownsProduct
+    && session
+    && (session.role === "admin" || session.permissions.includes("products:update-own"))
+  );
+  const canDeleteProduct = Boolean(
+    ownsProduct
+    && session
+    && (session.role === "admin" || session.permissions.includes("products:delete-own"))
+  );
+
+  function handleProductSaved(saved: ManagedProduct) {
+    const storefrontProduct = toStoreProduct(saved);
+    setManagedProduct(saved);
+    setProduct(storefrontProduct);
+    setIsEditing(false);
+    setActionMessage("Product updated successfully.");
+    router.replace(`/store/products/${storefrontProduct.slug}`);
+  }
+
+  async function deleteOwnedProduct() {
+    if (!managedProduct || !canDeleteProduct || !window.confirm(`Xóa sản phẩm "${managedProduct.name}"?`)) return;
+    setDeleteBusy(true);
+    setActionMessage("");
+    try {
+      const response = await authenticatedFetch(`${managementApiUrl}/api/shopping-items/${managedProduct.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { message?: string } | null;
+        throw new Error(payload?.message || `Delete failed (HTTP ${response.status}).`);
+      }
+      router.replace("/store/products");
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "Không thể xóa sản phẩm.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
 
   return (
     <section className="px-4 py-10 sm:px-6 lg:px-8">
@@ -2226,11 +2311,27 @@ export function ProductDetailClient({ slug }: { slug: string }) {
               </div>
               <button type="button" onClick={() => addCatalogItem(product, quantity)} disabled={!canAdd} className="inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400">{product.isLocked ? "Reserved" : canAdd ? "Add to cart" : "Out of stock"}</button>
             </div>
+            {canUpdateProduct || canDeleteProduct ? (
+              <div id="manage-product" className={`mt-6 scroll-mt-28 rounded-3xl border p-4 ${isDark ? "border-orange-400/20 bg-orange-400/10" : "border-orange-200 bg-orange-50"}`}>
+                <p className="text-sm font-semibold text-orange-700">Sản phẩm của bạn</p>
+                <p className={`mt-1 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Các thao tác dưới đây chỉ xuất hiện khi bạn là owner và có permission tương ứng.</p>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  {canUpdateProduct ? <button type="button" onClick={() => setIsEditing((current) => !current)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">{isEditing ? "Close update form" : "Update product"}</button> : null}
+                  {canDeleteProduct ? <button type="button" onClick={() => void deleteOwnedProduct()} disabled={deleteBusy} className="rounded-full bg-rose-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{deleteBusy ? "Deleting..." : "Delete product"}</button> : null}
+                </div>
+              </div>
+            ) : null}
+            {actionMessage ? <p role="status" className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-700">{actionMessage}</p> : null}
             {product.isLocked ? (
               <p className="text-sm font-medium text-amber-600">This product is temporarily reserved, so it cannot be selected right now.</p>
             ) : null}
           </div>
         </div>
+        {isEditing && session && managedProduct ? (
+          <div className="mt-10">
+            <ProductEditor session={session} initialProduct={managedProduct} onSaved={handleProductSaved} onCancel={() => setIsEditing(false)} />
+          </div>
+        ) : null}
         <div className="mt-14">
           <div className="flex items-end justify-between gap-4">
             <div>

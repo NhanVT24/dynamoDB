@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authenticatedFetch, readAuthSession } from "../../lib/cognito-auth";
 import { useStorefront } from "../store-client";
-import { fetchMyOrders } from "../store-api";
-import type { StoreOrder } from "../store-types";
-import { formatCurrency, formatDateTime, formatShortDate } from "../store-utils";
+import { fetchMyOrders, fetchMyProducts, toStoreProduct } from "../store-api";
+import type { ManagedProduct, StoreOrder } from "../store-types";
+import { formatCurrency, formatDateTime } from "../store-utils";
 
 type ProfileMetricCardProps = {
   label: string;
@@ -33,6 +33,18 @@ function ProfileMetricCard({ label, value, tone = "neutral", isDark }: ProfileMe
       <p className={`text-xs font-semibold uppercase tracking-[0.24em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{label}</p>
       <strong className={`mt-3 block text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{value}</strong>
     </article>
+  );
+}
+
+function CompactPagination({ page, totalPages, onPageChange, isDark }: { page: number; totalPages: number; onPageChange: (page: number) => void; isDark: boolean }) {
+  if (totalPages <= 1) return null;
+  const buttonClass = `rounded-full px-3 py-1.5 text-xs font-semibold ${isDark ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700"}`;
+  return (
+    <div className="mt-4 flex items-center justify-end gap-2">
+      <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1} className={`${buttonClass} disabled:cursor-not-allowed disabled:opacity-40`}>Previous</button>
+      <span className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>Page {page} / {totalPages}</span>
+      <button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages} className={`${buttonClass} disabled:cursor-not-allowed disabled:opacity-40`}>Next</button>
+    </div>
   );
 }
 
@@ -134,8 +146,13 @@ export default function StoreProfilePage() {
   const isDark = theme === "dark";
   const [session, setSession] = useState<ReturnType<typeof readAuthSession>>(null);
   const [orders, setOrders] = useState<StoreOrder[]>([]);
+  const [myProducts, setMyProducts] = useState<ManagedProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [productsLoading, setProductsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [productsError, setProductsError] = useState("");
+  const [productsPage, setProductsPage] = useState(1);
+  const [ordersPage, setOrdersPage] = useState(1);
   const [avatarUrl, setAvatarUrl] = useState("");
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -151,6 +168,7 @@ export default function StoreProfilePage() {
       if (!currentSession) {
         if (!cancelled) {
           setIsLoading(false);
+          setProductsLoading(false);
         }
         return;
       }
@@ -172,7 +190,23 @@ export default function StoreProfilePage() {
       }
     }
 
+    async function loadMyProducts() {
+      if (!currentSession) return;
+      try {
+        const items = await fetchMyProducts();
+        if (!cancelled) {
+          setMyProducts(items);
+          setProductsError("");
+        }
+      } catch (nextError) {
+        if (!cancelled) setProductsError(nextError instanceof Error ? nextError.message : "Không thể tải sản phẩm của bạn.");
+      } finally {
+        if (!cancelled) setProductsLoading(false);
+      }
+    }
+
     void loadOrders();
+    void loadMyProducts();
     return () => {
       cancelled = true;
     };
@@ -182,17 +216,28 @@ export default function StoreProfilePage() {
     const totalOrders = orders.length;
     const totalSpend = orders.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
     const totalItems = orders.reduce((sum, order) => sum + order.items.reduce((inner, item) => inner + Number(item.quantity ?? 0), 0), 0);
-    const lastOrder = orders[0] ?? null;
-
     return {
       totalOrders,
       totalSpend,
-      totalItems,
-      lastOrder
+      totalItems
     };
   }, [orders]);
 
-  const recentOrders = orders.slice(0, 4);
+  const profileListPageSize = 5;
+  const productTotalPages = Math.max(1, Math.ceil(myProducts.length / profileListPageSize));
+  const orderTotalPages = Math.max(1, Math.ceil(orders.length / profileListPageSize));
+  const safeProductsPage = Math.min(productsPage, productTotalPages);
+  const safeOrdersPage = Math.min(ordersPage, orderTotalPages);
+  const paginatedProducts = myProducts.slice((safeProductsPage - 1) * profileListPageSize, safeProductsPage * profileListPageSize);
+  const paginatedOrders = orders.slice((safeOrdersPage - 1) * profileListPageSize, safeOrdersPage * profileListPageSize);
+
+  useEffect(() => {
+    setProductsPage((page) => Math.min(page, productTotalPages));
+  }, [productTotalPages]);
+
+  useEffect(() => {
+    setOrdersPage((page) => Math.min(page, orderTotalPages));
+  }, [orderTotalPages]);
 
   async function uploadAvatar(file: File | undefined) {
     if (!file || !session) return;
@@ -267,8 +312,6 @@ export default function StoreProfilePage() {
   }
 
   const initials = makeInitials(session.name, session.email);
-  const memberSince = formatShortDate(new Date(session.expiresAt - 1000 * 60 * 60 * 24 * 30).toISOString());
-
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -351,50 +394,64 @@ export default function StoreProfilePage() {
                   <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Active and ready to place orders</p>
                 </div>
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
-                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Member Since</p>
-                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Current summary, updated until {memberSince}</p>
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Product Permissions</p>
+                  <p className={`mt-1 break-words text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>{session.permissions.length > 0 ? session.permissions.join(", ") : "No delegated product permissions"}</p>
                 </div>
               </div>
             </aside>
           </div>
         </section>
 
-        <section className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="mt-8 grid gap-4 md:grid-cols-3">
           <ProfileMetricCard label="Total Orders" value={String(stats.totalOrders)} tone="warm" isDark={isDark} />
           <ProfileMetricCard label="Total Spent" value={formatCurrency(stats.totalSpend)} tone="cool" isDark={isDark} />
           <ProfileMetricCard label="Total Products Purchased" value={String(stats.totalItems)} tone="neutral" isDark={isDark} />
-          <ProfileMetricCard label="Latest Order" value={stats.lastOrder ? formatShortDate(stats.lastOrder.createdAt) : "None"} tone="neutral" isDark={isDark} />
         </section>
 
-        <section className="mt-8 grid gap-6 lg:grid-cols-[0.92fr_1.08fr]">
-          <div className={`rounded-[1.75rem] border p-6 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.24)] ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Summary</p>
-            <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Account Profile</h2>
-            <div className="mt-6 grid gap-4">
-              <article className={`rounded-[1.5rem] border px-4 py-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Display Name</p>
-                <p className={`mt-2 text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{session.name}</p>
-              </article>
-              <article className={`rounded-[1.5rem] border px-4 py-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Email login</p>
-                <p className={`mt-2 text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{session.email}</p>
-              </article>
-              <article className={`rounded-[1.5rem] border px-4 py-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Current Role</p>
-                <p className={`mt-2 text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{session.role === "admin" ? "Administrator" : "Customer"}</p>
-              </article>
-              <article className={`rounded-[1.5rem] border px-4 py-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                <p className={`text-xs font-semibold uppercase tracking-[0.2em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Shopping Habits</p>
-                <p className={`mt-2 text-base leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-                  {stats.totalOrders >= 5
-                    ? "You have a fairly stable purchase frequency, making you a great candidate for tracking deals and updating orders directly in the storefront."
-                    : "You are in the initial stage, so this profile page prioritizes displaying concise, easy-to-read information and encourages quick return visits for shopping."}
-                </p>
-              </article>
+        <section className="mt-8 grid gap-6 lg:grid-cols-2">
+        <section id="my-products" className={`scroll-mt-28 rounded-[1.75rem] border p-6 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.24)] ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">My Products</p>
+              <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Your Products</h2>
+              <p className={`mt-2 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>This list is filtered by the owner of the current account.</p>
             </div>
+            {session.role === "admin" || session.permissions.includes("products:create") ? (
+            <Link href="/store/products?add=1" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">+ Add Product</Link>
+            ) : null}
           </div>
 
-          <div className={`rounded-[1.75rem] border p-6 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.24)] ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
+          {productsLoading ? (
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 3 }).map((_, index) => <div key={index} className={`h-48 animate-pulse rounded-3xl ${isDark ? "bg-white/10" : "bg-slate-100"}`} />)}</div>
+          ) : productsError ? (
+            <p role="alert" className="mt-6 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{productsError}</p>
+          ) : myProducts.length === 0 ? (
+            <div className={`mt-6 rounded-3xl border border-dashed px-6 py-10 text-center ${isDark ? "border-white/10 text-slate-300" : "border-slate-200 text-slate-600"}`}>
+              <p>Bạn chưa tạo sản phẩm nào.</p>
+              {session.role === "admin" || session.permissions.includes("products:create") ? <Link href="/store/products?add=1" className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">Tạo sản phẩm đầu tiên</Link> : null}
+            </div>
+          ) : (<>
+            <div className="mt-6 grid gap-3">
+              {paginatedProducts.map((item) => {
+                const storefrontProduct = toStoreProduct(item);
+                return (
+                  <article key={item.id} className={`flex items-center gap-3 rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
+                    <img src={storefrontProduct.imageUrl} alt={item.name} className="h-16 w-16 shrink-0 rounded-xl object-cover" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-orange-500">{item.category}</p>
+                      <h3 className={`truncate text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{item.name}</h3>
+                      <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>Stock {item.stock} · {formatCurrency(item.price)}</p>
+                    </div>
+                    <Link href={`/store/products/${storefrontProduct.slug}`} className="shrink-0 rounded-full bg-slate-950 px-3 py-2 text-xs font-semibold text-white">View</Link>
+                  </article>
+                );
+              })}
+            </div>
+            <CompactPagination page={safeProductsPage} totalPages={productTotalPages} onPageChange={setProductsPage} isDark={isDark} />
+          </>)}
+        </section>
+
+        <section className={`rounded-[1.75rem] border p-6 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.24)] ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Recent Orders</p>
@@ -414,28 +471,27 @@ export default function StoreProfilePage() {
               <div className={`mt-6 rounded-[1.5rem] border px-4 py-4 text-sm ${isDark ? "border-rose-500/20 bg-rose-500/10 text-rose-200" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
                 {error}
               </div>
-            ) : recentOrders.length === 0 ? (
+            ) : paginatedOrders.length === 0 ? (
               <div
                 className={`mt-6 rounded-[1.5rem] border border-dashed px-4 py-8 text-sm ${
                   isDark ? "border-white/10 bg-white/5 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-500"
                 }`}
               >
-                You haven't placed any orders yet as of August 18, 2026. Try purchasing a few products to make this profile more dynamic.
+                You have not placed any orders yet.
               </div>
-            ) : (
-              <div className="mt-6 grid gap-4">
-                {recentOrders.map((order) => (
+            ) : (<>
+              <div className="mt-6 grid gap-3">
+                {paginatedOrders.map((order) => (
                   <article
                     key={order.id}
-                    className={`rounded-[1.5rem] border px-4 py-4 ${
+                    className={`rounded-2xl border px-3 py-3 ${
                       isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"
                     }`}
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-500">Order ID {order.id.slice(0, 8)}</p>
-                        <h3 className={`mt-2 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{order.items.length} product lines</h3>
-                        <p className={`mt-1 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Created at {formatDateTime(order.createdAt)}</p>
+                        <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>{order.items.length} items · {formatDateTime(order.createdAt)}</p>
                       </div>
                       <div className="text-right">
                         <p className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{formatCurrency(order.totalAmount)}</p>
@@ -445,8 +501,9 @@ export default function StoreProfilePage() {
                   </article>
                 ))}
               </div>
-            )}
-          </div>
+              <CompactPagination page={safeOrdersPage} totalPages={orderTotalPages} onPageChange={setOrdersPage} isDark={isDark} />
+            </>)}
+          </section>
         </section>
       </div>
     </main>

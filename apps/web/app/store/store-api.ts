@@ -2,7 +2,7 @@
 
 import { authenticatedFetch } from "../lib/cognito-auth";
 import { storeCategories } from "./store-data";
-import type { StoreOrder, StoreProduct } from "./store-types";
+import type { ManagedProduct, StoreOrder, StoreProduct } from "./store-types";
 
 type StorefrontApiItem = {
   id: string;
@@ -194,4 +194,19 @@ export async function fetchMyOrders() {
       updatedAt: item.updatedAt
     }];
   });
+}
+
+export async function fetchMyProducts() {
+  const response = await authenticatedFetch(`${publicApiBaseUrl}/api/shopping-items/mine`, {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(payload?.message || "Không thể tải sản phẩm của bạn.");
+  }
+
+  const payload = await response.json() as { items?: ManagedProduct[] };
+  return payload.items ?? [];
 }

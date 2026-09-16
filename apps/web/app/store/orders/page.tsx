@@ -236,49 +236,35 @@ export default function StoreOrdersPage() {
               </p>
             </div>
 
-            <div className="grid gap-5">
+            <div className="grid gap-4 lg:grid-cols-2">
               {paginatedOrders.map((order) => (
                 <article
                   key={order.id}
-                  className={`rounded-[1.75rem] border p-5 shadow-[0_20px_60px_-42px_rgba(15,23,42,0.25)] ${
+                  className={`rounded-3xl border p-4 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.25)] ${
                     isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"
                   }`}
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
                       <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500"> Order Id: {order.id.slice(0, 8)}</p>
-                      <h2 className={`mt-3 text-2xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>
+                      <h2 className={`mt-2 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>
                         {order.items.length} product lines
                       </h2>
-                      <p className={`mt-2 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+                      <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                         Order at {formatDateTime(order.createdAt)}
                       </p>
                     </div>
-                    <div className="text-right">
+                    <div className="shrink-0 text-right">
                       <StatusBadge status={order.status} isDark={isDark} />
-                      <p className={`mt-3 text-2xl font-bold ${isDark ? "text-white" : "text-slate-950"}`}>
+                      <p className={`mt-2 text-lg font-bold ${isDark ? "text-white" : "text-slate-950"}`}>
                         {formatCurrency(order.totalAmount)}
                       </p>
                     </div>
                   </div>
 
-                  <div className="mt-5 grid gap-3">
-                    {order.items.map((item) => (
-                      <div
-                        key={`${order.id}-${item.productId}`}
-                        className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3 ${
-                          isDark ? "bg-white/5" : "bg-slate-50"
-                        }`}
-                      >
-                        <div>
-                          <p className={`font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{item.productName}</p>
-                          <p className={`mt-1 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                            SL {item.quantity} x {formatCurrency(item.price)}
-                          </p>
-                        </div>
-                        <strong className={isDark ? "text-white" : "text-slate-950"}>{formatCurrency(item.lineTotal)}</strong>
-                      </div>
-                    ))}
+                  <div className={`mt-3 truncate rounded-xl px-3 py-2 text-xs ${isDark ? "bg-white/5 text-slate-300" : "bg-slate-50 text-slate-600"}`}>
+                    {order.items.slice(0, 2).map((item) => `${item.productName} × ${item.quantity}`).join(" · ")}
+                    {order.items.length > 2 ? ` · +${order.items.length - 2} more` : ""}
                   </div>
                 </article>
               ))}

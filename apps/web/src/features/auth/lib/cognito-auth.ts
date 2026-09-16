@@ -236,7 +236,9 @@ export function readAuthSession() {
       window.localStorage.removeItem(sessionStorageKey);
       return null;
     }
-    session.permissions = readPermissions(session.permissions ?? decodeJwtPayload<JwtPayload>(session.accessToken).permissions);
+    // The access token is the source of truth. A cached `permissions: []` from
+    // an older token must not hide permissions added by the pre-token trigger.
+    session.permissions = readPermissions(decodeJwtPayload<JwtPayload>(session.accessToken).permissions);
 
     if (session.refreshExpiresAt && Date.now() >= session.refreshExpiresAt) {
       window.localStorage.removeItem(sessionStorageKey);
@@ -287,7 +289,7 @@ function readStoredSession() {
   if (!raw) return null;
   try {
     const session = JSON.parse(raw) as AuthSession;
-    session.permissions = readPermissions(session.permissions ?? decodeJwtPayload<JwtPayload>(session.accessToken).permissions);
+    session.permissions = readPermissions(decodeJwtPayload<JwtPayload>(session.accessToken).permissions);
     return session;
   } catch {
     window.localStorage.removeItem(sessionStorageKey);
@@ -456,7 +458,7 @@ export function signOutFromCognitoHostedUi() {
 export function resolvePostLoginRoute(session: Pick<AuthSession, "role" | "permissions">, redirectPath?: string | null) {
   const normalizedRedirect = String(redirectPath ?? "").trim();
 
-  if (session.role === "admin" || session.permissions.length > 0) {
+  if (session.role === "admin") {
     return normalizedRedirect.startsWith("/admin") ? normalizedRedirect : "/admin";
   }
 

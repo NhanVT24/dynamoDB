@@ -498,13 +498,13 @@ export default function Home() {
       return;
     }
 
-    if (session.role !== "admin" && session.permissions.length === 0) {
+    if (session.role !== "admin") {
       setMessage(`The account ${session.email} has the role ${session.role}. To access the admin panel, please log in with a user from the admin group.`);
     }
   }, [ready, router, session]);
 
   useEffect(() => {
-    if (!ready || !session || session.role === "admin" || session.permissions.length > 0) {
+    if (!ready || !session || session.role === "admin") {
       return;
     }
 
@@ -721,7 +721,7 @@ export default function Home() {
   }
 
   const singleActionMode = authMode === "register" || authMode === "confirm" || authMode === "forgot" || authMode === "reset";
-  const hasProductWorkspaceAccess = Boolean(session && (session.role === "admin" || session.permissions.length > 0));
+  const hasProductWorkspaceAccess = session?.role === "admin";
   const showAdminLoginScreen = !hasProductWorkspaceAccess;
 
   return (

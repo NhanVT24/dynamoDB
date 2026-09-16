@@ -4,7 +4,9 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
+import { authSessionChangedEvent, readAuthSession } from "../../lib/cognito-auth";
 import { fetchStorefrontProducts } from "../store-api";
+import ProductEditor from "./product-editor";
 import { storeCategories } from "../store-data";
 import type { StoreProduct } from "../store-types";
 import { formatCurrency } from "../store-utils";
@@ -232,12 +234,31 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [session, setSession] = useState<ReturnType<typeof readAuthSession>>(null);
+  const [isProductFormOpen, setIsProductFormOpen] = useState(false);
   const activeCategory = toCategoryId(category);
   const activeSort: SortMode =
     sort === "oldest" || sort === "price-asc" || sort === "price-desc" || sort === "best-seller"
       ? sort
       : "newest";
   const itemsPerPage = 8;
+
+  useEffect(() => {
+    const syncSession = () => setSession(readAuthSession());
+    syncSession();
+    window.addEventListener(authSessionChangedEvent, syncSession);
+    return () => window.removeEventListener(authSessionChangedEvent, syncSession);
+  }, []);
+
+  useEffect(() => {
+    if (
+      searchParams.get("add") === "1"
+      && session
+      && (session.role === "admin" || session.permissions.includes("products:create"))
+    ) {
+      setIsProductFormOpen(true);
+    }
+  }, [searchParams, session]);
 
   useEffect(() => {
     let cancelled = false;
@@ -326,6 +347,19 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
     router.replace(draft.size > 0 ? `${pathname}?${draft.toString()}` : pathname, { scroll: false });
   }
 
+  function handleProductCreated() {
+    closeProductForm();
+    setRefreshVersion((current) => current + 1);
+  }
+
+  function closeProductForm() {
+    setIsProductFormOpen(false);
+    if (searchParams.get("add") !== "1") return;
+    const draft = new URLSearchParams(searchParams.toString());
+    draft.delete("add");
+    router.replace(draft.size > 0 ? `${pathname}?${draft.toString()}` : pathname, { scroll: false });
+  }
+
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage));
   const safePage = Math.min(page, totalPages);
   const paginatedProducts = filteredProducts.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
@@ -334,11 +368,22 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
   return (
     <section className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <SectionTitle
-          title="Products Store"
-          description="Explore our wide range of products, from the latest gadgets to everyday essentials. Use the filters below to find exactly what you're looking for."
-        />
-        <div className={`mt-8 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+          <div className="relative">
+            <SectionTitle
+              title="Products Store"
+              description="Explore our wide range of products, from the latest gadgets to everyday essentials. Use the filters below to find exactly what you're looking for."
+            />
+          </div>
+          <div className="relative shrink-0 self-end">
+            {session && (session.role === "admin" || session.permissions.includes("products:create")) ? (
+              <button type="button" onClick={() => setIsProductFormOpen(true)} className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_-12px_rgba(239,68,68,0.8)]">
+                + Add Product
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div className={`mt-4 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
           <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr_1fr]">
             <label className="flex flex-col gap-2">
               <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Search Products</span>
@@ -451,6 +496,13 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
           </div>
         ) : null}
       </div>
+      {isProductFormOpen && session ? (
+        <div role="dialog" aria-modal="true" aria-label="Add product" onMouseDown={(event) => { if (event.target === event.currentTarget) closeProductForm(); }} className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 px-4 py-8 backdrop-blur-sm sm:px-6">
+          <div className="mx-auto max-w-5xl">
+            <ProductEditor session={session} onSaved={handleProductCreated} onCancel={closeProductForm} />
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

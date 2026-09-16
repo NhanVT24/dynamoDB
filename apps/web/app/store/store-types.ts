@@ -33,6 +33,27 @@ export type StoreProduct = {
   specs: string[];
 };
 
+export type ManagedProduct = {
+  id: string;
+  name: string;
+  brand?: string;
+  category: string;
+  sku?: string;
+  stock: number;
+  price: number;
+  originalPrice?: number;
+  imageUrl?: string;
+  location?: string;
+  description?: string;
+  rating?: number;
+  soldCount?: number;
+  featured?: boolean;
+  ownerSub?: string;
+  version: number;
+  updatedAt?: string;
+  createdAt?: string;
+};
+
 export type CartItem = {
   productId: string;
   productName: string;
