@@ -524,6 +524,7 @@ export class AwsApiStack extends Stack {
       },
       lambdaTriggers: {
         preSignUp: triggerPreSignUpFunction,
+        preAuthentication: cognitoTriggerFunction,
         postConfirmation: cognitoTriggerFunction
       }
     });

@@ -1,8 +1,16 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { CognitoIdentityProviderClient, ListUsersCommand, type AttributeType } from "@aws-sdk/client-cognito-identity-provider";
 import { env } from "../../config/env.js";
 import type { ProductPermission } from "../../common/auth/permissions.js";
-import { addUserPermission, getUserPermissions, removeUserPermission } from "./authorization.repository.js";
+import {
+  addUserPermission,
+  getUserAccountStatus,
+  getUserPermissions,
+  normalizeUserAccountStatus,
+  removeUserPermission,
+  updateUserAccountStatus,
+  type UserAccountStatus
+} from "./authorization.repository.js";
 
 const cognito = new CognitoIdentityProviderClient({ region: env.AWS_REGION });
 
@@ -16,6 +24,7 @@ export class AuthorizationService {
     const users = await this.listCognitoUsers();
     return Promise.all(users.map(async (user) => ({
       ...user,
+      accountStatus: await getUserAccountStatus(user.subject),
       permissions: await getUserPermissions(user.subject)
     })));
   }
@@ -45,6 +54,15 @@ export class AuthorizationService {
   async removePermission(subject: string, permission: ProductPermission, actorSubject: string) {
     await this.assertUserExists(subject);
     return { subject, permissions: await removeUserPermission(subject, permission, actorSubject) };
+  }
+
+  async updateAccountStatus(subject: string, status: UserAccountStatus, actorSubject: string) {
+    await this.assertUserExists(subject);
+    const normalizedStatus = normalizeUserAccountStatus(status);
+    if (subject === actorSubject && normalizedStatus !== "ACTIVE") {
+      throw new BadRequestException("You cannot block your own account.");
+    }
+    return { subject, accountStatus: await updateUserAccountStatus(subject, normalizedStatus, actorSubject) };
   }
 
   private async assertUserExists(subject: string) {

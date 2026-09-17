@@ -8,14 +8,30 @@ type ManagedUser = {
   username: string;
   email: string;
   displayName: string;
+  accountStatus: AccountStatus;
   permissions: ProductPermission[];
 };
+
+type AccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
 
 const permissionOptions: Array<{ code: ProductPermission; label: string; description: string }> = [
   { code: "products:create", label: "Thêm sản phẩm", description: "Được tạo sản phẩm mới và trở thành owner của sản phẩm đó." },
   { code: "products:update-own", label: "Sửa sản phẩm của mình", description: "Chỉ sửa sản phẩm có ownerSub trùng với tài khoản." },
   { code: "products:delete-own", label: "Xóa sản phẩm của mình", description: "Chỉ xóa sản phẩm do chính tài khoản tạo." }
 ];
+
+const statusOptions: Array<{ value: AccountStatus; label: string; description: string }> = [
+  { value: "ACTIVE", label: "Active", description: "User can sign in normally." },
+  { value: "SUSPENDED", label: "Suspended", description: "Temporarily blocked from sign-in." },
+  { value: "DISABLED", label: "Disabled", description: "Blocked until an admin reactivates the account." },
+  { value: "BLOCKED", label: "Blocked", description: "Blocked for security or abuse reasons." }
+];
+
+function statusTone(status: AccountStatus) {
+  if (status === "ACTIVE") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "SUSPENDED") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-rose-200 bg-rose-50 text-rose-700";
+}
 
 export default function UserPermissionManager() {
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -63,6 +79,35 @@ export default function UserPermissionManager() {
     }
   }
 
+  async function updateStatus(user: ManagedUser, status: AccountStatus) {
+    const operationKey = `${user.subject}:status`;
+    setUpdating(operationKey);
+    setMessage("");
+    try {
+      const response = await authenticatedFetch(
+        `/api/lambda-proxy/api/admin/authorizations/users/${encodeURIComponent(user.subject)}/status`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status })
+        }
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { message?: string } | null;
+        throw new Error(payload?.message || "Could not update account status.");
+      }
+      const payload = await response.json() as { accountStatus: AccountStatus };
+      setUsers((current) => current.map((item) => item.subject === user.subject
+        ? { ...item, accountStatus: payload.accountStatus }
+        : item));
+      setMessage(`Updated account status for ${user.email} to ${payload.accountStatus}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update account status.");
+    } finally {
+      setUpdating("");
+    }
+  }
+
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -80,9 +125,34 @@ export default function UserPermissionManager() {
       <div className="mt-6 grid gap-4">
         {users.map((user) => (
           <article key={user.subject} className="rounded-2xl border border-slate-200 p-4">
-            <div>
-              <h3 className="font-bold text-slate-900">{user.displayName || user.email}</h3>
-              <p className="text-sm text-slate-500">{user.email}</p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-slate-900">{user.displayName || user.email}</h3>
+                <p className="text-sm text-slate-500">{user.email}</p>
+              </div>
+              <div className="grid gap-2 sm:min-w-56">
+                <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${statusTone(user.accountStatus)}`}>
+                  {user.accountStatus}
+                </span>
+                <label className="grid gap-1 text-xs font-semibold text-slate-600">
+                  Account status
+                  <select
+                    value={user.accountStatus}
+                    disabled={Boolean(updating)}
+                    onChange={(event) => void updateStatus(user, event.target.value as AccountStatus)}
+                    className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:opacity-60"
+                  >
+                    {statusOptions.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                  <span className="text-[11px] font-normal leading-4 text-slate-500">
+                    {updating === `${user.subject}:status`
+                      ? "Saving account status..."
+                      : statusOptions.find((option) => option.value === user.accountStatus)?.description}
+                  </span>
+                </label>
+              </div>
             </div>
             <div className="mt-4 grid gap-3 lg:grid-cols-3">
               {permissionOptions.map((option) => {
@@ -111,4 +181,3 @@ export default function UserPermissionManager() {
     </section>
   );
 }
-

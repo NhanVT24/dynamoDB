@@ -6,6 +6,13 @@ import { keys } from "../../database/dynamodb/keys.js";
 import { normalizePermissions, type ProductPermission } from "../../common/auth/permissions.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
+export type UserAccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
+const accountStatuses = new Set<UserAccountStatus>(["ACTIVE", "SUSPENDED", "DISABLED", "BLOCKED"]);
+
+export function normalizeUserAccountStatus(status: unknown): UserAccountStatus {
+  const normalized = String(status || "").trim().toUpperCase();
+  return accountStatuses.has(normalized as UserAccountStatus) ? normalized as UserAccountStatus : "ACTIVE";
+}
 
 export async function getUserPermissions(subject: string): Promise<ProductPermission[]> {
   const result = await rawDb.send(new GetItemCommand({
@@ -19,6 +26,46 @@ export async function getUserPermissions(subject: string): Promise<ProductPermis
   }));
 
   return result.Item ? normalizePermissions(unmarshall(result.Item).permissions) : [];
+}
+
+export async function getUserAccountStatus(subject: string): Promise<UserAccountStatus> {
+  const result = await rawDb.send(new GetItemCommand({
+    TableName,
+    Key: marshall(keys.userProfile(subject)),
+    ConsistentRead: true,
+    ProjectionExpression: "#status",
+    ExpressionAttributeNames: {
+      "#status": "status"
+    }
+  }));
+
+  return normalizeUserAccountStatus(result.Item ? unmarshall(result.Item).status : undefined);
+}
+
+export async function updateUserAccountStatus(subject: string, status: UserAccountStatus, updatedBy: string) {
+  const now = new Date().toISOString();
+  await rawDb.send(new UpdateItemCommand({
+    TableName,
+    Key: marshall(keys.userProfile(subject)),
+    UpdateExpression: "SET #entityType = if_not_exists(#entityType, :entityType), #subject = if_not_exists(#subject, :subject), #status = :status, #updatedAt = :updatedAt, #statusUpdatedAt = :updatedAt, #statusUpdatedBy = :updatedBy",
+    ExpressionAttributeNames: {
+      "#entityType": "entityType",
+      "#subject": "subject",
+      "#status": "status",
+      "#updatedAt": "updatedAt",
+      "#statusUpdatedAt": "statusUpdatedAt",
+      "#statusUpdatedBy": "statusUpdatedBy"
+    },
+    ExpressionAttributeValues: marshall({
+      ":entityType": "USER_PROFILE",
+      ":subject": subject,
+      ":status": status,
+      ":updatedAt": now,
+      ":updatedBy": updatedBy
+    })
+  }));
+
+  return getUserAccountStatus(subject);
 }
 
 export async function addUserPermission(subject: string, permission: ProductPermission, updatedBy: string) {
