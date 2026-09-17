@@ -405,193 +405,18 @@ export class AwsApiStack extends Stack {
       retentionDays: 30
     });
 
+    const sharedLambdaCode = lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip"));
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
       functionName: "supermarket-cognito-trigger",
       runtime: lambda.Runtime.NODEJS_24_X,
       architecture: lambda.Architecture.X86_64,
-      handler: "index.handler",
+      handler: "src/lambda/handlers/cognito-trigger.handler",
       timeout: Duration.seconds(10),
       memorySize: 256,
       environment: {
         DYNAMODB_TABLE_NAME: dynamoTableName.valueAsString
       },
-      code: lambda.Code.fromInline(`
-const {
-  CognitoIdentityProviderClient,
-  ListUsersCommand,
-  AdminAddUserToGroupCommand,
-  AdminLinkProviderForUserCommand,
-  AdminListGroupsForUserCommand,
-  AdminGetUserCommand
-} = require("@aws-sdk/client-cognito-identity-provider");
-const { DynamoDBClient, GetItemCommand } = require("@aws-sdk/client-dynamodb");
-
-const client = new CognitoIdentityProviderClient({});
-const dynamo = new DynamoDBClient({});
-
-function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
-}
-
-function getAttribute(attributes, name) {
-  return (attributes || []).find((attribute) => attribute.Name === name)?.Value || "";
-}
-
-function parseProviderUserName(userName) {
-  const [providerName, ...rest] = String(userName || "").split("_");
-  return {
-    providerName,
-    providerUserId: rest.join("_")
-  };
-}
-
-async function findExistingUserByEmail(userPoolId, email) {
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) return null;
-
-  const response = await client.send(new ListUsersCommand({
-    UserPoolId: userPoolId,
-    Filter: \`email = "\${normalizedEmail.replace(/"/g, '\\\\"')}"\`,
-    Limit: 10
-  }));
-
-  const users = response.Users || [];
-  return users.find((user) => String(user.Username || "").toLowerCase() !== "") || null;
-}
-
-async function handlePreSignUp(event) {
-  if (event.triggerSource !== "PreSignUp_ExternalProvider") {
-    return event;
-  }
-
-  const email = normalizeEmail(event.request.userAttributes.email);
-  const { providerName, providerUserId } = parseProviderUserName(event.userName);
-
-  if (!email || !providerName || !providerUserId) {
-    event.response.autoConfirmUser = true;
-    event.response.autoVerifyEmail = true;
-    return event;
-  }
-
-  const existingUser = await findExistingUserByEmail(event.userPoolId, email);
-
-  if (existingUser && !String(existingUser.Username || "").startsWith(providerName + "_")) {
-    await client.send(new AdminLinkProviderForUserCommand({
-      UserPoolId: event.userPoolId,
-      DestinationUser: {
-        ProviderName: "Cognito",
-        ProviderAttributeValue: existingUser.Username
-      },
-      SourceUser: {
-        ProviderName: providerName,
-        ProviderAttributeName: "Cognito_Subject",
-        ProviderAttributeValue: providerUserId
-      }
-    }));
-  }
-
-  event.response.autoConfirmUser = true;
-  event.response.autoVerifyEmail = true;
-  return event;
-}
-
-async function handleTokenGeneration(event) {
-  const user = await client.send(new AdminGetUserCommand({
-    UserPoolId: event.userPoolId,
-    Username: event.userName
-  }));
-
-  const groupsResponse = await client.send(new AdminListGroupsForUserCommand({
-    UserPoolId: event.userPoolId,
-    Username: event.userName
-  }));
-
-  const groups = (groupsResponse.Groups || []).map((group) => String(group.GroupName || "").toLowerCase());
-  const role = groups.includes("admin") ? "admin" : groups.includes("customer") ? "customer" : "customer";
-  const email = normalizeEmail(getAttribute(user.UserAttributes, "email"));
-  const displayName = getAttribute(user.UserAttributes, "name") || email || "Cognito User";
-  const identitiesRaw = getAttribute(user.UserAttributes, "identities");
-  const subject = getAttribute(user.UserAttributes, "sub");
-  const authorization = subject ? await dynamo.send(new GetItemCommand({
-    TableName: process.env.DYNAMODB_TABLE_NAME,
-    Key: {
-      PK: { S: "USER#" + subject },
-      SK: { S: "AUTHORIZATION" }
-    },
-    ConsistentRead: true,
-    ProjectionExpression: "#permissions",
-    ExpressionAttributeNames: {
-      "#permissions": "permissions"
-    }
-  })) : {};
-  const permissions = authorization.Item?.permissions?.SS || [];
-
-  let authProvider = "COGNITO";
-  if (identitiesRaw) {
-    try {
-      const identities = JSON.parse(identitiesRaw);
-      authProvider = String(identities?.[0]?.providerName || "COGNITO").toUpperCase();
-    } catch {}
-  }
-
-  const identityClaims = {
-        role,
-        auth_provider: authProvider,
-        principal_email: email,
-        display_name: displayName
-  };
-
-  event.response = {
-    claimsAndScopeOverrideDetails: {
-      idTokenGeneration: {
-        claimsToAddOrOverride: identityClaims
-      },
-      accessTokenGeneration: {
-        claimsToAddOrOverride: {
-          ...identityClaims,
-          permissions
-        },
-        scopesToAdd: ["supermarket-api/access"]
-      },
-      groupOverrideDetails: {
-        groupsToOverride: groups.length > 0 ? groups : ["customer"]
-      }
-    }
-  };
-
-  return event;
-}
-
-async function handlePostConfirmation(event) {
-  if (event.triggerSource !== "PostConfirmation_ConfirmSignUp") {
-    return event;
-  }
-
-  await client.send(new AdminAddUserToGroupCommand({
-    UserPoolId: event.userPoolId,
-    Username: event.userName,
-    GroupName: "customer"
-  }));
-
-  return event;
-}
-
-exports.handler = async (event) => {
-  if (event.triggerSource === "PreSignUp_ExternalProvider") {
-    return handlePreSignUp(event);
-  }
-
-  if (event.triggerSource === "PostConfirmation_ConfirmSignUp") {
-    return handlePostConfirmation(event);
-  }
-
-  if (String(event.triggerSource || "").startsWith("TokenGeneration_")) {
-    return handleTokenGeneration(event);
-  }
-
-  return event;
-};
-      `),
+      code: sharedLambdaCode,
       initialPolicy: [
         new iam.PolicyStatement({
           actions: [
@@ -604,7 +429,7 @@ exports.handler = async (event) => {
           resources: ["*"]
         }),
         new iam.PolicyStatement({
-          actions: ["dynamodb:GetItem"],
+          actions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
           resources: [table.attrArn]
         })
       ]
@@ -616,6 +441,11 @@ exports.handler = async (event) => {
       featurePlan: cognito.FeaturePlan.ESSENTIALS,
       signInAliases: { email: true },
       autoVerify: { email: true },
+      email: cognito.UserPoolEmail.withSES({
+        fromEmail: sesFromEmail.valueAsString,
+        fromName: "Supermarket",
+        replyTo: sesFromEmail.valueAsString
+      }),
       mfa: cognito.Mfa.OFF,
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       removalPolicy: RemovalPolicy.DESTROY,
@@ -719,7 +549,6 @@ exports.handler = async (event) => {
       cognitoDomain: { domainPrefix: cognitoDomainPrefix.valueAsString }
     });
 
-    const sharedLambdaCode = lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip"));
     const adminAlertsTopic = new sns.Topic(this, "AdminAlertsTopic", {
       topicName: "supermarket-admin-alerts",
       displayName: "Supermarket Admin Alerts"

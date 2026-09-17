@@ -15,5 +15,11 @@ export const keys = {
       PK: `USER#${String(subject).trim()}`,
       SK: "AUTHORIZATION"
     };
+  },
+  userProfile(subject: string) {
+    return {
+      PK: `USER#${String(subject).trim()}`,
+      SK: "PROFILE"
+    };
   }
 };
