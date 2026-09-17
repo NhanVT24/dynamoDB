@@ -23,6 +23,7 @@ type RecipientType = "to" | "cc" | "bcc";
 type SharedRecipient = { email: string; type: RecipientType };
 
 export type SharedEmailInput = {
+  emailId?: string;
   emailType: EmailType;
   senderEmail: string;
   subject: string;
@@ -108,10 +109,20 @@ export async function sendSharedEmail(input: SharedEmailInput) {
     ...(input.bcc ?? []).map((email) => ({ email, type: "bcc" as const }))
   ]);
   if (recipients.length > maxRecipientsPerSend) throw new Error("A shared SES email may have at most 50 recipients.");
-  const { meta, recipients: records } = await createPendingEmailDeliveryBatch({
-    emailType: input.emailType, senderEmail: input.senderEmail, subject: input.subject,
-    recipients: recipients.map(({ email, type }) => ({ email, type })), relatedId: input.relatedId, html: input.html, text: input.text
-  });
+  let created: Awaited<ReturnType<typeof createPendingEmailDeliveryBatch>>;
+  try {
+    created = await createPendingEmailDeliveryBatch({
+      emailType: input.emailType, senderEmail: input.senderEmail, subject: input.subject,
+      recipients: recipients.map(({ email, type }) => ({ email, type })), relatedId: input.relatedId, emailId: input.emailId, html: input.html, text: input.text
+    });
+  } catch (error) {
+    if (input.emailId && (error as { name?: string } | undefined)?.name === "TransactionCanceledException") {
+      return { emailId: input.emailId, status: "already_processed" as const, skipped: [] };
+    }
+    throw error;
+  }
+
+  const { meta, recipients: records } = created;
 
   let allowed: Array<{ recipient: SharedRecipient; record: typeof records[number]; allowed: boolean }>;
   try {

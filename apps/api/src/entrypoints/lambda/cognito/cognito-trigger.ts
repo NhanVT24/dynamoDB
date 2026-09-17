@@ -1,14 +1,12 @@
 import {
-  AdminAddUserToGroupCommand,
   AdminGetUserCommand,
   AdminListGroupsForUserCommand,
-  CognitoIdentityProviderClient,
-  type AttributeType
+  CognitoIdentityProviderClient
 } from "@aws-sdk/client-cognito-identity-provider";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 import type { CognitoTriggerEvent } from "./types.js";
 import { getAttribute, normalizeEmail, resolveAuthProvider } from "./helper/attributes.js";
-import { syncUserProfile } from "./helper/profile.js";
+import { TriggerPostConfirmation } from "./triggers/post-confirmation.js";
 
 const client = new CognitoIdentityProviderClient({});
 const dynamo = new DynamoDBClient({});
@@ -29,8 +27,6 @@ async function handleTokenGeneration(event: CognitoTriggerEvent) {
   const email = normalizeEmail(getAttribute(user.UserAttributes, "email"));
   const displayName = getAttribute(user.UserAttributes, "name") || email || "Cognito User";
   const subject = getAttribute(user.UserAttributes, "sub");
-
-  await syncUserProfile(dynamo, event, user);
 
   const permissions = subject
     ? (await dynamo.send(new GetItemCommand({
@@ -77,29 +73,9 @@ async function handleTokenGeneration(event: CognitoTriggerEvent) {
   return event;
 }
 
-async function handlePostConfirmation(event: CognitoTriggerEvent) {
-  if (event.triggerSource !== "PostConfirmation_ConfirmSignUp") {
-    return event;
-  }
-
-  await client.send(new AdminAddUserToGroupCommand({
-    UserPoolId: event.userPoolId,
-    Username: event.userName,
-    GroupName: "customer"
-  }));
-
-  await syncUserProfile(dynamo, event, {
-    Username: event.userName,
-    UserStatus: "CONFIRMED",
-    UserAttributes: Object.entries(event.request.userAttributes ?? {}).map(([Name, Value]) => ({ Name, Value }) satisfies AttributeType)
-  });
-
-  return event;
-}
-
 export const handler = async (event: CognitoTriggerEvent) => {
   if (event.triggerSource === "PostConfirmation_ConfirmSignUp") {
-    return handlePostConfirmation(event);
+    return TriggerPostConfirmation(dynamo, event);
   }
 
   if (String(event.triggerSource || "").startsWith("TokenGeneration_")) {

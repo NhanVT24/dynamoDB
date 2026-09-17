@@ -472,7 +472,9 @@ export class AwsApiStack extends Stack {
       timeout: Duration.seconds(10),
       memorySize: 256,
       environment: {
-        DYNAMODB_TABLE_NAME: dynamoTableName.valueAsString
+        DYNAMODB_TABLE_NAME: dynamoTableName.valueAsString,
+        EVENTBRIDGE_DEFAULT_BUS_NAME: platformEventBus.eventBusName,
+        EVENTBRIDGE_PLATFORM_BUS_NAME: platformEventBus.eventBusName
       },
       code: sharedLambdaCode,
       initialPolicy: [
@@ -487,6 +489,10 @@ export class AwsApiStack extends Stack {
         new iam.PolicyStatement({
           actions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
           resources: [table.attrArn]
+        }),
+        new iam.PolicyStatement({
+          actions: ["events:PutEvents"],
+          resources: [platformEventBus.eventBusArn]
         })
       ]
     });
@@ -1522,6 +1528,21 @@ export class AwsApiStack extends Stack {
           deadLetterQueue: emailRouteTrackerDlq,
           retryAttempts: 2,
           maxEventAge: Duration.hours(1)
+        })
+      ]
+    });
+
+    new events.Rule(this, "PlatformAccountWelcomeEmailRule", {
+      eventBus: platformEventBus,
+      ruleName: "supermarket-platform-account-welcome-email-rule",
+      eventPattern: {
+        source: ["supermarket.email"],
+        detailType: ["email.account_welcome.requested"]
+      },
+      targets: [
+        new eventsTargets.SqsQueue(emailJobsQueue, {
+          deadLetterQueue: emailEventBridgeDeliveryDlq,
+          retryAttempts: 2
         })
       ]
     });

@@ -8,7 +8,7 @@ import { rawDb } from "../../database/dynamodb/client.js";
 const TableName = env.DYNAMODB_TABLE_NAME;
 
 export type EmailDeliveryStatus = "pending" | "accepted" | "delivered" | "bounced" | "complained" | "rejected" | "delivery_delayed" | "failed" | "not_sent" | "unknown";
-export type EmailType = "inventory_daily_report" | "order_confirmation" | "payment_failure" | "order_failure" | "sale_campaign";
+export type EmailType = "inventory_daily_report" | "order_confirmation" | "payment_failure" | "order_failure" | "sale_campaign" | "account_welcome";
 
 export type EmailDeliveryMeta = {
   PK: string; SK: "META"; entityType: "EMAIL"; id: string; emailType: EmailType;

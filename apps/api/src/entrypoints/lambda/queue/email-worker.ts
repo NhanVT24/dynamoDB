@@ -1,9 +1,10 @@
 import "reflect-metadata";
 import { z } from "zod";
 import { sendBulkSaleEmailBatch } from "../../../integrations/ses/bulk-mailer.js";
+import { sendWelcomeEmail } from "../../../integrations/ses/welcome-mailer.js";
 import { markEmailRouteProcessing } from "../../../modules/email-deliveries/email-route.repository.js";
 
-const emailJobSchema = z.object({
+const saleCampaignEmailJobSchema = z.object({
   type: z.literal("email.sale_campaign.requested"),
   campaignId: z.string().min(1),
   emailJobId: z.string().length(64),
@@ -15,6 +16,19 @@ const emailJobSchema = z.object({
   html: z.string().min(1).max(100_000),
   text: z.string().min(1).max(100_000)
 });
+
+const welcomeEmailJobSchema = z.object({
+  type: z.literal("email.account_welcome.requested"),
+  emailJobId: z.string().length(64),
+  userSub: z.string().min(1),
+  toEmail: z.string().email(),
+  displayName: z.string().optional()
+});
+
+const emailJobSchema = z.discriminatedUnion("type", [
+  saleCampaignEmailJobSchema,
+  welcomeEmailJobSchema
+]);
 
 type SqsRecord = {
   body?: string;
@@ -78,6 +92,38 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
       const job = detailFromRecord(record);
       const testOnly = getTestOnlyDirective(record);
       const currentReceiveCount = receiveCount(record);
+
+      if (job.type === "email.account_welcome.requested") {
+        console.log(JSON.stringify({
+          flow: "account_welcome_email",
+          stage: "email_worker_started",
+          emailJobId: job.emailJobId,
+          userSub: job.userSub,
+          sqsMessageId: record.messageId ?? ""
+        }));
+
+        const result = await sendWelcomeEmail({
+          emailJobId: job.emailJobId,
+          userSub: job.userSub,
+          toEmail: job.toEmail,
+          displayName: job.displayName
+        });
+
+        console.log(JSON.stringify({
+          flow: "account_welcome_email",
+          stage: result.status === "already_processed"
+            ? "email_worker_deduplicated"
+            : result.status === "accepted"
+              ? "ses_accepted"
+              : result.status === "partial_sent"
+                ? "ses_partially_accepted"
+                : "ses_rejected",
+          emailJobId: result.emailId,
+          status: result.status
+        }));
+        continue;
+      }
+
       const routeAdvanced = await markEmailRouteProcessing(job.emailJobId);
       console.log(JSON.stringify({
         flow: "email_campaign",
