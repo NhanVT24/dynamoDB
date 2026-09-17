@@ -729,6 +729,19 @@ function StorefrontAuthModal({
         : "border-rose-200 bg-rose-50 text-rose-700";
     }
 
+    const isSuccess =
+      lowered.includes("success") ||
+      lowered.includes("created") ||
+      lowered.includes("confirmed") ||
+      lowered.includes("sent") ||
+      lowered.includes("reset successfully");
+
+    if (isSuccess) {
+      return isDark
+        ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
+        : "border-emerald-200 bg-emerald-50 text-emerald-700";
+    }
+
     return isDark
       ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-100"
       : "border-cyan-200 bg-cyan-50 text-cyan-700";

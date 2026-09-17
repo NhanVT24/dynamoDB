@@ -554,6 +554,17 @@ export default function Home() {
       return "border-rose-200 bg-rose-50 text-rose-700";
     }
 
+    if (
+      lowered.includes("success") ||
+      lowered.includes("created") ||
+      lowered.includes("confirmed") ||
+      lowered.includes("sent") ||
+      lowered.includes("updated") ||
+      lowered.includes("reset successfully")
+    ) {
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    }
+
     return "border-cyan-200 bg-cyan-50 text-cyan-700";
   }
 
