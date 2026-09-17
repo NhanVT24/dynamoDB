@@ -708,6 +708,32 @@ function StorefrontAuthModal({
     reset: "Reset password"
   } as const;
 
+  function renderAuthMessageTone() {
+    const lowered = message.toLowerCase();
+    const isError =
+      lowered.includes("cannot") ||
+      lowered.includes("could not") ||
+      lowered.includes("failed") ||
+      lowered.includes("invalid") ||
+      lowered.includes("incorrect") ||
+      lowered.includes("expired") ||
+      lowered.includes("mismatch") ||
+      lowered.includes("does not") ||
+      lowered.includes("must") ||
+      lowered.includes("policy") ||
+      lowered.includes("error");
+
+    if (isError) {
+      return isDark
+        ? "border-rose-400/30 bg-rose-500/10 text-rose-100"
+        : "border-rose-200 bg-rose-50 text-rose-700";
+    }
+
+    return isDark
+      ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-100"
+      : "border-cyan-200 bg-cyan-50 text-cyan-700";
+  }
+
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center px-4">
       <button
@@ -731,7 +757,7 @@ function StorefrontAuthModal({
           </button>
         </div>
 
-        <p className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${isDark ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-100" : "border-cyan-200 bg-cyan-50 text-cyan-700"}`}>
+        <p className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${renderAuthMessageTone()}`}>
           {message}
         </p>
 

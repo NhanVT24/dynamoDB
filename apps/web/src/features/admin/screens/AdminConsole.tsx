@@ -538,10 +538,16 @@ export default function Home() {
 
     if (
       lowered.includes("failed") ||
+      lowered.includes("cannot") ||
+      lowered.includes("could not") ||
+      lowered.includes("invalid") ||
       lowered.includes("not") ||
       lowered.includes("incorrect") ||
       lowered.includes("expired") ||
       lowered.includes("mismatch") ||
+      lowered.includes("must") ||
+      lowered.includes("policy") ||
+      lowered.includes("error") ||
       lowered.includes("already registered") ||
       lowered.includes("does not belong to the admin group")
     ) {
