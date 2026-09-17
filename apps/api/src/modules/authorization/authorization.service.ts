@@ -6,6 +6,7 @@ import {
   addUserPermission,
   getUserAccountStatus,
   getUserPermissions,
+  getUserProfileSummary,
   normalizeUserAccountStatus,
   removeUserPermission,
   updateUserAccountStatus,
@@ -22,11 +23,17 @@ function attribute(attributes: AttributeType[] | undefined, name: string) {
 export class AuthorizationService {
   async listUsers() {
     const users = await this.listCognitoUsers();
-    return Promise.all(users.map(async (user) => ({
-      ...user,
-      accountStatus: await getUserAccountStatus(user.subject),
-      permissions: await getUserPermissions(user.subject)
-    })));
+    return Promise.all(users.map(async (user) => {
+      const [profile, permissions] = await Promise.all([
+        getUserProfileSummary(user.subject),
+        getUserPermissions(user.subject)
+      ]);
+      return {
+        ...user,
+        ...profile,
+        permissions
+      };
+    }));
   }
 
   private async listCognitoUsers() {

@@ -487,7 +487,7 @@ export class AwsApiStack extends Stack {
           resources: ["*"]
         }),
         new iam.PolicyStatement({
-          actions: ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+          actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"],
           resources: [table.attrArn]
         }),
         new iam.PolicyStatement({
@@ -525,6 +525,7 @@ export class AwsApiStack extends Stack {
       lambdaTriggers: {
         preSignUp: triggerPreSignUpFunction,
         preAuthentication: cognitoTriggerFunction,
+        postAuthentication: cognitoTriggerFunction,
         postConfirmation: cognitoTriggerFunction
       }
     });

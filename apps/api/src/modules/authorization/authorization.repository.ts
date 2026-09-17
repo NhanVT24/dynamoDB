@@ -42,6 +42,25 @@ export async function getUserAccountStatus(subject: string): Promise<UserAccount
   return normalizeUserAccountStatus(result.Item ? unmarshall(result.Item).status : undefined);
 }
 
+export async function getUserProfileSummary(subject: string): Promise<{ accountStatus: UserAccountStatus; lastLoginAt: string }> {
+  const result = await rawDb.send(new GetItemCommand({
+    TableName,
+    Key: marshall(keys.userProfile(subject)),
+    ConsistentRead: true,
+    ProjectionExpression: "#status, #lastLoginAt",
+    ExpressionAttributeNames: {
+      "#status": "status",
+      "#lastLoginAt": "lastLoginAt"
+    }
+  }));
+
+  const profile = result.Item ? unmarshall(result.Item) : {};
+  return {
+    accountStatus: normalizeUserAccountStatus(profile.status),
+    lastLoginAt: String(profile.lastLoginAt || "")
+  };
+}
+
 export async function updateUserAccountStatus(subject: string, status: UserAccountStatus, updatedBy: string) {
   const now = new Date().toISOString();
   await rawDb.send(new UpdateItemCommand({

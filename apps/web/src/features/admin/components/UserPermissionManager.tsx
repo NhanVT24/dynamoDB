@@ -9,6 +9,7 @@ type ManagedUser = {
   email: string;
   displayName: string;
   accountStatus: AccountStatus;
+  lastLoginAt: string;
   permissions: ProductPermission[];
 };
 
@@ -31,6 +32,16 @@ function statusTone(status: AccountStatus) {
   if (status === "ACTIVE") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "SUSPENDED") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-rose-200 bg-rose-50 text-rose-700";
+}
+
+function formatLastLogin(value: string) {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
 }
 
 export default function UserPermissionManager() {
@@ -129,6 +140,7 @@ export default function UserPermissionManager() {
               <div>
                 <h3 className="font-bold text-slate-900">{user.displayName || user.email}</h3>
                 <p className="text-sm text-slate-500">{user.email}</p>
+                <p className="mt-2 text-xs font-semibold text-slate-500">Last login: <span className="text-slate-800">{formatLastLogin(user.lastLoginAt)}</span></p>
               </div>
               <div className="grid gap-2 sm:min-w-56">
                 <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${statusTone(user.accountStatus)}`}>
