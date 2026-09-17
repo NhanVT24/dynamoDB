@@ -1,7 +1,4 @@
-export type CognitoAttribute = {
-  Name?: string;
-  Value?: string;
-};
+import type { CognitoAttribute } from "../types.js";
 
 export function normalizeEmail(email: unknown) {
   return String(email || "").trim().toLowerCase();

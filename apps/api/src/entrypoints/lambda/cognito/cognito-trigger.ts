@@ -1,78 +1,17 @@
 import {
   AdminAddUserToGroupCommand,
   AdminGetUserCommand,
-  AdminLinkProviderForUserCommand,
   AdminListGroupsForUserCommand,
   CognitoIdentityProviderClient,
-  ListUsersCommand,
   type AttributeType
 } from "@aws-sdk/client-cognito-identity-provider";
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
-import { getAttribute, normalizeEmail, parseProviderUserName, resolveAuthProvider } from "./attributes.js";
-import { syncUserProfile } from "./profile.js";
-
-type CognitoTriggerEvent = {
-  triggerSource?: string;
-  userPoolId: string;
-  userName: string;
-  request: {
-    userAttributes?: Record<string, string>;
-  };
-  response: Record<string, unknown>;
-};
+import type { CognitoTriggerEvent } from "./types.js";
+import { getAttribute, normalizeEmail, resolveAuthProvider } from "./helper/attributes.js";
+import { syncUserProfile } from "./helper/profile.js";
 
 const client = new CognitoIdentityProviderClient({});
 const dynamo = new DynamoDBClient({});
-
-async function findExistingUserByEmail(userPoolId: string, email: string) {
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) return null;
-
-  const response = await client.send(new ListUsersCommand({
-    UserPoolId: userPoolId,
-    Filter: `email = "${normalizedEmail.replace(/"/g, '\\"')}"`,
-    Limit: 10
-  }));
-
-  const users = response.Users ?? [];
-  return users.find((user) => String(user.Username || "").toLowerCase() !== "") ?? null;
-}
-
-async function handlePreSignUp(event: CognitoTriggerEvent) {
-  if (event.triggerSource !== "PreSignUp_ExternalProvider") {
-    return event;
-  }
-
-  const email = normalizeEmail(event.request.userAttributes?.email);
-  const { providerName, providerUserId } = parseProviderUserName(event.userName);
-
-  if (!email || !providerName || !providerUserId) {
-    event.response.autoConfirmUser = true;
-    event.response.autoVerifyEmail = true;
-    return event;
-  }
-
-  const existingUser = await findExistingUserByEmail(event.userPoolId, email);
-
-  if (existingUser && !String(existingUser.Username || "").startsWith(`${providerName}_`)) {
-    await client.send(new AdminLinkProviderForUserCommand({
-      UserPoolId: event.userPoolId,
-      DestinationUser: {
-        ProviderName: "Cognito",
-        ProviderAttributeValue: existingUser.Username
-      },
-      SourceUser: {
-        ProviderName: providerName,
-        ProviderAttributeName: "Cognito_Subject",
-        ProviderAttributeValue: providerUserId
-      }
-    }));
-  }
-
-  event.response.autoConfirmUser = true;
-  event.response.autoVerifyEmail = true;
-  return event;
-}
 
 async function handleTokenGeneration(event: CognitoTriggerEvent) {
   const user = await client.send(new AdminGetUserCommand({
@@ -159,10 +98,6 @@ async function handlePostConfirmation(event: CognitoTriggerEvent) {
 }
 
 export const handler = async (event: CognitoTriggerEvent) => {
-  if (event.triggerSource === "PreSignUp_ExternalProvider") {
-    return handlePreSignUp(event);
-  }
-
   if (event.triggerSource === "PostConfirmation_ConfirmSignUp") {
     return handlePostConfirmation(event);
   }

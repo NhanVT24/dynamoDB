@@ -1,19 +1,10 @@
 import { UpdateItemCommand, type DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { getAttribute, normalizeEmail, resolveAuthProvider, type CognitoAttribute } from "./attributes.js";
-
-type CognitoTriggerEvent = {
-  userName?: string;
-};
-
-export type CognitoUserSnapshot = {
-  Username?: string;
-  UserStatus?: string;
-  UserAttributes?: CognitoAttribute[];
-};
+import type { CognitoTriggerEvent, CognitoUserSnapshot } from "../types.js";
+import { getAttribute, normalizeEmail, resolveAuthProvider } from "./attributes.js";
 
 export async function syncUserProfile(
   dynamo: DynamoDBClient,
-  event: CognitoTriggerEvent,
+  event: Pick<CognitoTriggerEvent, "userName">,
   user: CognitoUserSnapshot
 ) {
   const attributes = user.UserAttributes ?? [];

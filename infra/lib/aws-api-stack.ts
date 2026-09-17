@@ -63,6 +63,38 @@ export class AwsApiStack extends Stack {
       description: "Globally unique domain prefix for Cognito hosted UI"
     });
 
+    const cognitoSignupAllowedEmailDomains = new CfnParameter(this, "CognitoSignupAllowedEmailDomains", {
+      type: "String",
+      default: "",
+      description: "Comma-separated email domains allowed to self sign up. Leave empty to allow all non-blocked domains."
+    });
+
+    const cognitoSignupBlockedEmailDomains = new CfnParameter(this, "CognitoSignupBlockedEmailDomains", {
+      type: "String",
+      default: "",
+      description: "Comma-separated email domains blocked from Cognito sign-up."
+    });
+
+    const cognitoSignupBlockedEmails = new CfnParameter(this, "CognitoSignupBlockedEmails", {
+      type: "String",
+      default: "",
+      description: "Comma-separated email addresses blocked from Cognito sign-up."
+    });
+
+    const cognitoAutoConfirmNativeSignup = new CfnParameter(this, "CognitoAutoConfirmNativeSignup", {
+      type: "String",
+      default: "false",
+      allowedValues: ["true", "false"],
+      description: "Whether the PreSignUp trigger should auto-confirm native Cognito self sign-up."
+    });
+
+    const cognitoAutoVerifyNativeEmail = new CfnParameter(this, "CognitoAutoVerifyNativeEmail", {
+      type: "String",
+      default: "false",
+      allowedValues: ["true", "false"],
+      description: "Whether the PreSignUp trigger should auto-verify email for native Cognito self sign-up."
+    });
+
     const googleClientIdSsmPath = new CfnParameter(this, "GoogleClientIdSsmPath", {
       type: "String",
       default: "/supermarket/google/client-id",
@@ -406,6 +438,32 @@ export class AwsApiStack extends Stack {
     });
 
     const sharedLambdaCode = lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip"));
+    const triggerPreSignUpFunction = new lambda.Function(this, "TriggerPreSignUp", {
+      functionName: "TriggerPreSignUp",
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.X86_64,
+      handler: "src/lambda/handlers/pre-sign-up.handler",
+      timeout: Duration.seconds(10),
+      memorySize: 256,
+      environment: {
+        COGNITO_SIGNUP_ALLOWED_EMAIL_DOMAINS: cognitoSignupAllowedEmailDomains.valueAsString,
+        COGNITO_SIGNUP_BLOCKED_EMAIL_DOMAINS: cognitoSignupBlockedEmailDomains.valueAsString,
+        COGNITO_SIGNUP_BLOCKED_EMAILS: cognitoSignupBlockedEmails.valueAsString,
+        COGNITO_AUTO_CONFIRM_NATIVE_SIGNUP: cognitoAutoConfirmNativeSignup.valueAsString,
+        COGNITO_AUTO_VERIFY_NATIVE_EMAIL: cognitoAutoVerifyNativeEmail.valueAsString
+      },
+      code: sharedLambdaCode,
+      initialPolicy: [
+        new iam.PolicyStatement({
+          actions: [
+            "cognito-idp:AdminLinkProviderForUser",
+            "cognito-idp:ListUsers"
+          ],
+          resources: ["*"]
+        })
+      ]
+    });
+
     const cognitoTriggerFunction = new lambda.Function(this, "CognitoTriggerFunction", {
       functionName: "supermarket-cognito-trigger",
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -422,9 +480,7 @@ export class AwsApiStack extends Stack {
           actions: [
             "cognito-idp:AdminGetUser",
             "cognito-idp:AdminAddUserToGroup",
-            "cognito-idp:AdminLinkProviderForUser",
-            "cognito-idp:AdminListGroupsForUser",
-            "cognito-idp:ListUsers"
+            "cognito-idp:AdminListGroupsForUser"
           ],
           resources: ["*"]
         }),
@@ -461,7 +517,7 @@ export class AwsApiStack extends Stack {
         requireSymbols: false
       },
       lambdaTriggers: {
-        preSignUp: cognitoTriggerFunction,
+        preSignUp: triggerPreSignUpFunction,
         postConfirmation: cognitoTriggerFunction
       }
     });
