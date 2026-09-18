@@ -13,6 +13,7 @@ import {
   confirmSignUpWithCognito,
   consumePostLoginRedirect,
   authSessionChangedEvent,
+  authSessionEndedEvent,
   authenticatedFetch,
   readAuthSession,
   rememberPostLoginRedirect,
@@ -45,6 +46,7 @@ type StoreContextValue = {
   isDrawerOpen: boolean;
   toggleDrawer: (open?: boolean) => void;
   isAuthModalOpen: boolean;
+  authModalMessage?: string;
   openAuthModal: (redirectPath?: string) => void;
   closeAuthModal: () => void;
 };
@@ -256,6 +258,7 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMessage, setAuthModalMessage] = useState<string | undefined>(undefined);
   const [hasHydratedCart, setHasHydratedCart] = useState(false);
   const [cartStorage, setCartStorage] = useState<CartStorage | null>(null);
   const itemsRef = useRef<CartItem[]>([]);
@@ -299,8 +302,18 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
     switchCartOwner(readAuthSession());
 
     const syncCartOwner = () => switchCartOwner(readAuthSession());
+    const handleSessionEnded = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      setAuthModalMessage(detail?.message || "Your session has ended. Please sign in again.");
+      setIsDrawerOpen(false);
+      setIsAuthModalOpen(true);
+    };
     window.addEventListener(authSessionChangedEvent, syncCartOwner);
-    return () => window.removeEventListener(authSessionChangedEvent, syncCartOwner);
+    window.addEventListener(authSessionEndedEvent, handleSessionEnded);
+    return () => {
+      window.removeEventListener(authSessionChangedEvent, syncCartOwner);
+      window.removeEventListener(authSessionEndedEvent, handleSessionEnded);
+    };
   }, []);
 
   useEffect(() => {
@@ -373,11 +386,13 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
     if (redirectPath) {
       rememberPostLoginRedirect(redirectPath);
     }
+    setAuthModalMessage(undefined);
     setIsAuthModalOpen(true);
   }
 
   function closeAuthModal() {
     setIsAuthModalOpen(false);
+    setAuthModalMessage(undefined);
   }
 
   const subtotal = useMemo(() => calculateSubtotal(items), [items]);
@@ -402,6 +417,7 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
         isDrawerOpen,
         toggleDrawer,
         isAuthModalOpen,
+        authModalMessage,
         openAuthModal,
         closeAuthModal
       }}
@@ -506,7 +522,7 @@ function StorefrontAuthModal({
   onSignedIn: (nextSession: AuthSession) => void;
 }) {
   const router = useRouter();
-  const { isAuthModalOpen, closeAuthModal, theme } = useStorefront();
+  const { isAuthModalOpen, authModalMessage, closeAuthModal, theme } = useStorefront();
   const isDark = theme === "dark";
   const [mode, setMode] = useState<"login" | "register" | "confirm" | "forgot" | "reset">("login");
   const [email, setEmail] = useState("");
@@ -524,6 +540,12 @@ function StorefrontAuthModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("Sign in to continue shopping or start checkout.");
   const [resendCountdown, setResendCountdown] = useState(0);
+
+  useEffect(() => {
+    if (!isAuthModalOpen) return;
+    setMode("login");
+    setMessage(authModalMessage || "Sign in to continue shopping or start checkout.");
+  }, [authModalMessage, isAuthModalOpen]);
 
   useEffect(() => {
     if (!isAuthModalOpen) {

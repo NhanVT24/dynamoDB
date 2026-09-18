@@ -57,6 +57,9 @@ const accessTokenRefreshLeewayMs = 10_000;
 const refreshTokenValidityMs = 7 * 24 * 60 * 60 * 1000;
 let refreshInFlight: Promise<AuthSession | null> | undefined;
 export const authSessionChangedEvent = "cognito-auth-session-changed";
+export const authSessionEndedEvent = "cognito-auth-session-ended";
+
+type AuthSessionEndedReason = "account_blocked" | "refresh_expired";
 
 function clearPostLoginRedirect() {
   if (typeof window === "undefined") return;
@@ -66,6 +69,13 @@ function clearPostLoginRedirect() {
 function dispatchAuthSessionChanged() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(authSessionChangedEvent));
+}
+
+function dispatchAuthSessionEnded(reason: AuthSessionEndedReason, message: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(authSessionEndedEvent, {
+    detail: { reason, message }
+  }));
 }
 
 function repairMojibake(value: string | undefined | null) {
@@ -317,6 +327,15 @@ function isInvalidRefreshTokenError(error: unknown) {
   return ["NotAuthorizedException", "InvalidParameterException", "ForbiddenException"].includes(name);
 }
 
+function isBlockedAccountRefreshError(error: unknown) {
+  const message = String((error as CognitoErrorLike | undefined)?.message ?? "").toLowerCase();
+  return message.includes("not allowed to receive new tokens") ||
+    message.includes("not allowed to sign in") ||
+    message.includes("account is not allowed") ||
+    message.includes("pretokengeneration failed") ||
+    message.includes("preauthentication failed");
+}
+
 /**
  * Exchanges a still-valid Cognito refresh token for new access and ID tokens.
  * With refresh-token rotation enabled, Cognito also returns a new refresh
@@ -345,6 +364,12 @@ export async function refreshAuthSession(): Promise<AuthSession | null> {
     } catch (error) {
       if (isInvalidRefreshTokenError(error)) {
         clearAuthSession();
+        if (isBlockedAccountRefreshError(error)) {
+          dispatchAuthSessionEnded(
+            "account_blocked",
+            "Your account is currently blocked or disabled. Please contact support."
+          );
+        }
         return null;
       }
       // A network/5xx failure must not log a user out. A later authenticated
