@@ -25,7 +25,7 @@ Muc free-tier-friendly hien tai:
 ## 2. File moi trong repo
 
 - `infra/bin/aws-api.ts`
-- `infra/lib/aws-api-stack.ts`
+- `infra/aws-api-stack.ts`
 
 Repo hien tai da bo LocalStack, chi giu huong deploy AWS CDK chinh.
 

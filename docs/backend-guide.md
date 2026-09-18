@@ -112,7 +112,7 @@ docs/
 
 ### Ngoài backend runtime
 
-- `infra`: AWS CDK. File `infra/lib/aws-api-stack.ts` khai báo DynamoDB, Lambda, API Gateway, SQS, Cognito và quyền IAM. Đây là *hạ tầng deploy*, không phải business code.
+- `infra`: AWS CDK. File `infra/aws-api-stack.ts` khai báo DynamoDB, Lambda, API Gateway, SQS, Cognito và quyền IAM. Đây là *hạ tầng deploy*, không phải business code.
 - `apps/web`: frontend Next.js gọi backend.
 - `docs`: tài liệu vận hành/triển khai.
 - `scripts`: script PowerShell ở root để deploy hoặc test luồng AWS.

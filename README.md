@@ -34,7 +34,7 @@ Monorepo cho nen tang supermarket gom frontend Next.js, backend NestJS/Fastify v
 ### Infra
 
 - `infra/bin/aws-api.ts`: CDK app entry.
-- `infra/lib/aws-api-stack.ts`: AWS stack chinh.
+- `infra/aws-api-stack.ts`: AWS stack chinh.
 - `scripts`: workspace-level deploy/manual AWS operation helpers.
 - `docs`: operational notes va service-specific runbooks.
 

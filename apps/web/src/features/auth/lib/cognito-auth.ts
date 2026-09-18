@@ -51,7 +51,7 @@ type CognitoErrorLike = {
 const sessionStorageKey = "cognito-auth-session";
 const postLoginRedirectStorageKey = "cognito-post-login-redirect";
 const accessTokenRefreshLeewayMs = 10_000;
-// Keep this aligned with the UserPoolClient configuration in infra/lib/aws-api-stack.ts.
+// Keep this aligned with the UserPoolClient configuration in infra/aws-api-stack.ts.
 // Seven days is the maximum idle-session window; refresh-token rotation renews
 // it for an actively used session.
 const refreshTokenValidityMs = 7 * 24 * 60 * 60 * 1000;

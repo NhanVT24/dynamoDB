@@ -13,7 +13,6 @@ const tableDefinition: CreateTableCommandInput = {
   AttributeDefinitions: [
     { AttributeName: "PK", AttributeType: "S" },
     { AttributeName: "SK", AttributeType: "S" },
-    { AttributeName: "category", AttributeType: "S" },
     { AttributeName: "status", AttributeType: "S" },
     { AttributeName: "searchName", AttributeType: "S" },
     { AttributeName: "searchField", AttributeType: "S" },
@@ -29,16 +28,6 @@ const tableDefinition: CreateTableCommandInput = {
     { AttributeName: "SK", KeyType: "RANGE" }
   ],
   GlobalSecondaryIndexes: [
-    {
-      IndexName: "CategoryStatusNameIndex",
-      KeySchema: [
-        { AttributeName: "category", KeyType: "HASH" },
-        { AttributeName: "status", KeyType: "RANGE" },
-        { AttributeName: "searchName", KeyType: "RANGE" },
-        { AttributeName: "PK", KeyType: "RANGE" }
-      ],
-      Projection: { ProjectionType: "ALL" }
-    },
     {
       IndexName: "StatusTimelineIndex",
       KeySchema: [

@@ -1,3 +1,4 @@
 {
-  "app": "npx ts-node --project tsconfig.json bin/aws-api.ts"
+  "app": "npx ts-node --project tsconfig.json bin/aws-api.ts",
+  "output": "../cdk.out"
 }
