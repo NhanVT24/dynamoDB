@@ -26,6 +26,7 @@ export type AuthSession = {
   email: string;
   name: string;
   role: "admin" | "customer" | "viewer";
+  accountStatus: "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
   permissions: ProductPermission[];
 };
 
@@ -35,6 +36,7 @@ type JwtPayload = {
   name?: string;
   display_name?: string;
   role?: string;
+  account_status?: string;
   auth_provider?: string;
   principal_email?: string;
   "cognito:groups"?: string[];
@@ -154,6 +156,11 @@ function readPermissions(value: unknown): ProductPermission[] {
     : [];
 }
 
+function readAccountStatus(value: unknown): AuthSession["accountStatus"] {
+  const status = String(value || "ACTIVE").trim().toUpperCase();
+  return status === "SUSPENDED" || status === "DISABLED" || status === "BLOCKED" ? status : "ACTIVE";
+}
+
 function mapCognitoError(target: string, error: CognitoErrorLike) {
   const rawType = String(error.name || "").trim();
   const rawMessage = String(error.message || "").trim();
@@ -238,7 +245,9 @@ export function readAuthSession() {
     }
     // The access token is the source of truth. A cached `permissions: []` from
     // an older token must not hide permissions added by the pre-token trigger.
-    session.permissions = readPermissions(decodeJwtPayload<JwtPayload>(session.accessToken).permissions);
+    const accessPayload = decodeJwtPayload<JwtPayload>(session.accessToken);
+    session.permissions = readPermissions(accessPayload.permissions);
+    session.accountStatus = readAccountStatus(accessPayload.account_status);
 
     if (session.refreshExpiresAt && Date.now() >= session.refreshExpiresAt) {
       window.localStorage.removeItem(sessionStorageKey);
@@ -289,7 +298,9 @@ function readStoredSession() {
   if (!raw) return null;
   try {
     const session = JSON.parse(raw) as AuthSession;
-    session.permissions = readPermissions(decodeJwtPayload<JwtPayload>(session.accessToken).permissions);
+    const accessPayload = decodeJwtPayload<JwtPayload>(session.accessToken);
+    session.permissions = readPermissions(accessPayload.permissions);
+    session.accountStatus = readAccountStatus(accessPayload.account_status);
     return session;
   } catch {
     window.localStorage.removeItem(sessionStorageKey);
@@ -502,6 +513,7 @@ function buildSession(authenticationResult: {
           : idPayload["cognito:groups"]?.some((group) => String(group).toLowerCase() === "customer")
             ? "customer"
             : "viewer",
+    accountStatus: readAccountStatus(accessPayload.account_status || idPayload.account_status),
     permissions: readPermissions(accessPayload.permissions)
   };
 

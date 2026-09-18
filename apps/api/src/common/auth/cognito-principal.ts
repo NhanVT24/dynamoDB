@@ -7,6 +7,7 @@ type JwtPayload = {
   email?: string;
   principal_email?: string;
   role?: string;
+  account_status?: string;
   "cognito:groups"?: string | string[];
   permissions?: unknown;
 };
@@ -39,6 +40,7 @@ export type CognitoPrincipal = {
   subject: string;
   email: string;
   role: "admin" | "customer" | "viewer";
+  accountStatus: "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
   groups: string[];
   permissions: ProductPermission[];
 };
@@ -73,9 +75,18 @@ export async function extractCognitoPrincipal(headers: Record<string, unknown>):
           : "viewer";
     const subject = String(payload.sub || "").trim();
     const email = String(payload.principal_email || payload.email || "").trim().toLowerCase();
+    const accountStatus = String(payload.account_status || "ACTIVE").trim().toUpperCase();
     if (!subject || !email) return null;
+    if (accountStatus === "SUSPENDED" || accountStatus === "DISABLED" || accountStatus === "BLOCKED") return null;
 
-    return { subject, email, role: resolvedRole, groups, permissions: normalizePermissions(payload.permissions) };
+    return {
+      subject,
+      email,
+      role: resolvedRole,
+      accountStatus: accountStatus === "SUSPENDED" || accountStatus === "DISABLED" || accountStatus === "BLOCKED" ? accountStatus : "ACTIVE",
+      groups,
+      permissions: normalizePermissions(payload.permissions)
+    };
   } catch {
     return null;
   }
