@@ -8,38 +8,59 @@ import { getAttribute, normalizeEmail, parseProviderUserName } from "./attribute
 
 const client = new CognitoIdentityProviderClient({});
 
-async function findExistingUserByEmail(userPoolId: string, email: string) {
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) return null;
+type CognitoClient = Pick<CognitoIdentityProviderClient, "send">;
 
-  const response = await client.send(new ListUsersCommand({
+export async function findUsersByEmail(
+  userPoolId: string,
+  email: string,
+  cognito: CognitoClient = client
+) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return [];
+
+  const response = await cognito.send(new ListUsersCommand({
     UserPoolId: userPoolId,
     Filter: `email = "${normalizedEmail.replace(/"/g, '\\"')}"`,
     Limit: 10
   }));
 
-  const users = response.Users ?? [];
-  return users.find((user) => String(user.Username || "").trim() !== "") ?? null;
+  return (response.Users ?? []).filter((user) => String(user.Username || "").trim() !== "");
 }
 
 function isNativeCognitoUser(user: CognitoUserSnapshot | null | undefined) {
   return !getAttribute(user?.UserAttributes, "identities");
 }
 
-export async function linkExternalProviderToNativeUser(event: CognitoTriggerEvent, email: string) {
+export async function assertEmailNotAlreadyRegistered(
+  userPoolId: string,
+  email: string,
+  cognito: CognitoClient = client
+) {
+  const existingUsers = await findUsersByEmail(userPoolId, email, cognito);
+  if (existingUsers.length > 0) {
+    throw new Error("An account already exists for this email. Please sign in with the original provider.");
+  }
+}
+
+export async function linkExternalProviderToNativeUser(
+  event: CognitoTriggerEvent,
+  email: string,
+  cognito: CognitoClient = client
+) {
   const { providerName, providerUserId } = parseProviderUserName(event.userName);
   if (!providerName || !providerUserId) return;
 
-  const existingUser = await findExistingUserByEmail(event.userPoolId, email);
+  const existingUsers = await findUsersByEmail(event.userPoolId, email, cognito);
+  const existingUser = existingUsers.find((user) => {
+    const username = String(user.Username || "");
+    const snapshot = { Username: user.Username, UserStatus: user.UserStatus, UserAttributes: user.Attributes };
+    return !username.startsWith(`${providerName}_`) && isNativeCognitoUser(snapshot);
+  });
   const existingUsername = String(existingUser?.Username || "");
-  const existingUserSnapshot = existingUser
-    ? { Username: existingUser.Username, UserStatus: existingUser.UserStatus, UserAttributes: existingUser.Attributes }
-    : null;
 
-  if (!existingUser || !existingUsername || existingUsername.startsWith(`${providerName}_`)) return;
-  if (!isNativeCognitoUser(existingUserSnapshot)) return;
+  if (!existingUser || !existingUsername) return;
 
-  await client.send(new AdminLinkProviderForUserCommand({
+  await cognito.send(new AdminLinkProviderForUserCommand({
     UserPoolId: event.userPoolId,
     DestinationUser: {
       ProviderName: "Cognito",
