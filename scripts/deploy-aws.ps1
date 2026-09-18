@@ -1,7 +1,13 @@
 [CmdletBinding()]
 param(
   [string]$AwsProfile = "nhandev",
-  [switch]$Clean
+  [switch]$Clean,
+  [switch]$FrontendCloudFrontOnly,
+  [switch]$SkipFrontendCloudFront,
+  [string]$FrontendApiOriginDomainName,
+  [string]$FrontendApiOriginPath = "/prod",
+  [string]$FrontendCertificateArn,
+  [string]$FrontendDomainNames
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,6 +15,23 @@ $ErrorActionPreference = "Stop"
 $workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location -LiteralPath $workspaceRoot
 $env:AWS_PROFILE = $AwsProfile
+
+if ($FrontendCloudFrontOnly -and $SkipFrontendCloudFront) {
+  throw "Use either -FrontendCloudFrontOnly or -SkipFrontendCloudFront, not both."
+}
+
+if ($FrontendApiOriginDomainName) {
+  $env:FRONTEND_API_ORIGIN_DOMAIN_NAME = $FrontendApiOriginDomainName
+  $env:FRONTEND_API_ORIGIN_PATH = $FrontendApiOriginPath
+}
+
+if ($FrontendCertificateArn) {
+  $env:FRONTEND_CERTIFICATE_ARN = $FrontendCertificateArn
+}
+
+if ($FrontendDomainNames) {
+  $env:FRONTEND_DOMAIN_NAMES = $FrontendDomainNames
+}
 
 Write-Host "Deploying with AWS profile: $AwsProfile"
 & aws sts get-caller-identity
@@ -49,12 +72,22 @@ if ($Clean) {
   Write-Host "Reusing CDK and Lambda build artifacts. Use -Clean only for a forced rebuild."
 }
 
-# cdk:aws:deploy already packages the Lambda once before deploying.
 $deployStartedAt = Get-Date
-& npm run cdk:aws:deploy
-if ($LASTEXITCODE -ne 0) {
-  throw "AWS CDK deployment failed."
+
+if (-not $FrontendCloudFrontOnly) {
+  # cdk:aws:deploy already packages the Lambda once before deploying.
+  & npm run cdk:aws:deploy
+  if ($LASTEXITCODE -ne 0) {
+    throw "AWS API CDK deployment failed."
+  }
+}
+
+if (-not $SkipFrontendCloudFront) {
+  & npm run cdk:aws:deploy:frontend
+  if ($LASTEXITCODE -ne 0) {
+    throw "Frontend CloudFront CDK deployment failed."
+  }
 }
 
 $elapsed = (Get-Date) - $deployStartedAt
-Write-Host ("Deployment completed in {0:mm\\:ss}." -f $elapsed)
+Write-Host ("Deployment completed in {0}." -f $elapsed.ToString("mm\:ss"))
