@@ -67,7 +67,7 @@ Retry gửi email phải tạo attempt riêng; không gắn MessageId mới vào
 ## Kiểm thử
 
 ```powershell
-npm run test:email-feedback -w @supermarket/api
+Local SES feedback test script was removed from the runtime repo cleanup.
 ```
 
 Test mock AWS client, không gửi email, không ghi DB thật. Kiểm tra từng event type, duplicate, out-of-order, affected To/CC/BCC, legacy schema, sai topic/MessageId và lỗi DB.
@@ -75,11 +75,7 @@ Test mock AWS client, không gửi email, không ghi DB thật. Kiểm tra từn
 Sau deploy, kiểm thử AWS thật bằng các địa chỉ SES simulator (các lệnh này thực sự gửi mail test và ghi DB):
 
 ```powershell
-npm run mail:test:ses-simulator -w @supermarket/api -- --scenario=success
-npm run mail:test:ses-bounce -w @supermarket/api
-npm run mail:test:ses-complaint -w @supermarket/api
-npm run mail:test:ses-all -w @supermarket/api
-npm run mail:test:ses-layout-simulator -w @supermarket/api
+SES simulator scripts were removed from the runtime repo cleanup.
 ```
 
 CLI in emailId; kiểm tra PK `EMAIL#<emailId>`, SK `RECIPIENT#<emailId>`, status tương ứng delivered/bounced/complained. Xem log Lambda và DLQ nếu status chưa cập nhật. Dùng strongly consistent read trên base table khi kiểm tra ngay sau event.

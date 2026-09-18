@@ -467,7 +467,7 @@ export class AwsApiStack extends Stack {
       functionName: "TriggerPreSignUp",
       runtime: lambda.Runtime.NODEJS_24_X,
       architecture: lambda.Architecture.X86_64,
-      handler: "src/lambda/handlers/pre-sign-up.handler",
+      handler: "src/entrypoints/lambda/cognito/pre-sign-up.handler",
       timeout: Duration.seconds(10),
       memorySize: 256,
       environment: {
@@ -493,7 +493,7 @@ export class AwsApiStack extends Stack {
       functionName: "supermarket-cognito-trigger",
       runtime: lambda.Runtime.NODEJS_24_X,
       architecture: lambda.Architecture.X86_64,
-      handler: "src/lambda/handlers/cognito-trigger.handler",
+      handler: "src/entrypoints/lambda/cognito/cognito-trigger.handler",
       timeout: Duration.seconds(10),
       memorySize: 256,
       environment: {
@@ -857,7 +857,7 @@ export class AwsApiStack extends Stack {
     const httpApiFunction = createApplicationLambda(
       "SupermarketHttpApiFunction",
       "supermarket-http-api-aws",
-      "src/lambda/handlers/admin.handler",
+      "src/entrypoints/lambda/http/admin.handler",
       25,
       256
     );
@@ -868,28 +868,28 @@ export class AwsApiStack extends Stack {
     const orderWorkerFunction = createApplicationLambda(
       "SupermarketOrderWorkerFunction",
       "supermarket-order-worker-aws",
-      "src/lambda/handlers/order-worker.handler",
+      "src/entrypoints/lambda/queue/order-worker.handler",
       20,
       512
     );
     const notificationWorkerFunction = createApplicationLambda(
       "SupermarketNotificationWorkerFunction",
       "supermarket-notification-worker-aws",
-      "src/lambda/handlers/notification-worker.handler",
+      "src/entrypoints/lambda/queue/notification-worker.handler",
       20,
       512
     );
     const paymentWorkerFunction = createApplicationLambda(
       "SupermarketPaymentWorkerFunction",
       "supermarket-payment-worker-aws",
-      "src/lambda/handlers/payment-worker.handler",
+      "src/entrypoints/lambda/queue/payment-worker.handler",
       20,
       512
     );
     const emailWorkerFunction = createApplicationLambda(
       "SupermarketEmailWorkerFunction",
       "supermarket-email-worker-aws",
-      "src/lambda/handlers/email-worker.handler",
+      "src/entrypoints/lambda/queue/email-worker.handler",
       60,
       1024
     );
@@ -900,14 +900,14 @@ export class AwsApiStack extends Stack {
     const emailRouteTrackerFunction = createApplicationLambda(
       "SupermarketEmailRouteTrackerFunction",
       "supermarket-email-route-tracker-aws",
-      "src/lambda/handlers/email-route-tracker.handler",
+      "src/entrypoints/lambda/jobs/email-route-tracker.handler",
       10,
       256
     );
     const emailRoutingWatchdogFunction = createApplicationLambda(
       "SupermarketEmailRoutingWatchdogFunction",
       "supermarket-email-routing-watchdog-aws",
-      "src/lambda/handlers/email-routing-watchdog.handler",
+      "src/entrypoints/lambda/jobs/email-routing-watchdog.handler",
       30,
       256
     );
@@ -915,7 +915,7 @@ export class AwsApiStack extends Stack {
     const emailPublishRecoveryFunction = createApplicationLambda(
       "SupermarketEmailPublishRecoveryFunction",
       "supermarket-email-publish-recovery-aws",
-      "src/lambda/handlers/email-publish-recovery.handler",
+      "src/entrypoints/lambda/jobs/email-publish-recovery.handler",
       30,
       256
     );
@@ -940,21 +940,21 @@ export class AwsApiStack extends Stack {
     const weeklyAdminReportFunction = createApplicationLambda(
       "SupermarketWeeklyAdminReportFunction",
       "supermarket-weekly-admin-report-aws",
-      "src/lambda/handlers/weekly-admin-report.handler",
+      "src/entrypoints/lambda/jobs/weekly-admin-report.handler",
       30,
       512
     );
     const dailyInventoryReportFunction = createApplicationLambda(
       "SupermarketDailyInventoryReportFunction",
       "supermarket-daily-inventory-report-aws",
-      "src/lambda/handlers/daily-inventory-report.handler",
+      "src/entrypoints/lambda/jobs/daily-inventory-report.handler",
       30,
       512
     );
     const sesInventoryEventFunction = createApplicationLambda(
       "SupermarketSesInventoryEventFunction",
       "supermarket-ses-inventory-event-aws",
-      "src/lambda/handlers/ses-inventory-event.handler",
+      "src/entrypoints/lambda/jobs/ses-inventory-event.handler",
       20,
       256
     );
@@ -987,70 +987,70 @@ export class AwsApiStack extends Stack {
     const orderWorkflowStepFunction = createApplicationLambda(
       "SupermarketOrderWorkflowStepFunction",
       "supermarket-order-workflow-step-aws",
-      "src/lambda/handlers/order-workflow-step.handler",
+      "src/entrypoints/lambda/workflow/order-workflow-step.handler",
       30,
       512
     );
     const paymentWorkflowStepFunction = createApplicationLambda(
       "SupermarketPaymentWorkflowStepFunction",
       "supermarket-payment-workflow-step-aws",
-      "src/lambda/handlers/payment-workflow-step.handler",
+      "src/entrypoints/lambda/workflow/payment-workflow-step.handler",
       30,
       512
     );
     const imageWorkflowStepFunction = createApplicationLambda(
       "SupermarketImageWorkflowStepFunction",
       "supermarket-image-workflow-step-aws",
-      "src/lambda/handlers/image-workflow-step.handler",
+      "src/entrypoints/lambda/workflow/image-workflow-step.handler",
       20,
       256
     );
     const buildWeeklyReportFunction = createApplicationLambda(
       "SupermarketBuildWeeklyReportFunction",
       "supermarket-build-weekly-report-aws",
-      "src/lambda/handlers/build-weekly-report.handler",
+      "src/entrypoints/lambda/workflow/build-weekly-report.handler",
       30,
       512
     );
     const sendMailWorkflowStepFunction = createApplicationLambda(
       "SupermarketSendMailWorkflowStepFunction",
       "supermarket-send-mail-workflow-step-aws",
-      "src/lambda/handlers/send-mail-workflow-step.handler",
+      "src/entrypoints/lambda/workflow/send-mail-workflow-step.handler",
       20,
       256
     );
     const imageUploadWorkerFunction = createApplicationLambda(
       "SupermarketImageUploadWorkerFunction",
       "supermarket-image-upload-worker-aws",
-      "src/lambda/handlers/image-upload-worker.handler",
+      "src/entrypoints/lambda/queue/image-upload-worker.handler",
       20,
       256
     );
     const auditEventWorkerFunction = createApplicationLambda(
       "SupermarketAuditEventWorkerFunction",
       "supermarket-audit-event-worker-aws",
-      "src/lambda/handlers/audit-event-worker.handler",
+      "src/entrypoints/lambda/jobs/audit-event-worker.handler",
       15,
       256
     );
     const releaseExpiredOrdersFunction = createApplicationLambda(
       "SupermarketReleaseExpiredOrdersFunction",
       "supermarket-release-expired-orders-aws",
-      "src/lambda/handlers/release-expired-orders.handler",
+      "src/entrypoints/lambda/jobs/release-expired-orders.handler",
       20,
       256
     );
     const dataCleanupFunction = createApplicationLambda(
       "SupermarketDataCleanupFunction",
       "supermarket-data-cleanup-aws",
-      "src/lambda/handlers/data-cleanup.handler",
+      "src/entrypoints/lambda/jobs/data-cleanup.handler",
       120,
       512
     );
     const saleCampaignWorkerFunction = createApplicationLambda(
       "SupermarketSaleCampaignWorkerFunction",
       "supermarket-sale-campaign-worker-aws",
-      "src/lambda/handlers/sale-campaign-worker.handler",
+      "src/entrypoints/lambda/jobs/sale-campaign-worker.handler",
       20,
       256
     );

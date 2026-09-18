@@ -47,7 +47,7 @@ complete IPN. Its signature cannot be reused to sign a different IPN payload.
 Requires Node 24 (the tested runtime):
 
 ```powershell
-npm run test:vnpay -w @supermarket/api
+Local VNPay test script was removed from the runtime repo cleanup.
 ```
 
 The suite invokes the real Nest controller with Fastify HTTP injection and
@@ -60,7 +60,7 @@ Save a **complete** callback URL or query to a private local file outside git,
 then inspect it offline with the local environment's secret:
 
 ```powershell
-npm run diagnose:vnpay -w @supermarket/api -- C:\temp\vnpay-callback.txt
+Local VNPay diagnosis script was removed from the runtime repo cleanup.
 ```
 
 The command makes no HTTP calls and prints no signature/secret. A fragment of

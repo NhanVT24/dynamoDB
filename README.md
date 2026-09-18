@@ -1,40 +1,44 @@
 # Supermarket Platform
 
-Monorepo cho nền tảng supermarket gồm:
+Monorepo cho nen tang supermarket gom frontend Next.js, backend NestJS/Fastify va AWS CDK infrastructure.
 
-- `apps/web`: frontend Next.js, gom cả khu `admin` và `customer/store`
-- `apps/api`: backend NestJS/Fastify, tổ chức lại theo `core/`, `modules/`, `entrypoints/`
-- `infra`: CDK stack deploy AWS
+## Main Routes
 
-## Route chính
+- `http://localhost:3000/admin`: admin console.
+- `http://localhost:3000/store`: customer storefront.
+- `http://localhost:3000/`: redirect theo session hien tai.
 
-- `http://localhost:3000/admin`: giao diện admin
-- `http://localhost:3000/store`: giao diện customer/storefront
-- `http://localhost:3000/`: tự điều hướng sang `admin` hoặc `store` theo session hiện tại
-
-## Cấu trúc mới
+## Repository Structure
 
 ### Web
 
-- `app/admin`: route admin
-- `app/store`: route customer/storefront
-- `src/features/admin`: màn hình và component quản trị
-- `src/features/auth`: logic Cognito client-side
+- `apps/web/app`: Next.js App Router routes.
+- `apps/web/src/features/admin`: admin screens va reusable admin components.
+- `apps/web/src/features/auth`: Cognito client-side auth helpers.
 
 ### API
 
-- `src/core/app`: bootstrap app và `AppModule`
-- `src/modules`: business modules
-- `src/integrations`: S3, SQS, SES, EventBridge
-- `src/entrypoints/http`: entrypoint chạy server
-- `src/entrypoints/lambda`: entrypoint Lambda theo nhóm `http`, `queue`, `jobs`
+- `apps/api/src/core/app`: Nest app bootstrap va shared app module factory.
+- `apps/api/src/modules`: business modules theo domain: storefront, shopping, sales, payments, notifications, uploads, authorization.
+- `apps/api/src/integrations`: AWS/external integrations nhu SES, SQS, SNS, EventBridge.
+- `apps/api/src/database`: DynamoDB client va key helpers.
+- `apps/api/src/entrypoints/http`: local/server HTTP entrypoint.
+- `apps/api/src/entrypoints/lambda/http`: API Gateway Lambda entrypoints.
+- `apps/api/src/entrypoints/lambda/queue`: SQS worker Lambda entrypoints.
+- `apps/api/src/entrypoints/lambda/jobs`: scheduled/event job Lambda entrypoints.
+- `apps/api/src/entrypoints/lambda/workflow`: Step Functions task Lambda entrypoints.
+- `apps/api/src/entrypoints/lambda/cognito`: Cognito trigger Lambda entrypoints.
+- `apps/api/src/entrypoints/lambda/shared`: reusable Lambda handler factories.
+- `apps/api/src/scripts`: operational scripts cho seed, backfill, localization va data cleanup.
 
 ### Infra
 
-- `infra/bin/aws-api.ts`: CDK entry
-- `infra/lib/aws-api-stack.ts`: AWS stack chính
+- `infra/bin/aws-api.ts`: CDK app entry.
+- `infra/lib/aws-api-stack.ts`: AWS stack chinh.
+- `scripts`: workspace-level deploy/manual AWS operation helpers.
+- `docs`: operational notes va service-specific runbooks.
 
-## Chạy local
+## Local Development
 
 ```bash
 npm install
@@ -50,7 +54,8 @@ npm run cdk:aws:bootstrap
 npm run cdk:aws:deploy
 ```
 
-## Ghi chú
+## Refactor Notes
 
-- LocalStack và các script/stack liên quan đã được loại bỏ khỏi repo.
-- Các file entry cũ trong `apps/api/src` đang giữ làm wrapper mỏng để tránh gãy handler/CDK trong lúc chuyển cấu trúc.
+- Lambda CDK handlers tro thang vao `apps/api/src/entrypoints/lambda`.
+- Wrapper cu `apps/api/src/lambda` da duoc loai bo.
+- BE test-only scripts va `apps/api/tests` da duoc loai bo khoi runtime source tree.
