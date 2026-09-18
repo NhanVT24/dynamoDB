@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, ReactNode } from "react";
 import { storeCategories, storeProducts } from "./store-data";
-import { fetchStorefrontProductById, fetchStorefrontProducts, toStoreProduct } from "./store-api";
+import { buildProductDetailHref, fetchStorefrontProductById, fetchStorefrontProducts, toStoreProduct } from "./store-api";
 import ProductEditor from "./products/product-editor";
 import {
   beginGoogleSignIn,
@@ -1464,7 +1464,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
       onDragStartCapture={handleDragStart}
       className={`group relative overflow-hidden rounded-[1.75rem] border ${isDark ? "border-white/10 bg-slate-900/85" : "border-slate-200 bg-white shadow-[0_20px_70px_-48px_rgba(15,23,42,0.35)]"} ${isUnavailable ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing"}`}
     >
-      <Link href={`/store/products/${product.slug}`} className="absolute inset-0 z-10" aria-label={product.name} />
+      <Link href={buildProductDetailHref(product.slug)} className="absolute inset-0 z-10" aria-label={product.name} />
       <div className="relative overflow-hidden">
         <img ref={imageRef} src={product.imageUrl} alt={product.name} className="h-64 w-full object-cover transition duration-500 group-hover:scale-105" draggable={false} />
         <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-4 pt-4 transition duration-300 group-hover:opacity-0">
@@ -1872,7 +1872,7 @@ export function HomeSections() {
           <div className="grid gap-4">
             <div className={`rounded-[2rem] border p-6 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Connected</p>
-              <h3 className={`mt-4 text-2xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>/store, /store/products, /store/products/[slug]</h3>
+              <h3 className={`mt-4 text-2xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>/store, /store/products, /store/products/detail</h3>
             </div>
             <div className={`rounded-[2rem] border p-6 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Highlights</p>
@@ -1965,7 +1965,7 @@ function SaleMarqueeCard({ product, isDark }: { product: StoreProduct; isDark: b
   const hasDiscount = product.price < product.originalPrice;
   const discountTone = getDiscountTone(discount);
   return (
-    <Link href={`/store/products/${product.slug}`} className={`group flex w-80 shrink-0 gap-4 rounded-2xl border p-4 transition hover:-translate-y-1 ${isDark ? "border-white/10 bg-white/5 hover:bg-white/10" : "border-white bg-white shadow-sm"}`}>
+    <Link href={buildProductDetailHref(product.slug)} className={`group flex w-80 shrink-0 gap-4 rounded-2xl border p-4 transition hover:-translate-y-1 ${isDark ? "border-white/10 bg-white/5 hover:bg-white/10" : "border-white bg-white shadow-sm"}`}>
       <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-xl">
         <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-110" />
         {hasDiscount ? <span className={`absolute inset-x-1 bottom-1 rounded-md px-1 py-0.5 text-center text-[10px] font-bold ${discountTone.badge}`}>-{discount}%</span> : null}
@@ -2155,7 +2155,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
         if (!cancelled) {
           setProduct(detail);
           if (detail.slug !== slug) {
-            router.replace(`/store/products/${detail.slug}`);
+            router.replace(buildProductDetailHref(detail.slug));
           }
           setRelatedProducts(
             listing.items.filter((item) => item.id !== detail.id && item.category === detail.category).slice(0, 4)
@@ -2319,7 +2319,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
     setProduct(storefrontProduct);
     setIsEditing(false);
     setActionMessage("Product updated successfully.");
-    router.replace(`/store/products/${storefrontProduct.slug}`);
+    router.replace(buildProductDetailHref(storefrontProduct.slug));
   }
 
   async function deleteOwnedProduct() {

@@ -83,7 +83,22 @@ if (-not $FrontendCloudFrontOnly) {
 }
 
 if (-not $SkipFrontendCloudFront) {
-  & npm run cdk:aws:deploy:frontend
+  $frontendDeployArgs = @("run", "cdk:aws:deploy:frontend")
+  if ($FrontendApiOriginDomainName -or $FrontendCertificateArn -or $FrontendDomainNames) {
+    $frontendDeployArgs += "--"
+    if ($FrontendApiOriginDomainName) {
+      $frontendDeployArgs += @("-c", "frontendApiOriginDomainName=$FrontendApiOriginDomainName")
+      $frontendDeployArgs += @("-c", "frontendApiOriginPath=$FrontendApiOriginPath")
+    }
+    if ($FrontendCertificateArn) {
+      $frontendDeployArgs += @("-c", "frontendCertificateArn=$FrontendCertificateArn")
+    }
+    if ($FrontendDomainNames) {
+      $frontendDeployArgs += @("-c", "frontendDomainNames=$FrontendDomainNames")
+    }
+  }
+
+  & npm @frontendDeployArgs
   if ($LASTEXITCODE -ne 0) {
     throw "Frontend CloudFront CDK deployment failed."
   }

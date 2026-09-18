@@ -71,6 +71,10 @@ function slugify(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
+export function buildProductDetailHref(slug: string) {
+  return `/store/products/detail?slug=${encodeURIComponent(slug)}`;
+}
+
 function getCategoryImage(category: string) {
   return storeCategories.find((item) => item.label === category)?.imageUrl ?? storeCategories[0]?.imageUrl ?? "";
 }

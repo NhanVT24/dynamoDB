@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent } from "react";
 import { authSessionChangedEvent, readAuthSession } from "../../lib/cognito-auth";
-import { fetchStorefrontProducts } from "../store-api";
+import { buildProductDetailHref, fetchStorefrontProducts } from "../store-api";
 import ProductEditor from "./product-editor";
 import { storeCategories } from "../store-data";
 import type { StoreProduct } from "../store-types";
@@ -113,7 +113,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
         isDark ? "border-white/10 bg-slate-900/85" : "border-slate-200 bg-white shadow-[0_20px_70px_-48px_rgba(15,23,42,0.35)]"
       } ${isUnavailable ? "cursor-not-allowed" : "cursor-grab active:cursor-grabbing"}`}
     >
-      <Link href={`/store/products/${product.slug}`} className="absolute inset-0 z-10" aria-label={product.name} />
+      <Link href={buildProductDetailHref(product.slug)} className="absolute inset-0 z-10" aria-label={product.name} />
       <div className="relative overflow-hidden">
         <img
           ref={imageRef}

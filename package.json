@@ -18,6 +18,7 @@
     "cdk:aws:deploy:frontend": "cdk deploy SupermarketFrontendCloudFrontStack --app \"npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts\" --output cdk.out --require-approval never",
     "cdk:aws:deploy:all": "npm run build:lambda && cdk deploy SupermarketAwsStack SupermarketFrontendCloudFrontStack --app \"npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts\" --output cdk.out --require-approval never",
     "deploy:aws": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\deploy-aws.ps1",
+    "deploy:frontend:static": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\deploy-frontend-static.ps1",
     "cdk:aws:destroy": "cdk destroy SupermarketAwsStack --app \"npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts\" --output cdk.out --force",
     "cdk:aws:destroy:frontend": "cdk destroy SupermarketFrontendCloudFrontStack --app \"npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts\" --output cdk.out --force",
     "typecheck": "npm run typecheck --workspaces --if-present",

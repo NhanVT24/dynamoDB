@@ -53,3 +53,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-aws.ps1 `
 The current `apps/web` build is configured for static export. S3 can store files, but it cannot run a Next.js server. Keep API traffic behind API Gateway and CloudFront behaviors.
 
 The optional API behavior keeps the existing `/api/lambda-proxy/*` browser calls working by rewriting them to the API Gateway origin.
+
+When deploying through `scripts/deploy-aws.ps1`, frontend-specific values are passed to CDK as context flags so the deployed CloudFormation template keeps the API origin/behavior.

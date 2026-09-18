@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authenticatedFetch, readAuthSession } from "../../lib/cognito-auth";
 import { useStorefront } from "../store-client";
-import { fetchMyOrders, fetchMyProducts, toStoreProduct } from "../store-api";
+import { buildProductDetailHref, fetchMyOrders, fetchMyProducts, toStoreProduct } from "../store-api";
 import type { ManagedProduct, StoreOrder } from "../store-types";
 import { formatCurrency, formatDateTime } from "../store-utils";
 
@@ -442,7 +442,7 @@ export default function StoreProfilePage() {
                       <h3 className={`truncate text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{item.name}</h3>
                       <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>Stock {item.stock} · {formatCurrency(item.price)}</p>
                     </div>
-                    <Link href={`/store/products/${storefrontProduct.slug}`} className="shrink-0 rounded-full bg-slate-950 px-3 py-2 text-xs font-semibold text-white">View</Link>
+                    <Link href={buildProductDetailHref(storefrontProduct.slug)} className="shrink-0 rounded-full bg-slate-950 px-3 py-2 text-xs font-semibold text-white">View</Link>
                   </article>
                 );
               })}

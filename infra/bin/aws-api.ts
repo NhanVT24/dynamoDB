@@ -4,6 +4,8 @@ import { AwsApiStack } from "../aws-api-stack";
 import { FrontendCloudFrontStack } from "../frontend-cloudfront-stack";
 
 const app = new cdk.App();
+const defaultFrontendApiOriginDomainName = "rrt1ukhcpj.execute-api.ap-southeast-1.amazonaws.com";
+const defaultFrontendApiOriginPath = "/prod";
 const contextEnvNames: Record<string, string> = {
   frontendApiOriginDomainName: "FRONTEND_API_ORIGIN_DOMAIN_NAME",
   frontendApiOriginPath: "FRONTEND_API_ORIGIN_PATH",
@@ -41,8 +43,8 @@ const frontendApiOriginPath = readContextString("frontendApiOriginPath");
 new FrontendCloudFrontStack(app, "SupermarketFrontendCloudFrontStack", {
   certificateArn: readContextString("frontendCertificateArn"),
   domainNames: readContextList("frontendDomainNames"),
-  apiOriginDomainName: readContextString("frontendApiOriginDomainName"),
-  apiOriginPath: frontendApiOriginPath?.startsWith("/") ? frontendApiOriginPath : frontendApiOriginPath ? `/${frontendApiOriginPath}` : undefined,
+  apiOriginDomainName: readContextString("frontendApiOriginDomainName") ?? defaultFrontendApiOriginDomainName,
+  apiOriginPath: frontendApiOriginPath?.startsWith("/") ? frontendApiOriginPath : frontendApiOriginPath ? `/${frontendApiOriginPath}` : defaultFrontendApiOriginPath,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION ?? "ap-southeast-1"

@@ -12,6 +12,7 @@ cdk.out/
 .next/
 dist/
 apps/api/dist/
+apps/web/out/
 **/*.tsbuildinfo
 .env
 .env.local
