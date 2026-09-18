@@ -37,6 +37,8 @@ After the stack exists, build and upload the static frontend files:
 npm run deploy:frontend:static
 ```
 
+The static deploy script uploads hashed Next.js assets under `_next/static/*` with long immutable cache headers, then uploads HTML/documents with `no-cache,no-store,must-revalidate`. It intentionally does not delete old `_next/static/*` files during normal deploys, because an old cached HTML document can still reference an older hashed JS chunk for a short time.
+
 For a custom domain, the ACM certificate ARN must be from `us-east-1`:
 
 ```powershell

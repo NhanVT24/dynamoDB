@@ -33,6 +33,14 @@ export class FrontendCloudFrontStack extends Stack {
       enforceSSL: true,
       objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
       versioned: true,
+      lifecycleRules: [
+        {
+          id: "ExpireRetainedNextStaticAssets",
+          prefix: "_next/static/",
+          expiration: Duration.days(90),
+          noncurrentVersionExpiration: Duration.days(30)
+        }
+      ],
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true
     });
@@ -72,16 +80,29 @@ function handler(event) {
       ? acm.Certificate.fromCertificateArn(this, "FrontendCertificate", props.certificateArn)
       : undefined;
 
+    const frontendOrigin = origins.S3BucketOrigin.withOriginAccessControl(frontendBucket);
+    const htmlCachePolicy = new cloudfront.CachePolicy(this, "FrontendHtmlCachePolicy", {
+      comment: "Short-lived cache policy for frontend HTML documents",
+      defaultTtl: Duration.seconds(0),
+      maxTtl: Duration.minutes(5),
+      minTtl: Duration.seconds(0),
+      enableAcceptEncodingBrotli: true,
+      enableAcceptEncodingGzip: true,
+      cookieBehavior: cloudfront.CacheCookieBehavior.none(),
+      headerBehavior: cloudfront.CacheHeaderBehavior.none(),
+      queryStringBehavior: cloudfront.CacheQueryStringBehavior.none()
+    });
+
     const distribution = new cloudfront.Distribution(this, "FrontendDistribution", {
       comment: "Experimental static frontend hosting for Supermarket web app",
       defaultRootObject: "index.html",
       certificate,
       domainNames: domainNames.length > 0 ? domainNames : undefined,
       defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(frontendBucket),
+        origin: frontendOrigin,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
         cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
-        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        cachePolicy: htmlCachePolicy,
         compress: true,
         functionAssociations: [{
           eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
@@ -107,6 +128,19 @@ function handler(event) {
       enableIpv6: true,
       priceClass: cloudfront.PriceClass.PRICE_CLASS_200
     });
+
+    distribution.addBehavior(
+      "/_next/static/*",
+      frontendOrigin,
+      {
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        compress: true,
+        responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS
+      }
+    );
 
     if (props.apiOriginDomainName) {
       const apiProxyRewriteFunction = new cloudfront.Function(this, "ApiProxyRewriteFunction", {
