@@ -15,6 +15,8 @@ export type CognitoTriggerEvent = {
     };
     validationData?: Record<string, string>;
     clientMetadata?: Record<string, string>;
+    codeParameter?: string;
+    usernameParameter?: string;
   };
   response: Record<string, unknown>;
 };

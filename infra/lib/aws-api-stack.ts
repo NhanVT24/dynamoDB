@@ -523,6 +523,7 @@ export class AwsApiStack extends Stack {
         requireSymbols: false
       },
       lambdaTriggers: {
+        customMessage: cognitoTriggerFunction,
         preSignUp: triggerPreSignUpFunction,
         preAuthentication: cognitoTriggerFunction,
         postAuthentication: cognitoTriggerFunction,
