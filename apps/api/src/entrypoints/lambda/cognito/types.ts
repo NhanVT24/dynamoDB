@@ -9,6 +9,12 @@ export type CognitoTriggerEvent = {
   userName: string;
   request: {
     userAttributes?: Record<string, string>;
+    userContextData?: {
+      ipAddress?: string;
+      encodedData?: string;
+    };
+    validationData?: Record<string, string>;
+    clientMetadata?: Record<string, string>;
   };
   response: Record<string, unknown>;
 };

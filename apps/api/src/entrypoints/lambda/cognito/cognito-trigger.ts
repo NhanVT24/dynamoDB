@@ -7,6 +7,7 @@ import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 import type { CognitoTriggerEvent } from "./types.js";
 import { getAttribute, normalizeEmail, resolveAuthProvider } from "./helper/attributes.js";
 import { TriggerPreAuthentication } from "./triggers/pre-authentication.js";
+import { TriggerPostAuthentication } from "./triggers/post-authentications.js";
 import { TriggerPostConfirmation } from "./triggers/post-confirmation.js";
 
 const client = new CognitoIdentityProviderClient({});
@@ -81,6 +82,10 @@ export const handler = async (event: CognitoTriggerEvent) => {
 
   if (event.triggerSource === "PostConfirmation_ConfirmSignUp") {
     return TriggerPostConfirmation(dynamo, event);
+  }
+
+  if (event.triggerSource === "PostAuthentication_Authentication") {
+    return TriggerPostAuthentication(dynamo, event);
   }
 
   if (String(event.triggerSource || "").startsWith("TokenGeneration_")) {
