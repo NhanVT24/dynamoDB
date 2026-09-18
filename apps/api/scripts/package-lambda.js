@@ -167,6 +167,15 @@ function installProductionDependencies() {
   });
 }
 
+function dependencyInstallPath(name) {
+  return join(lambdaRoot, "node_modules", ...name.split("/"));
+}
+
+function hasExpectedProductionDependencies() {
+  const dependencies = Object.keys(packageJson.dependencies ?? {});
+  return dependencies.every((dependency) => existsSync(dependencyInstallPath(dependency)));
+}
+
 function createZipArchive() {
   console.log("Creating lambda.zip...");
   rmSync(zipPath, { force: true });
@@ -226,6 +235,7 @@ const isLambdaSourceSynced =
   createRootRelativeDigest(lambdaSrcRoot) === createRootRelativeDigest(buildRoot);
 const canReuseZip = isSourceUnchanged && areDependenciesUnchanged && isLambdaSourceSynced && existsSync(zipPath);
 const hasInstalledDependencies = existsSync(join(lambdaRoot, "node_modules"));
+const hasExpectedDependencies = hasInstalledDependencies && hasExpectedProductionDependencies();
 
 if (canReuseZip) {
   console.log("Lambda package unchanged. Reusing existing lambda.zip.");
@@ -235,7 +245,7 @@ if (canReuseZip) {
 copyBuildOutput();
 ensureLambdaPackageJson();
 
-if (!areDependenciesUnchanged || !hasInstalledDependencies) {
+if (!areDependenciesUnchanged || !hasExpectedDependencies) {
   rmSync(join(lambdaRoot, "node_modules"), { recursive: true, force: true });
   installProductionDependencies();
 } else {

@@ -13,6 +13,11 @@ const client = new CognitoIdentityProviderClient({});
 const dynamo = new DynamoDBClient({});
 
 export const handler = async (event: CognitoTriggerEvent) => {
+  if (String(event.triggerSource || "").startsWith("CustomEmailSender_")) {
+    const { TriggerCustomEmailSender } = await import("./triggers/custom-email-sender.js");
+    return TriggerCustomEmailSender(event);
+  }
+
   if (String(event.triggerSource || "").startsWith("CustomMessage_")) {
     return TriggerCustomMessage(event);
   }

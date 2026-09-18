@@ -18,6 +18,7 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as kms from "aws-cdk-lib/aws-kms";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaDestinations from "aws-cdk-lib/aws-lambda-destinations";
 import * as pipes from "aws-cdk-lib/aws-pipes";
@@ -438,6 +439,30 @@ export class AwsApiStack extends Stack {
     });
 
     const sharedLambdaCode = lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip"));
+    const cognitoCustomSenderKey = new kms.Key(this, "CognitoCustomSenderKey", {
+      alias: "alias/supermarket-cognito-custom-sender",
+      description: "Encrypts Cognito custom sender verification codes before invoking Lambda.",
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.DESTROY
+    });
+    cognitoCustomSenderKey.addToResourcePolicy(new iam.PolicyStatement({
+      principals: [new iam.ServicePrincipal("cognito-idp.amazonaws.com")],
+      actions: [
+        "kms:DescribeKey",
+        "kms:Encrypt",
+        "kms:GenerateDataKey"
+      ],
+      resources: ["*"],
+      conditions: {
+        StringEquals: {
+          "aws:SourceAccount": this.account
+        },
+        ArnLike: {
+          "aws:SourceArn": `arn:${this.partition}:cognito-idp:${this.region}:${this.account}:userpool/*`
+        }
+      }
+    }));
+
     const triggerPreSignUpFunction = new lambda.Function(this, "TriggerPreSignUp", {
       functionName: "TriggerPreSignUp",
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -474,7 +499,9 @@ export class AwsApiStack extends Stack {
       environment: {
         DYNAMODB_TABLE_NAME: dynamoTableName.valueAsString,
         EVENTBRIDGE_DEFAULT_BUS_NAME: platformEventBus.eventBusName,
-        EVENTBRIDGE_PLATFORM_BUS_NAME: platformEventBus.eventBusName
+        EVENTBRIDGE_PLATFORM_BUS_NAME: platformEventBus.eventBusName,
+        COGNITO_CUSTOM_SENDER_KMS_KEY_ARN: cognitoCustomSenderKey.keyArn,
+        SES_FROM_EMAIL: sesFromEmail.valueAsString
       },
       code: sharedLambdaCode,
       initialPolicy: [
@@ -493,9 +520,14 @@ export class AwsApiStack extends Stack {
         new iam.PolicyStatement({
           actions: ["events:PutEvents"],
           resources: [platformEventBus.eventBusArn]
+        }),
+        new iam.PolicyStatement({
+          actions: ["ses:SendEmail"],
+          resources: ["*"]
         })
       ]
     });
+    cognitoCustomSenderKey.grantDecrypt(cognitoTriggerFunction);
 
     const userPool = new cognito.UserPool(this, "AdminUserPool", {
       userPoolName: "supermarket-admin-users",
@@ -509,6 +541,7 @@ export class AwsApiStack extends Stack {
         replyTo: sesFromEmail.valueAsString
       }),
       mfa: cognito.Mfa.OFF,
+      customSenderKmsKey: cognitoCustomSenderKey,
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
       removalPolicy: RemovalPolicy.DESTROY,
       standardAttributes: {
@@ -523,7 +556,7 @@ export class AwsApiStack extends Stack {
         requireSymbols: false
       },
       lambdaTriggers: {
-        customMessage: cognitoTriggerFunction,
+        customEmailSender: cognitoTriggerFunction,
         preSignUp: triggerPreSignUpFunction,
         preAuthentication: cognitoTriggerFunction,
         postAuthentication: cognitoTriggerFunction,

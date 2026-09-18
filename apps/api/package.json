@@ -36,6 +36,7 @@
     "mail:test:ses-bulk": "tsx src/scripts/test-ses-bulk-simulator.ts"
   },
   "dependencies": {
+    "@aws-crypto/client-node": "^5.0.2",
     "@aws-sdk/client-cognito-identity-provider": "3.1103.0",
     "@aws-sdk/client-dynamodb": "3.1095.0",
     "@aws-sdk/client-eventbridge": "3.1095.0",
