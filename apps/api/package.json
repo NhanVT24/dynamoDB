@@ -14,6 +14,7 @@
     "db:seed": "tsx src/scripts/seed.ts",
     "db:reseed": "tsx src/scripts/reseed.ts",
     "db:backfill-products": "tsx src/scripts/backfill-products.ts",
+    "db:backfill-product-category-index": "tsx src/scripts/backfill-product-category-index.ts",
     "db:remove-checkout-reservation-expiry": "tsx src/scripts/remove-checkout-reservation-expiry.ts",
     "db:remove-reserved-stock": "tsx src/scripts/remove-reserved-stock.ts",
     "db:remove-awaiting-payment-order-id": "tsx src/scripts/remove-awaiting-payment-order-id.ts",

@@ -2,9 +2,9 @@ import crypto from "node:crypto";
 import {
   DeleteItemCommand,
   GetItemCommand,
-  PutItemCommand,
   QueryCommand,
   ScanCommand,
+  TransactWriteItemsCommand,
   UpdateItemCommand,
   type AttributeValue
 } from "@aws-sdk/client-dynamodb";
@@ -13,6 +13,12 @@ import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
 import { keys } from "../../database/dynamodb/keys.js";
 import { getMockShoppingItem, listMockShoppingItems } from "./shopping.mock.js";
+import {
+  buildProductCategoryIndexKey,
+  buildProductCategoryIndexPartitionKey,
+  isProductCategoryIndexRecord,
+  toProductCategoryIndexRecord
+} from "./indexes/product-category.index.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 const INCREMENTABLE_FIELDS = new Set(["stock", "soldCount"]);
@@ -170,7 +176,9 @@ async function listShoppingItemsBase(limit = 12, cursor?: string, filters: Shopp
   let result;
 
   try {
-    if (filters.status) {
+    if (filters.category && filters.category !== "all") {
+      result = await queryCategoryIndexUntilEnough(limit, cursor, filters);
+    } else if (filters.status) {
       result = await queryStatusUpdatedAtWithSearchFilterUntilEnough(limit, cursor, filters);
     } else if (filters.search || filters.updatedAtFrom) {
       result = (filters.searchField ?? "name") === "brand" && filters.search
@@ -178,8 +186,6 @@ async function listShoppingItemsBase(limit = 12, cursor?: string, filters: Shopp
         : filters.search
           ? await querySearchUntilEnough(limit, cursor, filters)
           : await scanUntilEnough(limit, cursor, filters);
-    } else if (filters.category && filters.category !== "all") {
-      result = await queryCategoryStatusNameUntilEnough(limit, cursor, filters);
     } else {
       result = await scanUntilEnough(limit, cursor, filters);
     }
@@ -229,6 +235,60 @@ async function scanUntilEnough(limit: number, cursor?: string, filters: Shopping
       if (!matchesFilters(item, filters)) continue;
 
       results.push(item as ProductRecord);
+      if (results.length === limit) {
+        return {
+          items: results,
+          nextCursor: result.LastEvaluatedKey
+            ? encodeCursor({ lastKey: result.LastEvaluatedKey })
+            : null
+        };
+      }
+    }
+
+    state = { lastKey: result.LastEvaluatedKey ?? null };
+
+    if (!result.LastEvaluatedKey) {
+      return { items: results, nextCursor: null };
+    }
+  }
+
+  return { items: results, nextCursor: null };
+}
+
+async function queryCategoryIndexUntilEnough(limit: number, cursor?: string, filters: ShoppingFilters = {}) {
+  if (!filters.category || filters.category === "all") {
+    return scanUntilEnough(limit, cursor, filters);
+  }
+
+  const results: ProductRecord[] = [];
+  let state = cursor ? decodeCursor(cursor) : { lastKey: null as DynamoKey | null };
+
+  while (results.length < limit) {
+    const missingItems = Math.max(0, limit - results.length);
+    if (missingItems === 0) {
+      return {
+        items: results,
+        nextCursor: state.lastKey ? encodeCursor({ lastKey: state.lastKey }) : null
+      };
+    }
+
+    const result = await rawDb.send(new QueryCommand({
+      TableName,
+      KeyConditionExpression: "PK = :pk",
+      ExpressionAttributeValues: toDynamoItem({
+        ":pk": buildProductCategoryIndexPartitionKey(filters.category)
+      }),
+      ScanIndexForward: false,
+      Limit: missingItems,
+      ExclusiveStartKey: state.lastKey ?? undefined
+    }));
+
+    for (const rawItem of result.Items ?? []) {
+      const indexItem = fromDynamoItem(rawItem);
+      if (!isProductCategoryIndexRecord(indexItem)) continue;
+      if (!matchesFilters(indexItem.product, filters)) continue;
+
+      results.push(indexItem.product);
       if (results.length === limit) {
         return {
           items: results,
@@ -367,77 +427,6 @@ async function queryStatusUpdatedAtWithSearchFilterUntilEnough(limit: number, cu
   return { items: results, nextCursor: null };
 }
 
-function buildCategoryStatusNameQuery(filters: ShoppingFilters = {}) {
-  const search = filters.search ? normalizeText(filters.search) : null;
-  const expressionParts = ["category = :categoryKey"];
-  const values: Record<string, unknown> = { ":categoryKey": filters.category };
-  const names: Record<string, string> = {};
-
-  if (filters.status) {
-    expressionParts.push("#status = :statusKey");
-    names["#status"] = "status";
-    values[":statusKey"] = filters.status;
-  }
-
-  if (search) {
-    expressionParts.push("begins_with(searchName, :searchPrefix)");
-    values[":searchPrefix"] = search;
-  }
-
-  return {
-    KeyConditionExpression: expressionParts.join(" AND "),
-    ExpressionAttributeNames: Object.keys(names).length > 0 ? names : undefined,
-    ExpressionAttributeValues: toDynamoItem(values)
-  };
-}
-
-async function queryCategoryStatusNameUntilEnough(limit: number, cursor?: string, filters: ShoppingFilters = {}) {
-  const results: ProductRecord[] = [];
-  const queryInput = buildCategoryStatusNameQuery(filters);
-  let state = cursor ? decodeCursor(cursor) : { lastKey: null as DynamoKey | null };
-
-  while (results.length < limit) {
-    const missingItems = Math.max(0, limit - results.length);
-    if (missingItems === 0) {
-      return {
-        items: results,
-        nextCursor: state.lastKey ? encodeCursor({ lastKey: state.lastKey }) : null
-      };
-    }
-
-    const result = await rawDb.send(new QueryCommand({
-      TableName,
-      IndexName: "CategoryStatusNameIndex",
-      ...queryInput,
-      Limit: missingItems,
-      ExclusiveStartKey: state.lastKey ?? undefined
-    }));
-
-    for (const rawItem of result.Items ?? []) {
-      const item = fromDynamoItem(rawItem);
-      if (!matchesFilters(item, filters)) continue;
-
-      results.push(item as ProductRecord);
-      if (results.length === limit) {
-        return {
-          items: results,
-          nextCursor: result.LastEvaluatedKey
-            ? encodeCursor({ lastKey: result.LastEvaluatedKey })
-            : null
-        };
-      }
-    }
-
-    state = { lastKey: result.LastEvaluatedKey ?? null };
-
-    if (!result.LastEvaluatedKey) {
-      return { items: results, nextCursor: null };
-    }
-  }
-
-  return { items: results, nextCursor: null };
-}
-
 async function querySearchUntilEnough(limit: number, cursor?: string, filters: ShoppingFilters = {}) {
   if ((filters.searchField ?? "name") === "brand") {
     return scanBrandSearchUntilEnough(limit, cursor, filters);
@@ -511,10 +500,24 @@ export async function createShoppingItem(input: ProductRecord, ownerSub: string)
     null
   );
 
-  await rawDb.send(new PutItemCommand({
-    TableName,
-    Item: toDynamoItem({ ...keys.product(item.id), ...item }),
-    ConditionExpression: "attribute_not_exists(PK)"
+  const productRecord = { ...keys.product(item.id), ...item };
+  await rawDb.send(new TransactWriteItemsCommand({
+    TransactItems: [
+      {
+        Put: {
+          TableName,
+          Item: toDynamoItem(productRecord),
+          ConditionExpression: "attribute_not_exists(PK)"
+        }
+      },
+      {
+        Put: {
+          TableName,
+          Item: toDynamoItem(toProductCategoryIndexRecord(productRecord)),
+          ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)"
+        }
+      }
+    ]
   }));
 
   return item;
@@ -551,40 +554,68 @@ export async function incrementItemValue(id: string, field: string, incrementBy 
     current
   );
 
-  const result = await rawDb.send(new UpdateItemCommand({
-    TableName,
-    Key: toDynamoItem(keys.product(id)),
-    UpdateExpression: [
-      "SET #field = :fieldValue",
-      "#status = :status",
-      "#searchName = :searchName",
-      "updatedAt = :updatedAt",
-      "#version = #version + :one",
-      ...(field === "stock" ? ["#inventoryAlertSent = :inventoryAlertSent"] : [])
-    ].join(", ") + (field === "stock" ? " REMOVE inventoryAlertSentAt" : ""),
-    ConditionExpression: expectedOwnerSub
-      ? "attribute_exists(PK) AND ownerSub = :expectedOwnerSub"
-      : "attribute_exists(PK)",
-    ExpressionAttributeNames: {
-      "#field": field,
-      "#status": "status",
-      "#searchName": "searchName",
-      "#version": "version",
-      "#inventoryAlertSent": "inventoryAlertSent"
-    },
-    ExpressionAttributeValues: toDynamoItem({
-      ":fieldValue": nextValue,
-      ":status": nextRecord.status,
-      ":searchName": nextRecord.searchName,
-      ":updatedAt": nextRecord.updatedAt,
-      ":one": 1,
-      ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}),
-      ...(field === "stock" ? { ":inventoryAlertSent": false } : {})
-    }),
-    ReturnValues: "ALL_NEW"
+  const mergedRecord: ProductRecord = {
+    ...current,
+    [field]: nextValue,
+    status: nextRecord.status,
+    searchName: nextRecord.searchName,
+    updatedAt: nextRecord.updatedAt,
+    version: Number(current.version ?? 0) + 1,
+    ...(field === "stock" ? { inventoryAlertSent: false } : {})
+  };
+  delete mergedRecord.inventoryAlertSentAt;
+
+  await rawDb.send(new TransactWriteItemsCommand({
+    TransactItems: [
+      {
+        Update: {
+          TableName,
+          Key: toDynamoItem(keys.product(id)),
+          UpdateExpression: [
+            "SET #field = :fieldValue",
+            "#status = :status",
+            "#searchName = :searchName",
+            "updatedAt = :updatedAt",
+            "#version = #version + :one",
+            ...(field === "stock" ? ["#inventoryAlertSent = :inventoryAlertSent"] : [])
+          ].join(", ") + (field === "stock" ? " REMOVE inventoryAlertSentAt" : ""),
+          ConditionExpression: expectedOwnerSub
+            ? "attribute_exists(PK) AND ownerSub = :expectedOwnerSub"
+            : "attribute_exists(PK)",
+          ExpressionAttributeNames: {
+            "#field": field,
+            "#status": "status",
+            "#searchName": "searchName",
+            "#version": "version",
+            "#inventoryAlertSent": "inventoryAlertSent"
+          },
+          ExpressionAttributeValues: toDynamoItem({
+            ":fieldValue": nextValue,
+            ":status": nextRecord.status,
+            ":searchName": nextRecord.searchName,
+            ":updatedAt": nextRecord.updatedAt,
+            ":one": 1,
+            ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}),
+            ...(field === "stock" ? { ":inventoryAlertSent": false } : {})
+          })
+        }
+      },
+      {
+        Delete: {
+          TableName,
+          Key: toDynamoItem(buildProductCategoryIndexKey(current.category, current.id, current.updatedAt ?? current.createdAt))
+        }
+      },
+      {
+        Put: {
+          TableName,
+          Item: toDynamoItem(toProductCategoryIndexRecord({ ...keys.product(id), ...mergedRecord }))
+        }
+      }
+    ]
   }));
 
-  return fromDynamoItem(result.Attributes);
+  return mergedRecord;
 }
 
 export async function listShoppingItems(limit = 12, cursor?: string, filters: ShoppingFilters = {}) {
@@ -844,30 +875,78 @@ export async function updateShoppingItem(id: string, patch: ProductRecord, versi
     setters.push("#inventoryAlertSent = :inventoryAlertSent");
   }
 
-  const result = await rawDb.send(new UpdateItemCommand({
-    TableName,
-    Key: toDynamoItem(keys.product(id)),
-    UpdateExpression: `SET ${setters.join(", ")}${stockChanged ? " REMOVE inventoryAlertSentAt" : ""}`,
-    ConditionExpression: expectedOwnerSub
-      ? "attribute_exists(PK) AND #version = :expectedVersion AND ownerSub = :expectedOwnerSub"
-      : "attribute_exists(PK) AND #version = :expectedVersion",
-    ExpressionAttributeNames: names,
-    ExpressionAttributeValues: toDynamoItem({ ...values, ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}) }),
-    ReturnValues: "ALL_NEW"
+  const nextVersion = Number(current.version ?? version) + 1;
+  const mergedRecord: ProductRecord = {
+    ...merged,
+    version: nextVersion,
+    searchName: normalizeText(merged.name),
+    searchField: merged.searchField ?? "name",
+    ...(stockChanged ? { inventoryAlertSent: false } : {})
+  };
+  if (stockChanged) {
+    delete mergedRecord.inventoryAlertSentAt;
+  }
+
+  await rawDb.send(new TransactWriteItemsCommand({
+    TransactItems: [
+      {
+        Update: {
+          TableName,
+          Key: toDynamoItem(keys.product(id)),
+          UpdateExpression: `SET ${setters.join(", ")}${stockChanged ? " REMOVE inventoryAlertSentAt" : ""}`,
+          ConditionExpression: expectedOwnerSub
+            ? "attribute_exists(PK) AND #version = :expectedVersion AND ownerSub = :expectedOwnerSub"
+            : "attribute_exists(PK) AND #version = :expectedVersion",
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: toDynamoItem({ ...values, ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}) })
+        }
+      },
+      {
+        Delete: {
+          TableName,
+          Key: toDynamoItem(buildProductCategoryIndexKey(current.category, current.id, current.updatedAt ?? current.createdAt))
+        }
+      },
+      {
+        Put: {
+          TableName,
+          Item: toDynamoItem(toProductCategoryIndexRecord({ ...keys.product(id), ...mergedRecord }))
+        }
+      }
+    ]
   }));
 
-  return fromDynamoItem(result.Attributes);
+  return mergedRecord;
 }
 
 export async function deleteShoppingItem(id: string, expectedOwnerSub?: string) {
-  await rawDb.send(new DeleteItemCommand({
-    TableName,
-    Key: toDynamoItem(keys.product(id)),
-    ConditionExpression: expectedOwnerSub
-      ? "attribute_exists(PK) AND ownerSub = :expectedOwnerSub"
-      : "attribute_exists(PK)",
-    ExpressionAttributeValues: expectedOwnerSub
-      ? toDynamoItem({ ":expectedOwnerSub": expectedOwnerSub })
-      : undefined
+  const current = await getShoppingItem(id);
+  if (!current) {
+    const error = new Error("Product not found");
+    error.name = "ConditionalCheckFailedException";
+    throw error;
+  }
+
+  await rawDb.send(new TransactWriteItemsCommand({
+    TransactItems: [
+      {
+        Delete: {
+          TableName,
+          Key: toDynamoItem(keys.product(id)),
+          ConditionExpression: expectedOwnerSub
+            ? "attribute_exists(PK) AND ownerSub = :expectedOwnerSub"
+            : "attribute_exists(PK)",
+          ExpressionAttributeValues: expectedOwnerSub
+            ? toDynamoItem({ ":expectedOwnerSub": expectedOwnerSub })
+            : undefined
+        }
+      },
+      {
+        Delete: {
+          TableName,
+          Key: toDynamoItem(buildProductCategoryIndexKey(current.category, current.id, current.updatedAt ?? current.createdAt))
+        }
+      }
+    ]
   }));
 }
