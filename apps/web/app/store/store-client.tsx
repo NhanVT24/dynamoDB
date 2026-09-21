@@ -1522,6 +1522,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const isDark = theme === "dark";
+  const isHomeRoute = pathname === "/" || pathname === "/store";
   const [isCartDropActive, setIsCartDropActive] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -1605,7 +1606,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
               </div>
             </Link>
             <nav className={`hidden items-center gap-2 rounded-full p-1 lg:flex ${isDark ? "bg-white/5" : "bg-slate-100"}`}>
-              <Link href="/store" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname === "/store" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Home</Link>
+              <Link href="/store" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isHomeRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Home</Link>
               <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Products</Link>
               <Link href="/store/orders" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Orders</Link>
               <Link href="/store/profile" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Profile</Link>
@@ -1672,7 +1673,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
         {isMobileMenuOpen ? (
           <div id="storefront-mobile-navigation" className={`absolute inset-x-0 top-full border-b px-4 py-4 shadow-2xl lg:hidden ${isDark ? "border-white/10 bg-slate-950" : "border-slate-200 bg-white"}`}>
             <nav aria-label="Storefront navigation" className="grid gap-2">
-              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname === "/store" ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Home</Link>
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isHomeRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Home</Link>
               <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/products" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Products</Link>
               <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/orders" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Orders</Link>
               <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/profile" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Profile</Link>

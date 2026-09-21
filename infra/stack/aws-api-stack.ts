@@ -427,7 +427,7 @@ export class AwsApiStack extends Stack {
       retentionDays: 30
     });
 
-    const sharedLambdaCode = lambda.Code.fromAsset(path.resolve(__dirname, "../apps/api/dist/lambda.zip"));
+    const sharedLambdaCode = lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip"));
     const cognitoCustomSenderKey = new kms.Key(this, "CognitoCustomSenderKey", {
       alias: "alias/supermarket-cognito-custom-sender",
       description: "Encrypts Cognito custom sender verification codes before invoking Lambda.",
@@ -1783,7 +1783,7 @@ export class AwsApiStack extends Stack {
       handler: "cost_guard.handler",
       timeout: Duration.minutes(5),
       memorySize: 256,
-      code: lambda.Code.fromAsset(path.resolve(__dirname, "lambda")),
+      code: lambda.Code.fromAsset(path.resolve(__dirname, "../lambda")),
       environment: {
         ALERT_EMAIL: adminReportEmail.valueAsString,
         SES_FROM_EMAIL: sesFromEmail.valueAsString,
