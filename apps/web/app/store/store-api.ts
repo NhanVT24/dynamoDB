@@ -72,7 +72,7 @@ function slugify(value: string) {
 }
 
 export function buildProductDetailHref(slug: string) {
-  return `/store/products/detail?slug=${encodeURIComponent(slug)}`;
+  return `/store/products/${encodeURIComponent(slug)}`;
 }
 
 function getCategoryImage(category: string) {

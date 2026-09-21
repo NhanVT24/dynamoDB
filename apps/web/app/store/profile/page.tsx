@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { authenticatedFetch, readAuthSession } from "../../lib/cognito-auth";
+import { authenticatedFetch } from "../../lib/cognito-auth";
 import { useStorefront } from "../store-client";
 import { buildProductDetailHref, fetchMyOrders, fetchMyProducts, toStoreProduct } from "../store-api";
 import type { ManagedProduct, StoreOrder } from "../store-types";
@@ -135,16 +135,21 @@ function makeInitials(name: string, email: string) {
 }
 
 const avatarStoragePrefix = "web-storefront-avatar-";
-  const avatarUploadEndpoint = "/api/lambda-proxy/api/uploads/avatar/presign";
+const avatarUploadEndpoint = "/api/lambda-proxy/api/uploads/avatar/presign";
+
+const purchaseOrderStatuses = new Set(["paid", "completed", "done", "delivered", "fulfilled", "succeeded", "success"]);
+
+function isPurchaseOrder(order: StoreOrder) {
+  return purchaseOrderStatuses.has(String(order.status ?? "").trim().toLowerCase());
+}
 
 function avatarStorageKey(email: string) {
   return `${avatarStoragePrefix}${email.trim().toLowerCase()}`;
 }
 
 export default function StoreProfilePage() {
-  const { theme, openAuthModal } = useStorefront();
+  const { session, theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
-  const [session, setSession] = useState<ReturnType<typeof readAuthSession>>(null);
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [myProducts, setMyProducts] = useState<ManagedProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -158,15 +163,19 @@ export default function StoreProfilePage() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const currentSession = readAuthSession();
-    setSession(currentSession);
-    setAvatarUrl(currentSession ? window.localStorage.getItem(avatarStorageKey(currentSession.email)) ?? "" : "");
-
     let cancelled = false;
 
     async function loadOrders() {
-      if (!currentSession) {
+      setAvatarUrl(session ? window.localStorage.getItem(avatarStorageKey(session.email)) ?? "" : "");
+      setIsLoading(true);
+      setProductsLoading(true);
+
+      if (!session) {
         if (!cancelled) {
+          setOrders([]);
+          setMyProducts([]);
+          setError("");
+          setProductsError("");
           setIsLoading(false);
           setProductsLoading(false);
         }
@@ -191,7 +200,7 @@ export default function StoreProfilePage() {
     }
 
     async function loadMyProducts() {
-      if (!currentSession) return;
+      if (!session) return;
       try {
         const items = await fetchMyProducts();
         if (!cancelled) {
@@ -210,26 +219,28 @@ export default function StoreProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [session?.accessToken, session?.email]);
+
+  const purchaseOrders = useMemo(() => orders.filter(isPurchaseOrder), [orders]);
 
   const stats = useMemo(() => {
-    const totalOrders = orders.length;
-    const totalSpend = orders.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
-    const totalItems = orders.reduce((sum, order) => sum + order.items.reduce((inner, item) => inner + Number(item.quantity ?? 0), 0), 0);
+    const totalOrders = purchaseOrders.length;
+    const totalSpend = purchaseOrders.reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
+    const totalItems = purchaseOrders.reduce((sum, order) => sum + order.items.reduce((inner, item) => inner + Number(item.quantity ?? 0), 0), 0);
     return {
       totalOrders,
       totalSpend,
       totalItems
     };
-  }, [orders]);
+  }, [purchaseOrders]);
 
   const profileListPageSize = 5;
   const productTotalPages = Math.max(1, Math.ceil(myProducts.length / profileListPageSize));
-  const orderTotalPages = Math.max(1, Math.ceil(orders.length / profileListPageSize));
+  const orderTotalPages = Math.max(1, Math.ceil(purchaseOrders.length / profileListPageSize));
   const safeProductsPage = Math.min(productsPage, productTotalPages);
   const safeOrdersPage = Math.min(ordersPage, orderTotalPages);
   const paginatedProducts = myProducts.slice((safeProductsPage - 1) * profileListPageSize, safeProductsPage * profileListPageSize);
-  const paginatedOrders = orders.slice((safeOrdersPage - 1) * profileListPageSize, safeOrdersPage * profileListPageSize);
+  const paginatedOrders = purchaseOrders.slice((safeOrdersPage - 1) * profileListPageSize, safeOrdersPage * profileListPageSize);
 
   useEffect(() => {
     setProductsPage((page) => Math.min(page, productTotalPages));

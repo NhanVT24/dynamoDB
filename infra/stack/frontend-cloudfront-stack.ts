@@ -47,6 +47,77 @@ export class FrontendCloudFrontStack extends Stack {
 
     const spaRewriteFunction = new cloudfront.Function(this, "FrontendSpaRewriteFunction", {
       code: cloudfront.FunctionCode.fromInline(`
+function escapeHtml(value) {
+  return value.replace(/[&<>"']/g, function (character) {
+    return ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    })[character];
+  });
+}
+
+function isProductPreviewBot(request) {
+  var userAgentHeader = request.headers["user-agent"];
+  var userAgent = userAgentHeader && userAgentHeader.value ? userAgentHeader.value.toLowerCase() : "";
+  return userAgent.indexOf("facebookexternalhit") >= 0 ||
+    userAgent.indexOf("facebot") >= 0 ||
+    userAgent.indexOf("twitterbot") >= 0 ||
+    userAgent.indexOf("slackbot") >= 0 ||
+    userAgent.indexOf("discordbot") >= 0 ||
+    userAgent.indexOf("telegrambot") >= 0 ||
+    userAgent.indexOf("zalo") >= 0 ||
+    userAgent.indexOf("linkedinbot") >= 0;
+}
+
+function titleFromProductSlug(slug) {
+  var withoutUuid = slug.replace(/-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i, "");
+  var words = decodeURIComponent(withoutUuid).split(/[-_]+/).filter(Boolean);
+  if (words.length === 0) {
+    return "Product detail";
+  }
+  return words.map(function (word) {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }).join(" ");
+}
+
+function productPreviewResponse(request, slug) {
+  var hostHeader = request.headers.host;
+  var host = hostHeader && hostHeader.value ? hostHeader.value : "";
+  var canonicalUrl = "https://" + host + request.uri;
+  var productTitle = titleFromProductSlug(slug);
+  var pageTitle = productTitle + " | NovaX Market";
+  var description = "View product details, availability, and checkout options for " + productTitle + ".";
+  var safeTitle = escapeHtml(pageTitle);
+  var safeDescription = escapeHtml(description);
+  var safeUrl = escapeHtml(canonicalUrl);
+
+  return {
+    statusCode: 200,
+    statusDescription: "OK",
+    headers: {
+      "content-type": { value: "text/html; charset=utf-8" },
+      "cache-control": { value: "public, max-age=300" }
+    },
+    body: "<!doctype html><html><head>" +
+      "<meta charset=\\"utf-8\\">" +
+      "<meta name=\\"viewport\\" content=\\"width=device-width, initial-scale=1\\">" +
+      "<title>" + safeTitle + "</title>" +
+      "<meta name=\\"description\\" content=\\"" + safeDescription + "\\">" +
+      "<meta property=\\"og:type\\" content=\\"product\\">" +
+      "<meta property=\\"og:title\\" content=\\"" + safeTitle + "\\">" +
+      "<meta property=\\"og:description\\" content=\\"" + safeDescription + "\\">" +
+      "<meta property=\\"og:url\\" content=\\"" + safeUrl + "\\">" +
+      "<meta name=\\"twitter:card\\" content=\\"summary\\">" +
+      "<meta name=\\"twitter:title\\" content=\\"" + safeTitle + "\\">" +
+      "<meta name=\\"twitter:description\\" content=\\"" + safeDescription + "\\">" +
+      "<link rel=\\"canonical\\" href=\\"" + safeUrl + "\\">" +
+      "</head><body><a href=\\"" + safeUrl + "\\">" + safeTitle + "</a></body></html>"
+  };
+}
+
 function handler(event) {
   var request = event.request;
   var uri = request.uri;
@@ -57,13 +128,11 @@ function handler(event) {
       request.uri = "/store/products/index.html";
       return request;
     }
-    return {
-      statusCode: 302,
-      statusDescription: "Found",
-      headers: {
-        location: { value: "/store/products/detail/?slug=" + encodeURIComponent(slug) }
-      }
-    };
+    if (isProductPreviewBot(request)) {
+      return productPreviewResponse(request, slug);
+    }
+    request.uri = "/store/products/detail/index.html";
+    return request;
   }
 
   if (uri.endsWith("/")) {

@@ -32,6 +32,8 @@ type ThemeMode = "light" | "dark";
 type SortMode = "newest" | "oldest" | "price-asc" | "price-desc" | "best-seller";
 
 type StoreContextValue = {
+  session: AuthSession | null;
+  setSession: (session: AuthSession | null) => void;
   theme: ThemeMode;
   toggleTheme: () => void;
   items: CartItem[];
@@ -289,6 +291,7 @@ function buildPaginationTokens(currentPage: number, totalPages: number): Paginat
 }
 
 export function StorefrontProvider({ children }: { children: ReactNode }) {
+  const [session, setSession] = useState<AuthSession | null>(null);
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [items, setItems] = useState<CartItem[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -346,20 +349,27 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
     // A global legacy cart has no provable owner, so do not migrate it into
     // any account cart. Keeping it would leak one shopper's choices.
     window.localStorage.removeItem(legacyCartStorageKey);
-    switchCartOwner(readAuthSession());
+    const currentSession = readAuthSession();
+    setSession(currentSession);
+    switchCartOwner(currentSession);
 
-    const syncCartOwner = () => switchCartOwner(readAuthSession());
+    const syncAuthState = () => {
+      const nextSession = readAuthSession();
+      setSession(nextSession);
+      switchCartOwner(nextSession);
+    };
     const handleSessionEnded = (event: Event) => {
       const detail = (event as CustomEvent<{ message?: string }>).detail;
       const message = detail?.message || "";
+      setSession(null);
       setAuthModalMessage(/expired|session has ended/i.test(message) ? "Please sign in to view this page." : message || "Please sign in to view this page.");
       setIsDrawerOpen(false);
       setIsAuthModalOpen(true);
     };
-    window.addEventListener(authSessionChangedEvent, syncCartOwner);
+    window.addEventListener(authSessionChangedEvent, syncAuthState);
     window.addEventListener(authSessionEndedEvent, handleSessionEnded);
     return () => {
-      window.removeEventListener(authSessionChangedEvent, syncCartOwner);
+      window.removeEventListener(authSessionChangedEvent, syncAuthState);
       window.removeEventListener(authSessionEndedEvent, handleSessionEnded);
     };
   }, []);
@@ -451,6 +461,8 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
   return (
     <StoreContext.Provider
       value={{
+        session,
+        setSession,
         theme,
         toggleTheme: () => setTheme((current) => (current === "light" ? "dark" : "light")),
         items,
@@ -1617,28 +1629,18 @@ function ProductCard({ product }: { product: StoreProduct }) {
 }
 
 export function StorefrontShell({ children }: { children: ReactNode }) {
-  const { theme, toggleTheme, count, toggleDrawer, addCatalogItem, theme: currentTheme, openAuthModal } = useStorefront();
+  const { session, setSession, theme, toggleTheme, count, toggleDrawer, addCatalogItem, theme: currentTheme, openAuthModal } = useStorefront();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
   const isDark = theme === "dark";
-  const isHomeRoute = pathname === "/" || pathname === "/store";
+  const normalizedPathname = pathname.replace(/\/+$/, "") || "/";
+  const isHomeRoute = normalizedPathname === "/" || normalizedPathname === "/store";
+  const isProductsRoute = normalizedPathname === "/store/products" || normalizedPathname.startsWith("/store/products/");
+  const isOrdersRoute = normalizedPathname === "/store/orders" || normalizedPathname.startsWith("/store/orders/");
+  const isProfileRoute = normalizedPathname === "/store/profile" || normalizedPathname.startsWith("/store/profile/");
   const [isCartDropActive, setIsCartDropActive] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [session, setSession] = useState<AuthSession | null>(null);
-
-  useEffect(() => {
-    setSession(readAuthSession());
-
-    function syncSession() {
-      setSession(readAuthSession());
-    }
-
-    window.addEventListener(authSessionChangedEvent, syncSession);
-    return () => {
-      window.removeEventListener(authSessionChangedEvent, syncSession);
-    };
-  }, []);
 
   useEffect(() => {
     if (searchParams.get("auth") !== "login") {
@@ -1707,9 +1709,9 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
             </Link>
             <nav className={`hidden items-center gap-2 rounded-full p-1 lg:flex ${isDark ? "bg-white/5" : "bg-slate-100"}`}>
               <Link href="/store" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isHomeRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Home</Link>
-              <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Products</Link>
-              <Link href="/store/orders" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Orders</Link>
-              <Link href="/store/profile" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Profile</Link>
+              <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isProductsRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Products</Link>
+              <Link href="/store/orders" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isOrdersRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Orders</Link>
+              <Link href="/store/profile" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isProfileRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Profile</Link>
               {session?.role === "admin" ? (
                 <Link href="/admin" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isDark ? "bg-cyan-400/12 text-cyan-200 hover:bg-cyan-400/20" : "bg-cyan-50 text-cyan-700 hover:bg-cyan-100"}`}>Admin Console</Link>
               ) : null}
@@ -1735,7 +1737,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
               ) : (
                 <button
                   type="button"
-                  onClick={() => openAuthModal(pathname.startsWith("/store/checkout") ? "/store/checkout" : "/store")}
+                  onClick={() => openAuthModal(normalizedPathname.startsWith("/store") ? normalizedPathname : "/store")}
                   className={`hidden h-11 items-center justify-center rounded-2xl border px-4 text-sm font-semibold lg:inline-flex ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
                 >
                   Sign in
@@ -1777,9 +1779,9 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
           <div id="storefront-mobile-navigation" className={`absolute inset-x-0 top-full border-b px-4 py-4 shadow-2xl lg:hidden ${isDark ? "border-white/10 bg-slate-950" : "border-slate-200 bg-white"}`}>
             <nav aria-label="Storefront navigation" className="grid gap-2">
               <Link onClick={() => setIsMobileMenuOpen(false)} href="/store" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isHomeRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Home</Link>
-              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/products" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Products</Link>
-              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/orders" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Orders</Link>
-              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/profile" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Profile</Link>
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/products" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isProductsRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Products</Link>
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/orders" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isOrdersRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Orders</Link>
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/profile" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isProfileRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Profile</Link>
               {session?.role === "admin" ? (
                 <Link onClick={() => setIsMobileMenuOpen(false)} href="/admin" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isDark ? "bg-cyan-400/12 text-cyan-200 hover:bg-cyan-400/20" : "bg-cyan-50 text-cyan-700 hover:bg-cyan-100"}`}>Admin Console</Link>
               ) : null}
@@ -1794,7 +1796,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
                   <button type="button" onClick={() => { handleStorefrontLogout(); setIsMobileMenuOpen(false); }} className={`rounded-xl border px-3 py-2 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}>Sign out</button>
                 </div>
               ) : (
-                <button type="button" onClick={() => { setIsMobileMenuOpen(false); openAuthModal(pathname.startsWith("/store/checkout") ? "/store/checkout" : "/store"); }} className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}>Sign in</button>
+                <button type="button" onClick={() => { setIsMobileMenuOpen(false); openAuthModal(normalizedPathname.startsWith("/store") ? normalizedPathname : "/store"); }} className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}>Sign in</button>
               )}
             </div>
           </div>

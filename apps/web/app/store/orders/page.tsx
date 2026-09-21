@@ -6,7 +6,6 @@ import { useStorefront } from "../store-client";
 import { fetchMyOrders } from "../store-api";
 import type { StoreOrder } from "../store-types";
 import { formatCurrency, formatDateTime } from "../store-utils";
-import { readAuthSession } from "../../lib/cognito-auth";
 
 type PaginationToken = number | "ellipsis";
 
@@ -135,7 +134,7 @@ function buildPaginationTokens(currentPage: number, totalPages: number): Paginat
 }
 
 export default function StoreOrdersPage() {
-  const { theme, openAuthModal } = useStorefront();
+  const { session, theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [hasSession, setHasSession] = useState<boolean | null>(null);
@@ -148,16 +147,18 @@ export default function StoreOrdersPage() {
     let cancelled = false;
 
     async function loadOrders() {
-      const session = readAuthSession();
       if (!session) {
         if (!cancelled) {
           setHasSession(false);
+          setOrders([]);
+          setError("");
           setIsLoading(false);
         }
         return;
       }
 
       setHasSession(true);
+      setIsLoading(true);
       try {
         const data = await fetchMyOrders();
         if (!cancelled) {
@@ -187,7 +188,7 @@ export default function StoreOrdersPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [session?.accessToken]);
 
   const totalPages = Math.max(1, Math.ceil(orders.length / pageSize));
   const safePage = Math.min(page, totalPages);
