@@ -387,7 +387,7 @@ function makeSku(name: string) {
   const prefix = String(name || "SP")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/gi, "d")
+    .replace(/\u0111/gi, "d")
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 12)
@@ -729,7 +729,7 @@ export default function ShoppingManager({
 
   function startEdit(item: ProductItem) {
     if (!canUpdateProduct(item)) {
-      setMessage("Bạn chỉ có thể sửa sản phẩm do chính mình tạo.");
+      setMessage("You can only edit products that you created.");
       return;
     }
 
@@ -894,7 +894,7 @@ export default function ShoppingManager({
 
   async function updateStock(item: ProductItem, incrementBy: number) {
     if (!canUpdateProduct(item)) {
-      setMessage("Bạn chỉ có thể cập nhật tồn kho của sản phẩm do chính mình tạo.");
+      setMessage("You can only update stock for products that you created.");
       return;
     }
 
@@ -924,7 +924,7 @@ export default function ShoppingManager({
     event.preventDefault();
 
     if ((!editingId && !canCreateProduct) || (editingId && !canUpdateOwnProduct)) {
-      setMessage(editingId ? "Bạn không có quyền sửa sản phẩm." : "Bạn không có quyền thêm sản phẩm.");
+      setMessage(editingId ? "You do not have permission to update products." : "You do not have permission to add products.");
       return;
     }
 
@@ -936,7 +936,7 @@ export default function ShoppingManager({
       String(form.category ?? "")
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
-        .replace(/đ/gi, "d")
+        .replace(/\u0111/gi, "d")
     );
     const originalPrice = Math.max(1000, parseFormattedNumber(form.basePriceInput));
     const discountPercent = Math.min(99, Math.max(0, Number(form.discountPercent) || 0));
@@ -951,7 +951,7 @@ export default function ShoppingManager({
         stock: Number(form.stock),
         price,
         originalPrice,
-        imageUrl: form.imageUrl.trim() || "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80",
+        imageUrl: form.imageUrl.trim() || "https://placehold.co/1200x1200/png?text=Items",
         location: "TP.HCM",
         description: form.description.trim() || `Product ${normalizedName} was quickly created from the admin page.`,
         rating: 4.8,
@@ -1013,10 +1013,10 @@ export default function ShoppingManager({
 
   async function deleteProduct(item: ProductItem) {
     if (!canDeleteProduct(item)) {
-      setMessage("Bạn chỉ có thể xóa sản phẩm do chính mình tạo.");
+      setMessage("You can only delete products that you created.");
       return;
     }
-    if (!window.confirm(`Xóa sản phẩm "${item.name}"?`)) return;
+    if (!window.confirm(`Delete product "${item.name}"?`)) return;
     setBusy(true);
     try {
       const response = await authenticatedFetch(`${apiUrl}/api/shopping-items/${item.id}`, { method: "DELETE" });
@@ -1024,9 +1024,9 @@ export default function ShoppingManager({
       setItems((current) => current.filter((row) => row.id !== item.id));
       setAllItems((current) => current.filter((row) => row.id !== item.id));
       if (editingId === item.id) resetForm();
-      setMessage(`Đã xóa sản phẩm "${item.name}".`);
+      setMessage(`Deleted product "${item.name}".`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể xóa sản phẩm.");
+      setMessage(error instanceof Error ? error.message : "Could not delete product.");
     } finally {
       setBusy(false);
     }
@@ -1565,7 +1565,7 @@ export default function ShoppingManager({
               {form.imageUrl ? (
                 <img
                   src={form.imageUrl}
-                  alt={form.name || "Ảnh sản phẩm"}
+                  alt={form.name || "Product image"}
                   style={{ width: "100%", height: "180px", objectFit: "cover", display: "block" }}
                 />
               ) : (

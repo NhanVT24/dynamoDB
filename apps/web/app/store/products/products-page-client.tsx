@@ -19,8 +19,8 @@ function normalizeVietnameseText(value: string | undefined) {
   return String(value ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
+    .replace(/\u0111/g, "d")
+    .replace(/\u0110/g, "D")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
@@ -28,7 +28,7 @@ function normalizeVietnameseText(value: string | undefined) {
 
 function isAllCategory(value: string | undefined) {
   const normalizedCategory = normalizeVietnameseText(value);
-  return !normalizedCategory || normalizedCategory === normalizeVietnameseText("Tất cả") || normalizedCategory === "all";
+  return !normalizedCategory || normalizedCategory === normalizeVietnameseText("All") || normalizedCategory === "all";
 }
 
 const legacyCategoryIds: Record<string, string> = {
@@ -153,7 +153,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
             disabled={isUnavailable}
             className="pointer-events-auto mt-5 inline-flex min-w-[9rem] items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400"
           >
-            {product.isLocked ? "Đang được giữ" : product.status === "out_of_stock" ? "Hết hàng" : "Thêm vào giỏ"}
+            {product.isLocked ? "Reserved" : product.status === "out_of_stock" ? "Out of stock" : "Add to cart"}
           </button>
         </div>
       </div>
@@ -172,7 +172,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
         <div className="mt-3 flex items-center gap-2 text-sm">
           <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-600">★ {product.rating}</span>
           <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
-            Đã bán {product.soldCount}
+            Sold {product.soldCount}
           </span>
         </div>
         <div className="mt-4">

@@ -138,7 +138,7 @@ function buildProducts(count: number): ProductSeedRecord[] {
       stock,
       price,
       originalPrice: price + 20000,
-      imageUrl: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80",
+      imageUrl: "https://placehold.co/1200x1200/png?text=Items",
       location: locations[index % locations.length],
       description: `Mo ta ngan cho san pham ${index + 1} thuoc danh muc ${category}.`,
       rating: Number((4 + ((index % 10) / 10)).toFixed(1)),

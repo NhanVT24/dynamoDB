@@ -171,6 +171,41 @@ function readCart(storage: CartStorage): CartItem[] {
   }
 }
 
+function mergeCartItems(accountItems: CartItem[], guestItems: CartItem[]): CartItem[] {
+  const mergedByVariant = new Map<string, CartItem>();
+
+  for (const item of [...accountItems, ...guestItems]) {
+    const variantId = String(item.variantId || item.productId).trim();
+    if (!variantId) continue;
+
+    const quantity = Math.max(1, Number(item.quantity) || 1);
+    const stock = Math.max(0, Number(item.stock) || 0);
+    const existing = mergedByVariant.get(variantId);
+
+    if (!existing) {
+      mergedByVariant.set(variantId, {
+        ...item,
+        variantId,
+        quantity: stock > 0 ? Math.min(quantity, stock) : quantity,
+        stock
+      });
+      continue;
+    }
+
+    const mergedStock = Math.max(existing.stock, stock);
+    const mergedQuantity = existing.quantity + quantity;
+    mergedByVariant.set(variantId, {
+      ...existing,
+      ...item,
+      variantId,
+      quantity: mergedStock > 0 ? Math.min(mergedQuantity, mergedStock) : mergedQuantity,
+      stock: mergedStock
+    });
+  }
+
+  return [...mergedByVariant.values()];
+}
+
 function mergeNotifications(localItems: StoreNotification[], serverItems: StoreNotification[]) {
   function buildNotificationKey(item: StoreNotification) {
     const metadata = (item as { metadata?: Record<string, unknown> }).metadata ?? {};
@@ -283,7 +318,19 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
 
     cartStorageRef.current = nextStorage;
     setCartStorage(nextStorage);
-    setItems(readCart(nextStorage));
+
+    let nextItems = readCart(nextStorage);
+    if (session) {
+      const guestStorage: CartStorage = { key: guestCartStorageKey, storage: window.sessionStorage };
+      const guestItems = readCart(guestStorage);
+      if (guestItems.length > 0) {
+        nextItems = mergeCartItems(nextItems, guestItems);
+        nextStorage.storage.setItem(nextStorage.key, JSON.stringify(nextItems));
+        guestStorage.storage.removeItem(guestStorage.key);
+      }
+    }
+
+    setItems(nextItems);
     hasHydratedCartRef.current = true;
     setHasHydratedCart(true);
   }
@@ -304,7 +351,8 @@ export function StorefrontProvider({ children }: { children: ReactNode }) {
     const syncCartOwner = () => switchCartOwner(readAuthSession());
     const handleSessionEnded = (event: Event) => {
       const detail = (event as CustomEvent<{ message?: string }>).detail;
-      setAuthModalMessage(detail?.message || "Your session has ended. Please sign in again.");
+      const message = detail?.message || "";
+      setAuthModalMessage(/expired|session has ended/i.test(message) ? "Please sign in to view this page." : message || "Please sign in to view this page.");
       setIsDrawerOpen(false);
       setIsAuthModalOpen(true);
     };
@@ -514,6 +562,53 @@ function CartDrawer({ session }: { session: AuthSession | null }) {
   );
 }
 
+function PasswordField({
+  id,
+  label,
+  value,
+  placeholder,
+  isVisible,
+  isDark,
+  onChange,
+  onToggle
+}: {
+  id: string;
+  label: string;
+  value: string;
+  placeholder: string;
+  isVisible: boolean;
+  isDark: boolean;
+  onChange: (value: string) => void;
+  onToggle: () => void;
+}) {
+  return (
+    <label className="grid gap-2" htmlFor={id}>
+      <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{label}</span>
+      <div className="relative">
+        <input
+          id={id}
+          type={isVisible ? "text" : "password"}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className={`h-12 w-full rounded-2xl border px-4 pr-20 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+          required
+        />
+        <button
+          type="button"
+          aria-label={isVisible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+          aria-pressed={isVisible}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onToggle}
+          className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-xl px-3 py-1.5 text-xs font-semibold ${isDark ? "bg-white/10 text-white hover:bg-white/15" : "bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"}`}
+        >
+          {isVisible ? "Hide" : "Show"}
+        </button>
+      </div>
+    </label>
+  );
+}
+
 function StorefrontAuthModal({
   session,
   onSignedIn
@@ -540,11 +635,21 @@ function StorefrontAuthModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("Sign in to continue shopping or start checkout.");
   const [resendCountdown, setResendCountdown] = useState(0);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isRegisterPasswordVisible, setIsRegisterPasswordVisible] = useState(false);
+  const [isRegisterConfirmPasswordVisible, setIsRegisterConfirmPasswordVisible] = useState(false);
+  const [isResetPasswordVisible, setIsResetPasswordVisible] = useState(false);
+  const [isResetConfirmPasswordVisible, setIsResetConfirmPasswordVisible] = useState(false);
 
   useEffect(() => {
     if (!isAuthModalOpen) return;
     setMode("login");
     setMessage(authModalMessage || "Sign in to continue shopping or start checkout.");
+    setIsPasswordVisible(false);
+    setIsRegisterPasswordVisible(false);
+    setIsRegisterConfirmPasswordVisible(false);
+    setIsResetPasswordVisible(false);
+    setIsResetConfirmPasswordVisible(false);
   }, [authModalMessage, isAuthModalOpen]);
 
   useEffect(() => {
@@ -595,7 +700,7 @@ function StorefrontAuthModal({
       router.push(resolvePostLoginRoute(nextSession, consumePostLoginRedirect()));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "We could not sign you in right now.");
-      if (error instanceof Error && /xác nhận|confirm/i.test(error.message)) {
+      if (error instanceof Error && /confirm/i.test(error.message)) {
         setConfirmEmail(email);
         setMode("confirm");
       }
@@ -809,17 +914,16 @@ function StorefrontAuthModal({
                 required
               />
             </label>
-            <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Password</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Enter your password"
-                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
-                required
-              />
-            </label>
+            <PasswordField
+              id="storefront-login-password"
+              label="Password"
+              value={password}
+              placeholder="Enter your password"
+              isVisible={isPasswordVisible}
+              isDark={isDark}
+              onChange={setPassword}
+              onToggle={() => setIsPasswordVisible((current) => !current)}
+            />
             <button
               type="submit"
               disabled={isSubmitting}
@@ -840,11 +944,11 @@ function StorefrontAuthModal({
         {mode === "register" ? (
           <form className="mt-5 grid gap-4" onSubmit={handleRegister}>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Họ và tên</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Full name</span>
               <input
                 value={registerName}
                 onChange={(event) => setRegisterName(event.target.value)}
-                placeholder="Ví dụ: Nguyễn Văn A"
+                placeholder="Example: Alex Nguyen"
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
               />
             </label>
@@ -859,28 +963,26 @@ function StorefrontAuthModal({
                 required
               />
             </label>
-            <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Password</span>
-              <input
-                type="password"
-                value={registerPassword}
-                onChange={(event) => setRegisterPassword(event.target.value)}
-                placeholder="Ít nhất 8 ký tự"
-                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
-                required
-              />
-            </label>
-            <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Confirm password</span>
-              <input
-                type="password"
-                value={registerConfirmPassword}
-                onChange={(event) => setRegisterConfirmPassword(event.target.value)}
-                placeholder="Nhập lại mật khẩu"
-                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
-                required
-              />
-            </label>
+            <PasswordField
+              id="storefront-register-password"
+              label="Password"
+              value={registerPassword}
+              placeholder="At least 8 characters"
+              isVisible={isRegisterPasswordVisible}
+              isDark={isDark}
+              onChange={setRegisterPassword}
+              onToggle={() => setIsRegisterPasswordVisible((current) => !current)}
+            />
+            <PasswordField
+              id="storefront-register-confirm-password"
+              label="Confirm password"
+              value={registerConfirmPassword}
+              placeholder="Re-enter your password"
+              isVisible={isRegisterConfirmPasswordVisible}
+              isDark={isDark}
+              onChange={setRegisterConfirmPassword}
+              onToggle={() => setIsRegisterConfirmPasswordVisible((current) => !current)}
+            />
             <button
               type="submit"
               disabled={isSubmitting}
@@ -905,11 +1007,11 @@ function StorefrontAuthModal({
               />
             </label>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Mã xác nhận</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Confirmation code</span>
               <input
                 value={confirmCode}
                 onChange={(event) => setConfirmCode(event.target.value)}
-                placeholder="Nhập mã 6 số từ email"
+                placeholder="Enter the 6-digit code from your email"
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
@@ -927,7 +1029,7 @@ function StorefrontAuthModal({
               disabled={isSubmitting || resendCountdown > 0}
               className={`inline-flex h-12 items-center justify-center rounded-2xl border px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
             >
-              {resendCountdown > 0 ? `Gửi lại mã sau ${resendCountdown}s` : "Gửi lại mã"}
+              {resendCountdown > 0 ? `Resend code in ${resendCountdown}s` : "Resend code"}
             </button>
           </form>
         ) : null}
@@ -940,7 +1042,7 @@ function StorefrontAuthModal({
                 type="email"
                 value={forgotEmail}
                 onChange={(event) => setForgotEmail(event.target.value)}
-                placeholder="Nhập email của bạn"
+                placeholder="Enter your email"
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
@@ -973,33 +1075,31 @@ function StorefrontAuthModal({
               <input
                 value={resetCode}
                 onChange={(event) => setResetCode(event.target.value)}
-                placeholder="Nhập mã từ email"
+                placeholder="Enter the code from your email"
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
             </label>
-            <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>New password</span>
-              <input
-                type="password"
-                value={resetPassword}
-                onChange={(event) => setResetPassword(event.target.value)}
-                placeholder="Nhập mật khẩu mới"
-                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
-                required
-              />
-            </label>
-            <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Confirm new password</span>
-              <input
-                type="password"
-                value={resetConfirmPassword}
-                onChange={(event) => setResetConfirmPassword(event.target.value)}
-                placeholder="Nhập lại mật khẩu mới"
-                className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
-                required
-              />
-            </label>
+            <PasswordField
+              id="storefront-reset-password"
+              label="New password"
+              value={resetPassword}
+              placeholder="Enter a new password"
+              isVisible={isResetPasswordVisible}
+              isDark={isDark}
+              onChange={setResetPassword}
+              onToggle={() => setIsResetPasswordVisible((current) => !current)}
+            />
+            <PasswordField
+              id="storefront-reset-confirm-password"
+              label="Confirm new password"
+              value={resetConfirmPassword}
+              placeholder="Re-enter the new password"
+              isVisible={isResetConfirmPasswordVisible}
+              isDark={isDark}
+              onChange={setResetConfirmPassword}
+              onToggle={() => setIsResetConfirmPasswordVisible((current) => !current)}
+            />
             <button
               type="submit"
               disabled={isSubmitting}
@@ -1298,7 +1398,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        aria-label="Mở thông báo"
+        aria-label="Open notifications"
         className={`relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition-colors ${
           isDark
             ? "border-white/10 bg-white/5 text-white hover:bg-white/10"
@@ -1610,12 +1710,15 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
               <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Products</Link>
               <Link href="/store/orders" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Orders</Link>
               <Link href="/store/profile" className={`rounded-full px-5 py-2.5 text-sm font-medium ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Profile</Link>
+              {session?.role === "admin" ? (
+                <Link href="/admin" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isDark ? "bg-cyan-400/12 text-cyan-200 hover:bg-cyan-400/20" : "bg-cyan-50 text-cyan-700 hover:bg-cyan-100"}`}>Admin Console</Link>
+              ) : null}
             </nav>
             <div className="ml-auto flex items-center gap-2">
               <div className="hidden sm:block"><NotificationBell session={session} isDark={isDark} /></div>
               {session ? (
                 <div className="hidden items-center gap-2 lg:flex">
-                  <Link href="/store/profile" className={`rounded-2xl px-4 py-2 text-right no-underline ${isDark ? "bg-white/5 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
+                  <Link href={session.role === "admin" ? "/admin" : "/store/profile"} className={`rounded-2xl px-4 py-2 text-right no-underline ${isDark ? "bg-white/5 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
                     <p className="max-w-40 truncate text-sm font-semibold">{session.name}</p>
                     <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${session.role === "admin" ? "text-cyan-500" : "text-orange-500"}`}>
                       {session.role === "admin" ? "Admin" : "Customer"}
@@ -1677,13 +1780,16 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
               <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/products" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/products") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Products</Link>
               <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/orders" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/orders") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Orders</Link>
               <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/profile" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${pathname.startsWith("/store/profile") ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Profile</Link>
+              {session?.role === "admin" ? (
+                <Link onClick={() => setIsMobileMenuOpen(false)} href="/admin" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isDark ? "bg-cyan-400/12 text-cyan-200 hover:bg-cyan-400/20" : "bg-cyan-50 text-cyan-700 hover:bg-cyan-100"}`}>Admin Console</Link>
+              ) : null}
             </nav>
             <div className={`mt-4 border-t pt-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
               {session ? (
                 <div className="flex items-center justify-between gap-3">
-                  <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/profile" className="min-w-0">
+                  <Link onClick={() => setIsMobileMenuOpen(false)} href={session.role === "admin" ? "/admin" : "/store/profile"} className="min-w-0">
                     <p className="truncate text-sm font-semibold">{session.name}</p>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-500">{session.role === "admin" ? "Admin" : "Customer"}</p>
+                    <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${session.role === "admin" ? "text-cyan-500" : "text-orange-500"}`}>{session.role === "admin" ? "Admin" : "Customer"}</p>
                   </Link>
                   <button type="button" onClick={() => { handleStorefrontLogout(); setIsMobileMenuOpen(false); }} className={`rounded-xl border px-3 py-2 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}>Sign out</button>
                 </div>
@@ -1816,7 +1922,7 @@ export function HomeSections() {
           </div>
         </section>
 
-        {["Bán chạy", "Flash Pick", "Newest"].map((title) => (
+        {["Best sellers", "Flash Pick", "Newest"].map((title) => (
           <section key={title} className="px-4 py-8 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-7xl">
               <div className="flex items-end justify-between gap-4">
@@ -1932,7 +2038,7 @@ function SaleSpotlight({ products }: { products: StoreProduct[] }) {
             <p className={`text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Automatically apply sale prices at checkout</p>
           </div>
 
-          <div className="sale-marquee mt-7 overflow-hidden px-6 sm:px-8" aria-label="Sản phẩm đang sale">
+          <div className="sale-marquee mt-7 overflow-hidden px-6 sm:px-8" aria-label="Products currently on sale">
             <div className="sale-marquee-track flex w-max gap-4">
               {[0, 1].map((copy) => (
                 <div key={copy} className="flex gap-4" aria-hidden={copy === 1}>
@@ -2002,7 +2108,7 @@ export function ProductShowcase({ title, products }: { title: string; products: 
       <div className="mx-auto max-w-7xl">
         <div className="flex items-end justify-between gap-4">
           <SectionTitle title={title} description="Products connected directly to the storefront route in this web project." />
-          <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-300 bg-white text-slate-950"}`}>Xem toàn bộ</Link>
+          <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-300 bg-white text-slate-950"}`}>View all</Link>
         </div>
         <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {products.map((product) => <ProductCard key={product.id} product={product} />)}
@@ -2022,7 +2128,7 @@ export function ProductsPageClient({
   const { theme } = useStorefront();
   const isDark = theme === "dark";
   const [keyword, setKeyword] = useState("");
-  const activeCategory = category ?? "Tất cả";
+  const activeCategory = category ?? "All";
   const activeSort = sort ?? "newest";
   const itemsPerPage = 8;
   const [page, setPage] = useState(1);
@@ -2030,7 +2136,7 @@ export function ProductsPageClient({
   const filteredProducts = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
     return [...storeProducts]
-      .filter((product) => activeCategory === "Tất cả" || product.category === activeCategory)
+      .filter((product) => activeCategory === "All" || product.category === activeCategory)
       .filter((product) =>
         normalizedKeyword.length === 0
           ? true
@@ -2061,21 +2167,21 @@ export function ProductsPageClient({
         <div className={`mt-8 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
           <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr_1fr]">
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Tìm sản phẩm</span>
-              <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="Nhập tên, thương hiệu hoặc mô tả..." className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-slate-900 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`} />
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Search products</span>
+              <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="Enter product name, brand, or description..." className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-slate-900 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`} />
             </label>
             <div className="flex flex-col gap-2">
               <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Category</span>
               <div className={`h-12 rounded-2xl border px-4 text-sm leading-[46px] ${isDark ? "border-white/10 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-950"}`}>{activeCategory}</div>
             </div>
             <div className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Sắp xếp</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Sort</span>
               <div className={`h-12 rounded-2xl border px-4 text-sm leading-[46px] ${isDark ? "border-white/10 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-950"}`}>{activeSort}</div>
             </div>
           </div>
         </div>
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-          <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>Hiển thị <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{paginatedProducts.length}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{filteredProducts.length}</span> sản phẩm</p>
+          <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>Showing <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{paginatedProducts.length}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{filteredProducts.length}</span> products</p>
           <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>Page <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{safePage}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{totalPages}</span></p>
         </div>
         <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
@@ -2270,7 +2376,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
               onClick={() => router.replace("/store/products")}
               className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white"
             >
-              about list of products
+              Back to products
             </button>
             <button
               type="button"
@@ -2291,7 +2397,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
         <div className={`mx-auto max-w-3xl rounded-[2rem] border p-10 text-center ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
           <p className="text-sm uppercase tracking-[0.3em] text-orange-500">Not found</p>
           <h1 className={`mt-4 text-3xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>This product does not exist in the storefront</h1>
-          <Link href="/store/products" className="mt-6 inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">Quay lại danh sách</Link>
+          <Link href="/store/products" className="mt-6 inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">Back to product list</Link>
         </div>
       </section>
     );
@@ -2324,7 +2430,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
   }
 
   async function deleteOwnedProduct() {
-    if (!managedProduct || !canDeleteProduct || !window.confirm(`Xóa sản phẩm "${managedProduct.name}"?`)) return;
+    if (!managedProduct || !canDeleteProduct || !window.confirm(`Delete product "${managedProduct.name}"?`)) return;
     setDeleteBusy(true);
     setActionMessage("");
     try {
@@ -2335,7 +2441,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
       }
       router.replace("/store/products");
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : "Không thể xóa sản phẩm.");
+      setActionMessage(error instanceof Error ? error.message : "Could not delete product.");
     } finally {
       setDeleteBusy(false);
     }
@@ -2344,7 +2450,14 @@ export function ProductDetailClient({ slug }: { slug: string }) {
   return (
     <section className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <SectionTitle title={product.name} description="This product detail page is connected directly to the current web app." />
+        <Link
+          href="/store/products"
+          className={`inline-flex items-center justify-center rounded-full border px-4 py-2 text-sm font-semibold ${
+            isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"
+          }`}
+        >
+          Back to products
+        </Link>
         <div className="mt-8 grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
           <div className={`overflow-hidden rounded-[2rem] border p-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white shadow-[0_28px_80px_-56px_rgba(15,23,42,0.35)]"}`}>
             <img src={product.imageUrl} alt={product.name} className="h-[28rem] w-full rounded-[1.75rem] object-cover sm:h-[36rem]" />
@@ -2363,7 +2476,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
               <InfoTile isDark={isDark} label="Rating" value={`${product.rating} / 5`} />
               <InfoTile isDark={isDark} label="Sold" value={`${product.soldCount}+`} />
-              <InfoTile isDark={isDark} label="Cập nhật" value={formatShortDate(product.updatedAt)} />
+              <InfoTile isDark={isDark} label="Updated" value={formatShortDate(product.updatedAt)} />
             </div>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <div className={`inline-flex items-center rounded-full border p-1 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
@@ -2375,8 +2488,8 @@ export function ProductDetailClient({ slug }: { slug: string }) {
             </div>
             {canUpdateProduct || canDeleteProduct ? (
               <div id="manage-product" className={`mt-6 scroll-mt-28 rounded-3xl border p-4 ${isDark ? "border-orange-400/20 bg-orange-400/10" : "border-orange-200 bg-orange-50"}`}>
-                <p className="text-sm font-semibold text-orange-700">Sản phẩm của bạn</p>
-                <p className={`mt-1 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Các thao tác dưới đây chỉ xuất hiện khi bạn là owner và có permission tương ứng.</p>
+                <p className="text-sm font-semibold text-orange-700">Your product</p>
+                <p className={`mt-1 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>The actions below only appear when you own this product and have the matching permission.</p>
                 <div className="mt-4 flex flex-wrap gap-3">
                   {canUpdateProduct ? <button type="button" onClick={() => setIsEditing((current) => !current)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">{isEditing ? "Close update form" : "Update product"}</button> : null}
                   {canDeleteProduct ? <button type="button" onClick={() => void deleteOwnedProduct()} disabled={deleteBusy} className="rounded-full bg-rose-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{deleteBusy ? "Deleting..." : "Delete product"}</button> : null}
@@ -2397,10 +2510,10 @@ export function ProductDetailClient({ slug }: { slug: string }) {
         <div className="mt-14">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Liên quan</p>
-              <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Cùng danh mục với sản phẩm này</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Related</p>
+              <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>More from this category</h2>
             </div>
-            <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-300 bg-white text-slate-950"}`}>Xem catalog</Link>
+            <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-300 bg-white text-slate-950"}`}>View catalog</Link>
           </div>
           <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             {relatedProducts.map((item) => <ProductCard key={item.id} product={item} />)}

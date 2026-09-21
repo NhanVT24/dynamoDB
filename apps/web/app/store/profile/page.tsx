@@ -142,7 +142,7 @@ function avatarStorageKey(email: string) {
 }
 
 export default function StoreProfilePage() {
-  const { theme } = useStorefront();
+  const { theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
   const [session, setSession] = useState<ReturnType<typeof readAuthSession>>(null);
   const [orders, setOrders] = useState<StoreOrder[]>([]);
@@ -181,7 +181,7 @@ export default function StoreProfilePage() {
         }
       } catch (nextError) {
         if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : "Không thể tải thông tin hồ sơ.");
+          setError(nextError instanceof Error ? nextError.message : "We could not load your profile information.");
         }
       } finally {
         if (!cancelled) {
@@ -199,7 +199,7 @@ export default function StoreProfilePage() {
           setProductsError("");
         }
       } catch (nextError) {
-        if (!cancelled) setProductsError(nextError instanceof Error ? nextError.message : "Không thể tải sản phẩm của bạn.");
+        if (!cancelled) setProductsError(nextError instanceof Error ? nextError.message : "We could not load your products.");
       } finally {
         if (!cancelled) setProductsLoading(false);
       }
@@ -287,22 +287,22 @@ export default function StoreProfilePage() {
       <main className="px-4 py-12 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl rounded-[2rem] bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 p-[1px]">
           <div className={`rounded-[calc(2rem-1px)] px-6 py-10 text-center sm:px-8 ${isDark ? "bg-[#101826] text-white" : "bg-white text-slate-950"}`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Hồ sơ cá nhân</p>
-            <h1 className={`mt-4 text-4xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Đăng nhập để mở hồ sơ của bạn</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Personal Profile</p>
+            <h1 className={`mt-4 text-4xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Sign in to open your profile</h1>
             <p className={`mx-auto mt-4 max-w-2xl text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-              Khi đăng nhập, bạn sẽ xem được thông tin tài khoản, thống kê chi tiêu và các đơn hàng gần đây ngay trong storefront.
+              When you sign in, you can view your account details, spending summary, and recent orders directly in the storefront.
             </p>
             <div className="mt-7 flex flex-wrap justify-center gap-3">
-              <Link href="/admin" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-                Đăng nhập ngay
-              </Link>
+              <button type="button" onClick={() => openAuthModal("/store/profile")} className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
+                Sign in now
+              </button>
               <Link
                 href="/store/products"
                 className={`rounded-full px-5 py-3 text-sm font-semibold ${
                   isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
                 }`}
               >
-                Xem sản phẩm trước
+                Browse products first
               </Link>
             </div>
           </div>
@@ -324,7 +324,7 @@ export default function StoreProfilePage() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Your Profile</p>
               <h1 className={`mt-4 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl ${isDark ? "text-white" : "text-slate-950"}`}>
-                {session.name || "Người dùng NovaX"}, welcome back!
+                {session.name || "NovaX user"}, welcome back!
               </h1>
               <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>
                 This page aggregates login information from Cognito along with actual purchase statistics from the storefront so you can quickly view the status of your account.
@@ -375,7 +375,7 @@ export default function StoreProfilePage() {
                           : "bg-orange-100 text-orange-700"
                     }`}
                   >
-                    {session.role === "admin" ? "Quản trị viên" : "Khách hàng"}
+                    {session.role === "admin" ? "Admin" : "Customer"}
                   </span>
                 </div>
               </div>
@@ -427,8 +427,8 @@ export default function StoreProfilePage() {
             <p role="alert" className="mt-6 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{productsError}</p>
           ) : myProducts.length === 0 ? (
             <div className={`mt-6 rounded-3xl border border-dashed px-6 py-10 text-center ${isDark ? "border-white/10 text-slate-300" : "border-slate-200 text-slate-600"}`}>
-              <p>Bạn chưa tạo sản phẩm nào.</p>
-              {session.role === "admin" || session.permissions.includes("products:create") ? <Link href="/store/products?add=1" className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">Tạo sản phẩm đầu tiên</Link> : null}
+              <p>You have not created any products yet.</p>
+              {session.role === "admin" || session.permissions.includes("products:create") ? <Link href="/store/products?add=1" className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">Create your first product</Link> : null}
             </div>
           ) : (<>
             <div className="mt-6 grid gap-3">
@@ -440,7 +440,7 @@ export default function StoreProfilePage() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-orange-500">{item.category}</p>
                       <h3 className={`truncate text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{item.name}</h3>
-                      <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>Stock {item.stock} · {formatCurrency(item.price)}</p>
+                      <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>Stock {item.stock} / {formatCurrency(item.price)}</p>
                     </div>
                     <Link href={buildProductDetailHref(storefrontProduct.slug)} className="shrink-0 rounded-full bg-slate-950 px-3 py-2 text-xs font-semibold text-white">View</Link>
                   </article>
@@ -491,7 +491,7 @@ export default function StoreProfilePage() {
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-500">Order ID {order.id.slice(0, 8)}</p>
-                        <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>{order.items.length} items · {formatDateTime(order.createdAt)}</p>
+                        <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>{order.items.length} items / {formatDateTime(order.createdAt)}</p>
                       </div>
                       <div className="text-right">
                         <p className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{formatCurrency(order.totalAmount)}</p>

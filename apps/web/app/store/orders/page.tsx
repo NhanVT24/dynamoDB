@@ -6,6 +6,7 @@ import { useStorefront } from "../store-client";
 import { fetchMyOrders } from "../store-api";
 import type { StoreOrder } from "../store-types";
 import { formatCurrency, formatDateTime } from "../store-utils";
+import { readAuthSession } from "../../lib/cognito-auth";
 
 type PaginationToken = number | "ellipsis";
 
@@ -134,9 +135,10 @@ function buildPaginationTokens(currentPage: number, totalPages: number): Paginat
 }
 
 export default function StoreOrdersPage() {
-  const { theme } = useStorefront();
+  const { theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
   const [orders, setOrders] = useState<StoreOrder[]>([]);
+  const [hasSession, setHasSession] = useState<boolean | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
@@ -146,6 +148,16 @@ export default function StoreOrdersPage() {
     let cancelled = false;
 
     async function loadOrders() {
+      const session = readAuthSession();
+      if (!session) {
+        if (!cancelled) {
+          setHasSession(false);
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      setHasSession(true);
       try {
         const data = await fetchMyOrders();
         if (!cancelled) {
@@ -155,7 +167,14 @@ export default function StoreOrdersPage() {
         }
       } catch (nextError) {
         if (!cancelled) {
-          setError(nextError instanceof Error ? nextError.message : "Không thể tải lịch sử mua hàng.");
+          const message = nextError instanceof Error ? nextError.message : "We could not load your order history.";
+          if (/expired|sign in|session|unauthorized|401|403/i.test(message)) {
+            setHasSession(false);
+            setError("");
+            return;
+          }
+
+          setError(message);
         }
       } finally {
         if (!cancelled) {
@@ -177,6 +196,30 @@ export default function StoreOrdersPage() {
 
   if (isLoading) {
     return <OrdersSkeleton isDark={isDark} />;
+  }
+
+  if (hasSession === false) {
+    return (
+      <main className="px-4 py-12 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-4xl rounded-[2rem] bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 p-[1px]">
+          <div className={`rounded-[calc(2rem-1px)] px-6 py-10 text-center sm:px-8 ${isDark ? "bg-[#101826] text-white" : "bg-white text-slate-950"}`}>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Order History</p>
+            <h1 className={`mt-4 text-4xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Sign in to view your orders</h1>
+            <p className={`mx-auto mt-4 max-w-2xl text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
+              Your order history is tied to your account. Sign in to review recent purchases, payment status, and fulfillment details.
+            </p>
+            <div className="mt-7 flex flex-wrap justify-center gap-3">
+              <button type="button" onClick={() => openAuthModal("/store/orders")} className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
+                Sign in
+              </button>
+              <Link href="/store/products" className={`rounded-full px-5 py-3 text-sm font-semibold ${isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"}`}>
+                Browse products
+              </Link>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return (

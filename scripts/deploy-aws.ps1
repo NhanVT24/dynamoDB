@@ -7,7 +7,12 @@ param(
   [string]$FrontendApiOriginDomainName,
   [string]$FrontendApiOriginPath = "/prod",
   [string]$FrontendCertificateArn,
-  [string]$FrontendDomainNames
+  [string]$FrontendDomainNames,
+  [string]$VnpayReturnUrl = $env:VNPAY_RETURN_URL,
+  [string]$VnpayIpnUrl = $env:VNPAY_IPN_URL,
+  [string]$CallbackUrl = $env:COGNITO_CALLBACK_URL,
+  [string]$LogoutUrl = $env:COGNITO_LOGOUT_URL,
+  [string]$CognitoDomainPrefix = $env:COGNITO_DOMAIN_PREFIX
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,7 +42,7 @@ Write-Host "Deploying with AWS profile: $AwsProfile"
 & aws sts get-caller-identity
 if ($LASTEXITCODE -ne 0) {
   Write-Host "AWS credentials are missing or expired. Starting AWS login..."
-  & aws login --profile $AwsProfile
+  & aws sso login --profile $AwsProfile
   if ($LASTEXITCODE -ne 0) {
     throw "AWS login failed for profile '$AwsProfile'."
   }
@@ -75,8 +80,35 @@ if ($Clean) {
 $deployStartedAt = Get-Date
 
 if (-not $FrontendCloudFrontOnly) {
-  # cdk:aws:deploy already packages the Lambda once before deploying.
-  & npm run cdk:aws:deploy
+  & npm run build:lambda
+  if ($LASTEXITCODE -ne 0) {
+    throw "Lambda packaging failed."
+  }
+
+  $apiDeployArgs = @(
+    "cdk", "deploy", "SupermarketAwsStack",
+    "--app", "npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts",
+    "--output", "cdk.out",
+    "--require-approval", "never"
+  )
+
+  if ($VnpayReturnUrl) {
+    $apiDeployArgs += @("--parameters", "VnpayReturnUrl=$VnpayReturnUrl")
+  }
+  if ($VnpayIpnUrl) {
+    $apiDeployArgs += @("--parameters", "VnpayIpnUrl=$VnpayIpnUrl")
+  }
+  if ($CallbackUrl) {
+    $apiDeployArgs += @("--parameters", "CallbackUrl=$CallbackUrl")
+  }
+  if ($LogoutUrl) {
+    $apiDeployArgs += @("--parameters", "LogoutUrl=$LogoutUrl")
+  }
+  if ($CognitoDomainPrefix) {
+    $apiDeployArgs += @("--parameters", "CognitoDomainPrefix=$CognitoDomainPrefix")
+  }
+
+  & npx @apiDeployArgs
   if ($LASTEXITCODE -ne 0) {
     throw "AWS API CDK deployment failed."
   }

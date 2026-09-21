@@ -208,7 +208,7 @@ export async function fetchMyProducts() {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { message?: string } | null;
-    throw new Error(payload?.message || "Không thể tải sản phẩm của bạn.");
+    throw new Error(payload?.message || "We could not load your products.");
   }
 
   const payload = await response.json() as { items?: ManagedProduct[] };

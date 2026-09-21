@@ -251,8 +251,16 @@ export class StorefrontService {
   }
 
   async getOrderStatus(email: string, orderId: string) {
-    const order = await getAwaitingPaymentOrder(orderId);
+    let order = await getAwaitingPaymentOrder(orderId);
     if (!order || order.customerEmail !== email) throw new NotFoundException("Order not found.");
+    if (order.status === "awaiting_payment" && order.lockedUntil && order.lockedUntil <= new Date().toISOString()) {
+      const outcome = await transitionAwaitingPaymentOrder({
+        orderId,
+        expectedCustomerEmail: email,
+        status: "expired"
+      });
+      order = outcome.order;
+    }
     return { orderId, status: order.status, lockedUntil: order.lockedUntil };
   }
 

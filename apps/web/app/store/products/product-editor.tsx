@@ -13,14 +13,14 @@ type ProductEditorProps = {
 };
 
 const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
-const defaultImageUrl = "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=80";
+const defaultImageUrl = "https://placehold.co/1200x1200/png?text=Items";
 const categories = [
-  { value: "Thoi trang", label: "Thời trang" },
-  { value: "Dien tu", label: "Điện tử" },
-  { value: "Gia dung", label: "Gia dụng" },
-  { value: "Me va be", label: "Mẹ và bé" },
-  { value: "Lam dep", label: "Làm đẹp" },
-  { value: "Bach hoa", label: "Bách hóa" }
+  { value: "Thoi trang", label: "Fashion" },
+  { value: "Dien tu", label: "Electronics" },
+  { value: "Gia dung", label: "Home Appliances" },
+  { value: "Me va be", label: "Baby & Family" },
+  { value: "Lam dep", label: "Beauty" },
+  { value: "Bach hoa", label: "Grocery" }
 ] as const;
 
 function createSku(name: string) {
@@ -61,7 +61,7 @@ export default function ProductEditor({ session, initialProduct, onSaved, onCanc
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!hasRequiredPermission) {
-      setMessage(isEditing ? "Bạn không có quyền sửa sản phẩm." : "Bạn không có quyền thêm sản phẩm.");
+      setMessage(isEditing ? "You do not have permission to update this product." : "You do not have permission to add products.");
       return;
     }
 
@@ -69,11 +69,11 @@ export default function ProductEditor({ session, initialProduct, onSaved, onCanc
     const parsedPrice = Number(price);
     const parsedOriginalPrice = Math.max(parsedPrice, Number(originalPrice));
     if (!Number.isInteger(parsedStock) || parsedStock < 1) {
-      setMessage("Tồn kho phải là số nguyên lớn hơn 0 để sản phẩm xuất hiện trên storefront.");
+      setMessage("Stock must be an integer greater than 0 for the product to appear in the storefront.");
       return;
     }
     if (!Number.isFinite(parsedPrice) || parsedPrice < 1000) {
-      setMessage("Giá bán phải từ 1.000 trở lên.");
+      setMessage("Sale price must be at least 1,000.");
       return;
     }
 
@@ -106,7 +106,7 @@ export default function ProductEditor({ session, initialProduct, onSaved, onCanc
       if (!response.ok) throw new Error(await readApiError(response));
       onSaved(await response.json() as ManagedProduct);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể lưu sản phẩm.");
+      setMessage(error instanceof Error ? error.message : "Could not save product.");
     } finally {
       setBusy(false);
     }
@@ -119,19 +119,19 @@ export default function ProductEditor({ session, initialProduct, onSaved, onCanc
       <div>
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-500">Product workspace</p>
         <h1 className="mt-3 text-3xl font-semibold text-slate-950">{isEditing ? "Update product" : "Add product"}</h1>
-        <p className="mt-2 text-sm text-slate-600">{isEditing ? "Bạn chỉ có thể sửa sản phẩm do chính mình tạo." : "Sản phẩm sau khi tạo sẽ mở ngay tại trang chi tiết."}</p>
+        <p className="mt-2 text-sm text-slate-600">{isEditing ? "You can only update products that you created." : "After creation, the product will open directly on its detail page."}</p>
       </div>
 
       <div className="grid gap-5 md:grid-cols-2">
-        <label className="text-sm font-semibold text-slate-700">Tên sản phẩm<input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={120} required /></label>
-        <label className="text-sm font-semibold text-slate-700">Thương hiệu<input className={inputClass} value={brand} onChange={(event) => setBrand(event.target.value)} minLength={2} maxLength={80} required /></label>
-        <label className="text-sm font-semibold text-slate-700">Danh mục<select className={inputClass} value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-        <label className="text-sm font-semibold text-slate-700">Tồn kho<input className={inputClass} type="number" min="1" step="1" value={stock} onChange={(event) => setStock(event.target.value)} required /></label>
-        <label className="text-sm font-semibold text-slate-700">Giá bán<input className={inputClass} type="number" min="1000" step="1000" value={price} onChange={(event) => setPrice(event.target.value)} required /></label>
-        <label className="text-sm font-semibold text-slate-700">Giá gốc<input className={inputClass} type="number" min="1000" step="1000" value={originalPrice} onChange={(event) => setOriginalPrice(event.target.value)} required /></label>
-        <label className="text-sm font-semibold text-slate-700 md:col-span-2">URL hình ảnh<input className={inputClass} type="url" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} maxLength={500} required /></label>
-        <label className="text-sm font-semibold text-slate-700 md:col-span-2">Khu vực<input className={inputClass} value={location} onChange={(event) => setLocation(event.target.value)} minLength={2} maxLength={80} required /></label>
-        <label className="text-sm font-semibold text-slate-700 md:col-span-2">Mô tả<textarea className="mt-2 min-h-32 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-100" value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} maxLength={500} required /></label>
+        <label className="text-sm font-semibold text-slate-700">Product name<input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={120} required /></label>
+        <label className="text-sm font-semibold text-slate-700">Brand<input className={inputClass} value={brand} onChange={(event) => setBrand(event.target.value)} minLength={2} maxLength={80} required /></label>
+        <label className="text-sm font-semibold text-slate-700">Category<select className={inputClass} value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+        <label className="text-sm font-semibold text-slate-700">Stock<input className={inputClass} type="number" min="1" step="1" value={stock} onChange={(event) => setStock(event.target.value)} required /></label>
+        <label className="text-sm font-semibold text-slate-700">Sale price<input className={inputClass} type="number" min="1000" step="1000" value={price} onChange={(event) => setPrice(event.target.value)} required /></label>
+        <label className="text-sm font-semibold text-slate-700">Original price<input className={inputClass} type="number" min="1000" step="1000" value={originalPrice} onChange={(event) => setOriginalPrice(event.target.value)} required /></label>
+        <label className="text-sm font-semibold text-slate-700 md:col-span-2">Image URL<input className={inputClass} type="url" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} maxLength={500} required /></label>
+        <label className="text-sm font-semibold text-slate-700 md:col-span-2">Location<input className={inputClass} value={location} onChange={(event) => setLocation(event.target.value)} minLength={2} maxLength={80} required /></label>
+        <label className="text-sm font-semibold text-slate-700 md:col-span-2">Description<textarea className="mt-2 min-h-32 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-100" value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} maxLength={500} required /></label>
       </div>
 
       {imageUrl ? <img src={imageUrl} alt="Product preview" className="h-64 w-full rounded-3xl border border-slate-200 object-cover" /> : null}

@@ -53,6 +53,10 @@ function handler(event) {
 
   if (uri.startsWith("/store/products/") && !uri.startsWith("/store/products/detail/") && !uri.includes(".")) {
     var slug = uri.substring("/store/products/".length).replace(/\\/+$/, "");
+    if (!slug) {
+      request.uri = "/store/products/index.html";
+      return request;
+    }
     return {
       statusCode: 302,
       statusDescription: "Found",

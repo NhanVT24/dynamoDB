@@ -2,7 +2,11 @@
 param(
   [string]$AwsProfile = "nhandev",
   [string]$StackName = "SupermarketFrontendCloudFrontStack",
-  [string]$ApiBaseUrl = "/api/lambda-proxy"
+  [string]$ApiBaseUrl = "/api/lambda-proxy",
+  [string]$AwsRegion = "ap-southeast-1",
+  [string]$CognitoUserPoolId,
+  [string]$CognitoClientId,
+  [string]$CognitoDomain
 )
 
 $ErrorActionPreference = "Stop"
@@ -11,6 +15,19 @@ $workspaceRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location -LiteralPath $workspaceRoot
 $env:AWS_PROFILE = $AwsProfile
 $env:NEXT_PUBLIC_API_URL = $ApiBaseUrl
+$env:NEXT_PUBLIC_AWS_REGION = $AwsRegion
+
+if ($CognitoUserPoolId) {
+  $env:NEXT_PUBLIC_COGNITO_USER_POOL_ID = $CognitoUserPoolId
+}
+
+if ($CognitoClientId) {
+  $env:NEXT_PUBLIC_COGNITO_CLIENT_ID = $CognitoClientId
+}
+
+if ($CognitoDomain) {
+  $env:NEXT_PUBLIC_COGNITO_DOMAIN = $CognitoDomain
+}
 
 Write-Host "Building static frontend with NEXT_PUBLIC_API_URL=$ApiBaseUrl"
 & npm run build -w @supermarket/web

@@ -4,7 +4,7 @@ import { AwsApiStack } from "../stack/aws-api-stack";
 import { FrontendCloudFrontStack } from "../stack/frontend-cloudfront-stack";
 
 const app = new cdk.App();
-const defaultFrontendApiOriginDomainName = "rrt1ukhcpj.execute-api.ap-southeast-1.amazonaws.com";
+const defaultFrontendApiOriginDomainName = "b5j3895qth.execute-api.ap-southeast-1.amazonaws.com";
 const defaultFrontendApiOriginPath = "/prod";
 const contextEnvNames: Record<string, string> = {
   frontendApiOriginDomainName: "FRONTEND_API_ORIGIN_DOMAIN_NAME",

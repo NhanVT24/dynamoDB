@@ -1,13 +1,13 @@
 import { listAllShoppingItems, updateShoppingItem } from "../modules/shopping/shopping.repository.js";
 
-const DEFAULT_IMAGE_URL = "https://placehold.co/1200x1200/png?text=Store+Item";
+const DEFAULT_IMAGE_URL = "https://placehold.co/1200x1200/png?text=Items";
 const categoryImageUrls: Record<string, string> = {
-  "Thoi trang": "https://placehold.co/1200x1200/png?text=Fashion+Item",
-  "Dien tu": "https://placehold.co/1200x1200/png?text=Tech+Item",
-  "Gia dung": "https://placehold.co/1200x1200/png?text=Home+Item",
-  "Me va be": "https://placehold.co/1200x1200/png?text=Baby+Item",
-  "Lam dep": "https://placehold.co/1200x1200/png?text=Beauty+Item",
-  "Bach hoa": "https://placehold.co/1200x1200/png?text=Grocery+Item"
+  "Thoi trang": DEFAULT_IMAGE_URL,
+  "Dien tu": DEFAULT_IMAGE_URL,
+  "Gia dung": DEFAULT_IMAGE_URL,
+  "Me va be": DEFAULT_IMAGE_URL,
+  "Lam dep": DEFAULT_IMAGE_URL,
+  "Bach hoa": DEFAULT_IMAGE_URL
 };
 
 type Options = {

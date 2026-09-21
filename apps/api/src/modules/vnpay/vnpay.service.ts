@@ -231,10 +231,32 @@ export class VnpayService {
     if (!this.isValidCallback(result)) {
       return { ...result, transactionStatus: "failed", message: "Invalid VNPay callback data." };
     }
-    const session = await getPaymentSessionByTxnRef(result.txnRef);
+    let session = await getPaymentSessionByTxnRef(result.txnRef);
     if (!session || session.amount * 100 !== Number(result.amountMinor)) {
       return { ...result, transactionStatus: "failed", message: "Payment session or amount does not match." };
     }
+
+    if (session.status === "pending") {
+      try {
+        session = await updatePaymentSessionStatus({
+          txnRef: result.txnRef,
+          status: result.transactionStatus === "success" ? "success" : "failed",
+          responseCode: result.responseCode,
+          transactionStatus: result.gatewayTransactionStatus,
+          transactionNo: result.transactionNo,
+          bankCode: result.bankCode,
+          payDate: result.payDate
+        });
+      } catch (error) {
+        if (!isConditionalCheckFailedError(error)) throw error;
+        session = await getPaymentSessionByTxnRef(result.txnRef);
+      }
+
+      if (session) {
+        await this.dispatchPaymentEvent(session, "return");
+      }
+    }
+
     return {
       ...result, transactionStatus: session.status,
       amount: session.amount, orderInfo: session.orderInfo,
@@ -283,7 +305,7 @@ export class VnpayService {
         throw new Error("Conflicting payment callback; reconciliation required");
       }
       // Resume interrupted dispatch on duplicate callbacks before terminal ACK 02.
-      await this.dispatchPaymentEvent(session);
+      await this.dispatchPaymentEvent(session, "ipn");
       return alreadyConfirmed ? { RspCode: "02", Message: "Order already confirmed" }
         : { RspCode: "00", Message: "Confirm Success" };
     } catch (error) {
@@ -293,7 +315,7 @@ export class VnpayService {
     }
   }
 
-  private async dispatchPaymentEvent(session: PaymentSessionRecord) {
+  private async dispatchPaymentEvent(session: PaymentSessionRecord, source: "return" | "ipn") {
     if (session.paymentEventEnqueuedAt) return;
     const requestId = extractOrderId(session.orderInfo);
     const input = {
@@ -318,11 +340,11 @@ export class VnpayService {
       return;
     }
     if (session.status === "success") {
-      await this.publishAndMarkPaymentCompletedEvent({ ...input, email: session.email }, "ipn");
+      await this.publishAndMarkPaymentCompletedEvent({ ...input, email: session.email }, source);
     } else {
       await this.enqueueFailedPaymentNotification({ ...input, email: session.email,
         failureReason: session.responseCode === "00" ? "VNPay has not confirmed payment success."
-          : mapResponseCode(session.responseCode ?? "") }, "ipn");
+          : mapResponseCode(session.responseCode ?? "") }, source);
     }
   }
 

@@ -407,7 +407,7 @@ export async function getValidAuthSession(): Promise<AuthSession | null> {
  */
 export async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   const session = await getValidAuthSession();
-  if (!session?.accessToken) throw new Error("Your session has expired. Please sign in again.");
+  if (!session?.accessToken) throw new Error("Please sign in to view this page.");
 
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${session.accessToken}`);

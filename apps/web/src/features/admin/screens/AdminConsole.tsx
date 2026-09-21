@@ -368,7 +368,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
                 onClick={() => void clearAll()}
                 className="rounded-full bg-rose-50 px-3 py-1.5 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
               >
-                Xóa hết
+                Clear all
               </button>
             </div>
           </div>
@@ -431,7 +431,7 @@ export default function Home() {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [adminTab, setAdminTab] = useState<"products" | "email" | "permissions">("products");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
-  const [message, setMessage] = useState("Dùng tài khoản Cognito để truy cập API admin trên AWS.");
+  const [message, setMessage] = useState("Use a Cognito account to access the AWS admin API.");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resendCountdown, setResendCountdown] = useState(0);
 
@@ -597,7 +597,7 @@ export default function Home() {
       const text = error instanceof Error ? error.message : "Failed to log in";
       setMessage(text);
 
-      if (/xác nhận|confirm/i.test(text)) {
+      if (/confirm/i.test(text)) {
         setConfirmEmail(loginEmail);
         setAuthMode("confirm");
       }
@@ -865,7 +865,7 @@ export default function Home() {
                 <form className="grid gap-4" onSubmit={handleConfirm}>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
                     <span>Email</span>
-                    <input className={inputClassName} type="email" placeholder="Email vừa đăng ký" value={confirmEmail} onChange={(event) => setConfirmEmail(event.target.value)} required />
+                    <input className={inputClassName} type="email" placeholder="Email you just registered" value={confirmEmail} onChange={(event) => setConfirmEmail(event.target.value)} required />
                   </label>
                   <label className="grid gap-2 text-sm font-medium text-slate-700">
                     <span>Confirmation code</span>
@@ -1002,7 +1002,7 @@ export default function Home() {
                 <p className="text-sm font-semibold text-slate-900">{session.name}</p>
                 <p className="text-xs text-slate-500">{session.email}</p>
                 <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700">
-                  {session.role === "admin" ? "Quản trị viên" : session.role === "customer" ? "Khách hàng" : "Người xem"}
+                  {session.role === "admin" ? "Admin" : session.role === "customer" ? "Customer" : "Viewer"}
                 </p>
               </div>
               <button

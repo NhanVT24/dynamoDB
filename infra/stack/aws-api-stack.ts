@@ -47,13 +47,13 @@ export class AwsApiStack extends Stack {
 
     const callbackUrl = new CfnParameter(this, "CallbackUrl", {
       type: "String",
-      default: "http://localhost:3000/auth/callback",
+      default: "https://dwft9aemqzcp.cloudfront.net/auth/callback",
       description: "Frontend callback URL after Cognito sign-in"
     });
 
     const logoutUrl = new CfnParameter(this, "LogoutUrl", {
       type: "String",
-      default: "http://localhost:3000/",
+      default: "https://dwft9aemqzcp.cloudfront.net/",
       description: "Frontend logout redirect URL after Cognito sign-out"
     });
 
@@ -102,6 +102,13 @@ export class AwsApiStack extends Stack {
       description: "SSM parameter path for Google OAuth client id"
     });
 
+    const googleClientSecretSsmPath = new CfnParameter(this, "GoogleClientSecretSsmPath", {
+      type: "String",
+      default: "/supermarket/google/client-secret",
+      noEcho: true,
+      description: "SSM parameter path for Google OAuth client secret"
+    });
+
     const vnpayTmnCodeSsmPath = new CfnParameter(this, "VnpayTmnCodeSsmPath", {
       type: "String",
       default: "/supermarket/vnpay/tmn-code",
@@ -114,11 +121,11 @@ export class AwsApiStack extends Stack {
       description: "SSM parameter path for VNPay payment gateway URL"
     });
 
-    const googleClientSecret = new CfnParameter(this, "GoogleClientSecret", {
+    const vnpayHashSecretSsmPath = new CfnParameter(this, "VnpayHashSecretSsmPath", {
       type: "String",
-      default: "",
+      default: "/supermarket/vnpay/hash-secret",
       noEcho: true,
-      description: "Google OAuth client secret for Cognito social sign-in"
+      description: "SSM parameter path for VNPay hash secret"
     });
 
     const dynamoTableName = new CfnParameter(this, "DynamoTableName", {
@@ -127,22 +134,15 @@ export class AwsApiStack extends Stack {
       description: "DynamoDB table name for this stack"
     });
 
-    const vnpayHashSecret = new CfnParameter(this, "VnpayHashSecret", {
-      type: "String",
-      default: "CHLZOLUIWEKQEKXUJVWWBBRPSHAAOGBB",
-      noEcho: true,
-      description: "VNPay sandbox hash secret"
-    });
-
     const vnpayReturnUrl = new CfnParameter(this, "VnpayReturnUrl", {
       type: "String",
-      default: "http://localhost:3000/store/checkout/result",
+      default: "https://dwft9aemqzcp.cloudfront.net/store/checkout/result",
       description: "Frontend return URL after VNPay payment"
     });
 
     const vnpayIpnUrl = new CfnParameter(this, "VnpayIpnUrl", {
       type: "String",
-      default: "https://rrt1ukhcpj.execute-api.ap-southeast-1.amazonaws.com/prod/api/payments/vnpay/ipn",
+      default: "https://b5j3895qth.execute-api.ap-southeast-1.amazonaws.com/prod/api/payments/vnpay/ipn",
       description: "VNPay IPN callback URL"
     });
 
@@ -581,10 +581,15 @@ export class AwsApiStack extends Stack {
       googleClientIdSsmPath.valueAsString
     ).toString();
 
+    const googleClientSecret = new CfnDynamicReference(
+      CfnDynamicReferenceService.SSM,
+      googleClientSecretSsmPath.valueAsString
+    ).toString();
+
     const googleIdentityProvider = new cognito.UserPoolIdentityProviderGoogle(this, "GoogleIdentityProvider", {
       userPool,
       clientId: googleClientId,
-      clientSecretValue: SecretValue.unsafePlainText(googleClientSecret.valueAsString),
+      clientSecretValue: SecretValue.unsafePlainText(googleClientSecret),
       scopes: ["openid", "email", "profile"],
       attributeMapping: {
         email: cognito.ProviderAttribute.GOOGLE_EMAIL,
@@ -630,6 +635,11 @@ export class AwsApiStack extends Stack {
     const vnpayPaymentUrlValue = new CfnDynamicReference(
       CfnDynamicReferenceService.SSM,
       vnpayPaymentUrlSsmPath.valueAsString
+    ).toString();
+
+    const vnpayHashSecretValue = new CfnDynamicReference(
+      CfnDynamicReferenceService.SSM,
+      vnpayHashSecretSsmPath.valueAsString
     ).toString();
 
     const userPoolDomain = userPool.addDomain("HostedUiDomain", {
@@ -731,7 +741,7 @@ export class AwsApiStack extends Stack {
       SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME: inventoryReportConfigurationSet.ref,
       ADMIN_REPORT_EMAIL: adminReportEmail.valueAsString,
       VNPAY_TMN_CODE: vnpayTmnCodeValue,
-      VNPAY_HASH_SECRET: vnpayHashSecret.valueAsString,
+      VNPAY_HASH_SECRET: vnpayHashSecretValue,
       VNPAY_PAYMENT_URL: vnpayPaymentUrlValue,
       VNPAY_RETURN_URL: vnpayReturnUrl.valueAsString,
       VNPAY_IPN_URL: vnpayIpnUrl.valueAsString

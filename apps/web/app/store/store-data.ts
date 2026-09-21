@@ -1,78 +1,80 @@
 import type { StoreCategory, StoreProduct } from "./store-types";
 
+const itemImageUrl = "https://placehold.co/1200x1200/png?text=Items";
+
 const categoryConfigs = [
   {
     id: "dien-tu",
     label: "Electronics",
     accent: "linear-gradient(90deg, #38bdf8 0%, #22d3ee 50%, #2dd4bf 100%)",
-    imageUrl: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1200&q=80",
+    imageUrl: itemImageUrl,
     description: "Products and gadgets for your tech-savvy lifestyle, from audio to smart home devices."
   },
   {
     id: "gia-dung",
     label: "Home Appliances",
     accent: "linear-gradient(90deg, #fb923c 0%, #fbbf24 50%, #fde047 100%)",
-    imageUrl: "https://images.unsplash.com/photo-1556911220-bff31c812dba?auto=format&fit=crop&w=1200&q=80",
+    imageUrl: itemImageUrl,
     description: "Smart products that make your living space more efficient and convenient."
   },
   {
     id: "thoi-trang",
     label: "Fashion",
     accent: "linear-gradient(90deg, #f472b6 0%, #fb7185 50%, #fda4af 100%)",
-    imageUrl: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=1200&q=80",
+    imageUrl: itemImageUrl,
     description: "Accessories, backpacks, and wearable tech for the modern lifestyle."
   },
   {
     id: "lam-dep",
     label: "Beauty",
     accent: "linear-gradient(90deg, #a78bfa 0%, #c084fc 50%, #f9a8d4 100%)",
-    imageUrl: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=1200&q=80",
+    imageUrl: itemImageUrl,
     description: "Personal care devices and beauty routines for the busy lifestyle."
   },
   {
     id: "me-va-be",
     label: "Parenting",
     accent: "linear-gradient(90deg, #34d399 0%, #a3e635 50%, #4ade80 100%)",
-    imageUrl: "https://images.unsplash.com/photo-1515488764276-beab7607c1e6?auto=format&fit=crop&w=1200&q=80",
+    imageUrl: itemImageUrl,
     description: "Lightweight, safe, and convenient options for modern families."
   },
   {
     id: "bach-hoa",
     label: "Convenience",
     accent: "linear-gradient(90deg, #f87171 0%, #fb923c 50%, #fbbf24 100%)",
-    imageUrl: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=1200&q=80",
+    imageUrl: itemImageUrl,
     description: "Quick-buy products, everyday essentials, and items you'll want to repurchase."
   }
 ] as const;
 
 const brands = ["NovaTech", "Auralix", "Lumio", "NestCore", "Veltra", "Kairo"] as const;
-const locations = ["TP.HCM", "Hà Nội", "Đà Nẵng", "Cần Thơ", "Hải Phòng", "Bình Dương"] as const;
+const locations = ["Ho Chi Minh City", "Hanoi", "Da Nang", "Can Tho", "Hai Phong", "Binh Duong"] as const;
 
 const productSeeds = [
-  ["Aurora X Pro", "dien-tu", "Tai nghe chống ồn flagship với âm trường rộng, pin bền và thiết kế nhôm anodized."],
-  ["Helix Pad Air", "dien-tu", "Tablet giải trí và làm việc di động với màn hình 144Hz và chip tối ưu AI."],
-  ["Orbit Charge Dock", "dien-tu", "Dock sạc đa thiết bị theo phong cách tối giản cho bàn làm việc premium."],
-  ["Luma Beam Mini", "gia-dung", "Máy chiếu gọn nhẹ cho phòng khách, hỗ trợ chiếu nhanh và loa tích hợp."],
-  ["Pulse Brew Station", "gia-dung", "Máy pha cà phê thông minh cho routine buổi sáng chỉnh chu hơn."],
-  ["AeroClean S8", "gia-dung", "Máy hút bụi cầm tay động cơ mạnh, phù hợp căn hộ thành thị."],
-  ["Strata Carry Pack", "thoi-trang", "Balo công nghệ chống nước với ngăn laptop và phụ kiện rời tối ưu."],
-  ["Halo Sync Watch", "thoi-trang", "Đồng hồ thông minh thiên về sức khỏe, tracking ngủ và vận động."],
-  ["Frame One Glass", "thoi-trang", "Kính âm thanh mở cho người thích vừa di chuyển vừa giữ nhận biết môi trường."],
-  ["SilkPulse Pro", "lam-dep", "Máy chăm sóc da mặt với nhiều chế độ tinh chỉnh theo nhu cầu hằng ngày."],
-  ["Glow Capsule", "lam-dep", "Bộ serum và máy xông mini dành cho routine tối đơn giản nhưng hiệu quả."],
-  ["Mist Air Brush", "lam-dep", "Máy sấy tạo kiểu thân nhẹ, tiếng ồn thấp và phụ kiện đầy đủ."],
-  ["Nest View Cam", "me-va-be", "Camera giám sát gia đình với cảm biến chuyển động và âm thanh hai chiều."],
-  ["Cloud Rest Pod", "me-va-be", "Ghế rung thông minh với nhịp mô phỏng nhẹ và chất liệu dễ vệ sinh."],
-  ["Mini Warm Cube", "me-va-be", "Máy hâm sữa nhỏ gọn phù hợp không gian bếp hoặc phòng ngủ."],
-  ["Daily Smart Box", "bach-hoa", "Hộp quà tiêu dùng công nghệ hóa cho dân văn phòng và gia đình trẻ."],
-  ["Crunch Go Set", "bach-hoa", "Combo snack cao cấp tiện mang theo khi làm việc hoặc di chuyển."],
-  ["Pure Water Tabs", "bach-hoa", "Viên lọc và làm sạch tiện dụng cho bình cá nhân và các chuyến đi ngắn."],
-  ["AeroBook Z14", "dien-tu", "Laptop mỏng nhẹ cho nhóm người dùng cần tính cơ động và hiệu suất ổn định."],
-  ["Echo Studio Mic", "dien-tu", "Micro USB cho streamer, creator và các buổi họp online chất lượng cao."],
-  ["Steam Fold Iron", "gia-dung", "Bàn ủi hơi nước gập gọn, tối ưu cho căn hộ nhỏ và lịch trình bận rộn."],
-  ["Motion Fit Ring", "thoi-trang", "Nhẫn thông minh theo dõi sức khỏe với cảm biến liên tục và thời lượng pin dài."],
-  ["Calm Spa Light", "lam-dep", "Đèn thư giãn phòng ngủ kết hợp liệu pháp ánh sáng nhẹ cuối ngày."],
-  ["Tiny Meal Keeper", "me-va-be", "Hộp bảo quản thông minh giúp nhắc giờ và quản lý bữa phụ trong ngày."]
+  ["Aurora X Pro", "dien-tu", "Flagship noise-cancelling headphones with a wide soundstage, long battery life, and an anodized aluminum design."],
+  ["Helix Pad Air", "dien-tu", "A mobile entertainment and productivity tablet with a 144Hz display and AI-optimized chipset."],
+  ["Orbit Charge Dock", "dien-tu", "A minimalist multi-device charging dock for a premium desk setup."],
+  ["Luma Beam Mini", "gia-dung", "A compact living-room projector with quick casting support and built-in speakers."],
+  ["Pulse Brew Station", "gia-dung", "A smart coffee station for a cleaner, more consistent morning routine."],
+  ["AeroClean S8", "gia-dung", "A powerful handheld vacuum designed for modern apartments."],
+  ["Strata Carry Pack", "thoi-trang", "A water-resistant tech backpack with optimized laptop and accessory compartments."],
+  ["Halo Sync Watch", "thoi-trang", "A health-focused smartwatch for sleep tracking, movement, and daily wellness."],
+  ["Frame One Glass", "thoi-trang", "Open-ear audio glasses for staying aware while moving through the day."],
+  ["SilkPulse Pro", "lam-dep", "A facial care device with multiple modes for everyday skin routines."],
+  ["Glow Capsule", "lam-dep", "A serum and mini-steamer kit for a simple but effective evening routine."],
+  ["Mist Air Brush", "lam-dep", "A lightweight styling dryer with low noise and a complete accessory set."],
+  ["Nest View Cam", "me-va-be", "A family monitoring camera with motion detection and two-way audio."],
+  ["Cloud Rest Pod", "me-va-be", "A smart soothing chair with gentle motion and easy-clean materials."],
+  ["Mini Warm Cube", "me-va-be", "A compact bottle warmer for kitchens, bedrooms, and small spaces."],
+  ["Daily Smart Box", "bach-hoa", "A tech-inspired essentials gift box for office workers and young families."],
+  ["Crunch Go Set", "bach-hoa", "A premium snack combo designed for workdays and travel."],
+  ["Pure Water Tabs", "bach-hoa", "Portable cleaning tablets for bottles and short trips."],
+  ["AeroBook Z14", "dien-tu", "A thin and light laptop for mobile users who need stable everyday performance."],
+  ["Echo Studio Mic", "dien-tu", "A USB microphone for streamers, creators, and high-quality online meetings."],
+  ["Steam Fold Iron", "gia-dung", "A foldable steam iron optimized for small apartments and busy schedules."],
+  ["Motion Fit Ring", "thoi-trang", "A smart health ring with continuous sensors and long battery life."],
+  ["Calm Spa Light", "lam-dep", "A bedroom relaxation lamp with gentle light therapy for the end of the day."],
+  ["Tiny Meal Keeper", "me-va-be", "A smart food container that helps track reminders and daily snacks."]
 ] as const;
 
 export const storeCategories: StoreCategory[] = categoryConfigs.map((category) => ({ ...category }));
@@ -103,11 +105,11 @@ export const storeProducts: StoreProduct[] = productSeeds.map(([name, categoryId
     imageUrl: category.imageUrl,
     location: locations[index % locations.length],
     updatedAt,
-    badge: index % 5 === 0 ? "Mới về" : index % 4 === 0 ? "Bán chạy" : undefined,
+    badge: index % 5 === 0 ? "New arrival" : index % 4 === 0 ? "Best seller" : undefined,
     specs: [
       `${brand} Edition`,
-      `${index % 2 === 0 ? "Bảo hành 12 tháng" : "Bảo hành 24 tháng"}`,
-      `${index % 3 === 0 ? "Giao nhanh 2H" : "Đổi trả 7 ngày"}`
+      `${index % 2 === 0 ? "12-month warranty" : "24-month warranty"}`,
+      `${index % 3 === 0 ? "2-hour express delivery" : "7-day returns"}`
     ]
   };
 });

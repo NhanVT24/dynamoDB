@@ -430,7 +430,7 @@ function CheckoutResultPageContent() {
             : "border-rose-200 bg-rose-50 text-rose-900"}`}>
             <p className="text-sm font-semibold">{result.message}</p>
             <p className="mt-2 text-sm leading-6 opacity-90">
-              Mã giao dịch cũ không thể được dùng lại. Khi tiếp tục, hệ thống sẽ kiểm tra tồn kho và tạo một payment session VNPay hoàn toàn mới.
+              The old transaction reference cannot be reused. When you continue, the system will recheck inventory and create a brand-new VNPay payment session.
             </p>
           </div>
         ) : null}
@@ -501,7 +501,7 @@ function CheckoutResultPageContent() {
         <div className="mt-8 flex flex-wrap gap-3">
           {canStartNewCheckout ? (
             <Link href="/store/checkout" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-              Tạo giao dịch mới
+              Create a new transaction
             </Link>
           ) : null}
           <Link
@@ -510,7 +510,7 @@ function CheckoutResultPageContent() {
               isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
             }`}
           >
-            {canStartNewCheckout ? "Quay lại giỏ hàng" : "Tiếp tục mua sắm"}
+            {canStartNewCheckout ? "Back to cart" : "Continue shopping"}
           </Link>
           {isSuccess ? (
             <Link
@@ -519,7 +519,7 @@ function CheckoutResultPageContent() {
                 isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
               }`}
             >
-              Xem lịch sử đơn hàng
+              View order history
             </Link>
           ) : null}
         </div>

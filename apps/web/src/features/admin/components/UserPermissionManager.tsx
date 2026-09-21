@@ -16,9 +16,9 @@ type ManagedUser = {
 type AccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
 
 const permissionOptions: Array<{ code: ProductPermission; label: string; description: string }> = [
-  { code: "products:create", label: "Thêm sản phẩm", description: "Được tạo sản phẩm mới và trở thành owner của sản phẩm đó." },
-  { code: "products:update-own", label: "Sửa sản phẩm của mình", description: "Chỉ sửa sản phẩm có ownerSub trùng với tài khoản." },
-  { code: "products:delete-own", label: "Xóa sản phẩm của mình", description: "Chỉ xóa sản phẩm do chính tài khoản tạo." }
+  { code: "products:create", label: "Create products", description: "Can create new products and become the owner of those products." },
+  { code: "products:update-own", label: "Update own products", description: "Can only update products whose ownerSub matches the account." },
+  { code: "products:delete-own", label: "Delete own products", description: "Can only delete products created by this account." }
 ];
 
 const statusOptions: Array<{ value: AccountStatus; label: string; description: string }> = [
@@ -54,10 +54,10 @@ export default function UserPermissionManager() {
     setLoading(true);
     try {
       const response = await authenticatedFetch("/api/lambda-proxy/api/admin/authorizations/users", { cache: "no-store" });
-      if (!response.ok) throw new Error("Không thể tải danh sách quyền người dùng.");
+      if (!response.ok) throw new Error("Could not load user permissions.");
       setUsers(await response.json() as ManagedUser[]);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể tải dữ liệu.");
+      setMessage(error instanceof Error ? error.message : "Could not load data.");
     } finally {
       setLoading(false);
     }
@@ -76,15 +76,15 @@ export default function UserPermissionManager() {
       );
       if (!response.ok) {
         const payload = await response.json().catch(() => null) as { message?: string } | null;
-        throw new Error(payload?.message || "Không thể cập nhật quyền.");
+        throw new Error(payload?.message || "Could not update permissions.");
       }
       const payload = await response.json() as { permissions: ProductPermission[] };
       setUsers((current) => current.map((item) => item.subject === user.subject
         ? { ...item, permissions: payload.permissions }
         : item));
-      setMessage(`Đã cập nhật quyền cho ${user.email}. Access token mới sẽ nhận quyền sau lần refresh tiếp theo.`);
+      setMessage(`Updated permissions for ${user.email}. The next refreshed access token will include the new permissions.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Không thể cập nhật quyền.");
+      setMessage(error instanceof Error ? error.message : "Could not update permissions.");
     } finally {
       setUpdating("");
     }
@@ -124,14 +124,14 @@ export default function UserPermissionManager() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-700">Authorization</p>
-          <h2 className="mt-1 text-2xl font-bold text-slate-950">Phân quyền sản phẩm</h2>
-          <p className="mt-2 max-w-3xl text-sm text-slate-600">Permission được lưu dạng String Set trong DynamoDB và được đưa vào access token khi Cognito phát token mới.</p>
+          <h2 className="mt-1 text-2xl font-bold text-slate-950">Product Permissions</h2>
+          <p className="mt-2 max-w-3xl text-sm text-slate-600">Permissions are stored as a String Set in DynamoDB and added to the access token when Cognito issues a new token.</p>
         </div>
-        <button type="button" onClick={() => void loadUsers()} disabled={loading} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Làm mới</button>
+        <button type="button" onClick={() => void loadUsers()} disabled={loading} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Refresh</button>
       </div>
 
       {message ? <p className="mt-4 rounded-xl bg-cyan-50 px-4 py-3 text-sm text-cyan-900">{message}</p> : null}
-      {loading ? <p className="mt-6 text-sm text-slate-500">Đang tải tài khoản...</p> : null}
+      {loading ? <p className="mt-6 text-sm text-slate-500">Loading accounts...</p> : null}
 
       <div className="mt-6 grid gap-4">
         {users.map((user) => (
@@ -181,7 +181,7 @@ export default function UserPermissionManager() {
                     />
                     <span>
                       <span className="block text-sm font-bold text-slate-900">{option.label}</span>
-                      <span className="mt-1 block text-xs leading-5 text-slate-500">{updating === key ? "Đang lưu..." : option.description}</span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-500">{updating === key ? "Saving..." : option.description}</span>
                     </span>
                   </label>
                 );
