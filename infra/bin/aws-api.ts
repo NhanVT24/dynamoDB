@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
-import { AwsApiStack } from "../aws-api-stack";
-import { FrontendCloudFrontStack } from "../frontend-cloudfront-stack";
+import { AwsApiStack } from "../stack/aws-api-stack";
+import { FrontendCloudFrontStack } from "../stack/frontend-cloudfront-stack";
 
 const app = new cdk.App();
 const defaultFrontendApiOriginDomainName = "rrt1ukhcpj.execute-api.ap-southeast-1.amazonaws.com";

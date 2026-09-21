@@ -11,5 +11,5 @@
     "types": ["node"],
     "outDir": "dist"
   },
-  "include": ["*.ts", "bin/**/*.ts", "lib/**/*.ts"]
+  "include": ["*.ts", "bin/**/*.ts", "lib/**/*.ts", "stack/frontend-cloudfront-stack.ts", "stack/aws-api-stack.ts"]
 }
