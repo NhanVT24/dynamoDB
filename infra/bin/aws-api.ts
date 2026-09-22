@@ -2,6 +2,7 @@
 import * as cdk from "aws-cdk-lib";
 import { AwsApiStack } from "../stack/aws-api-stack";
 import { FrontendCloudFrontStack } from "../stack/frontend-cloudfront-stack";
+import { S3StorageStack } from "../stack/s3-storage-stack";
 
 const app = new cdk.App();
 const defaultFrontendApiOriginDomainName = "b5j3895qth.execute-api.ap-southeast-1.amazonaws.com";
@@ -45,6 +46,13 @@ new FrontendCloudFrontStack(app, "SupermarketFrontendCloudFrontStack", {
   domainNames: readContextList("frontendDomainNames"),
   apiOriginDomainName: readContextString("frontendApiOriginDomainName") ?? defaultFrontendApiOriginDomainName,
   apiOriginPath: frontendApiOriginPath?.startsWith("/") ? frontendApiOriginPath : frontendApiOriginPath ? `/${frontendApiOriginPath}` : defaultFrontendApiOriginPath,
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION ?? "ap-southeast-1"
+  }
+});
+
+new S3StorageStack(app, "SupermarketS3StorageStack", {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION ?? "ap-southeast-1"
