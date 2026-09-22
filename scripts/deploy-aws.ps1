@@ -8,6 +8,7 @@ param(
   [string]$FrontendApiOriginPath = "/prod",
   [string]$FrontendCertificateArn,
   [string]$FrontendDomainNames,
+  [string]$FrontendPublicAssetsOriginDomainName,
   [string]$VnpayReturnUrl = $env:VNPAY_RETURN_URL,
   [string]$VnpayIpnUrl = $env:VNPAY_IPN_URL,
   [string]$CallbackUrl = $env:COGNITO_CALLBACK_URL,
@@ -36,6 +37,10 @@ if ($FrontendCertificateArn) {
 
 if ($FrontendDomainNames) {
   $env:FRONTEND_DOMAIN_NAMES = $FrontendDomainNames
+}
+
+if ($FrontendPublicAssetsOriginDomainName) {
+  $env:FRONTEND_PUBLIC_ASSETS_ORIGIN_DOMAIN_NAME = $FrontendPublicAssetsOriginDomainName
 }
 
 Write-Host "Deploying with AWS profile: $AwsProfile"
@@ -116,7 +121,7 @@ if (-not $FrontendCloudFrontOnly) {
 
 if (-not $SkipFrontendCloudFront) {
   $frontendDeployArgs = @("run", "cdk:aws:deploy:frontend")
-  if ($FrontendApiOriginDomainName -or $FrontendCertificateArn -or $FrontendDomainNames) {
+  if ($FrontendApiOriginDomainName -or $FrontendCertificateArn -or $FrontendDomainNames -or $FrontendPublicAssetsOriginDomainName) {
     $frontendDeployArgs += "--"
     if ($FrontendApiOriginDomainName) {
       $frontendDeployArgs += @("-c", "frontendApiOriginDomainName=$FrontendApiOriginDomainName")
@@ -127,6 +132,9 @@ if (-not $SkipFrontendCloudFront) {
     }
     if ($FrontendDomainNames) {
       $frontendDeployArgs += @("-c", "frontendDomainNames=$FrontendDomainNames")
+    }
+    if ($FrontendPublicAssetsOriginDomainName) {
+      $frontendDeployArgs += @("-c", "frontendPublicAssetsOriginDomainName=$FrontendPublicAssetsOriginDomainName")
     }
   }
 

@@ -12,6 +12,8 @@ import {
 } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as budgets from "aws-cdk-lib/aws-budgets";
+import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
+import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
@@ -265,6 +267,48 @@ export class AwsApiStack extends Stack {
       actions: ["s3:GetObject"],
       resources: [productImagesBucket.arnForObjects("public/*")]
     }));
+
+    const productImagesPublicOnlyFunction = new cloudfront.Function(this, "ProductImagesPublicOnlyFunction", {
+      code: cloudfront.FunctionCode.fromInline(`
+function handler(event) {
+  var request = event.request;
+  if (request.uri.indexOf("/public/") !== 0) {
+    return {
+      statusCode: 403,
+      statusDescription: "Forbidden",
+      headers: {
+        "cache-control": { value: "no-store" },
+        "content-type": { value: "text/plain; charset=utf-8" }
+      },
+      body: "Forbidden"
+    };
+  }
+
+  return request;
+}
+`)
+    });
+
+    const productImagesDistribution = new cloudfront.Distribution(this, "ProductImagesDistribution", {
+      comment: "Public CDN endpoint for product images and uploaded public assets",
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(productImagesBucket),
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        compress: true,
+        functionAssociations: [{
+          eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+          function: productImagesPublicOnlyFunction
+        }],
+        responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS_WITH_PREFLIGHT_AND_SECURITY_HEADERS,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS
+      },
+      enableIpv6: true,
+      priceClass: cloudfront.PriceClass.PRICE_CLASS_200
+    });
+
+    const productImagesPublicBaseUrl = `https://${productImagesDistribution.distributionDomainName}`;
 
     const notificationsDlq = new sqs.Queue(this, "NotificationsDlq", {
       queueName: "supermarket-notifications-dlq",
@@ -718,7 +762,7 @@ export class AwsApiStack extends Stack {
       COGNITO_USER_POOL_ID: userPool.userPoolId,
       COGNITO_CLIENT_ID: userPoolClient.userPoolClientId,
       S3_BUCKET_NAME: productImagesBucket.bucketName,
-      S3_PUBLIC_BASE_URL: `https://${productImagesBucket.bucketName}.s3.${this.region}.amazonaws.com`,
+      S3_PUBLIC_BASE_URL: productImagesPublicBaseUrl,
       SQS_NOTIFICATIONS_QUEUE_URL: notificationsQueue.queueUrl,
       SQS_AUDIT_QUEUE_URL: auditQueue.queueUrl,
       SQS_PAYMENT_EVENTS_QUEUE_URL: paymentEventsQueue.queueUrl,
@@ -2085,6 +2129,14 @@ export class AwsApiStack extends Stack {
 
     new CfnOutput(this, "ProductImagesBucketName", {
       value: productImagesBucket.bucketName
+    });
+
+    new CfnOutput(this, "ProductImagesDistributionDomainName", {
+      value: productImagesDistribution.distributionDomainName
+    });
+
+    new CfnOutput(this, "ProductImagesPublicBaseUrl", {
+      value: productImagesPublicBaseUrl
     });
 
     new CfnOutput(this, "NotificationsQueueUrl", {

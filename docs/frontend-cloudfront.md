@@ -57,3 +57,18 @@ The current `apps/web` build is configured for static export. S3 can store files
 The optional API behavior keeps the existing `/api/lambda-proxy/*` browser calls working by rewriting them to the API Gateway origin.
 
 When deploying through `scripts/deploy-aws.ps1`, frontend-specific values are passed to CDK as context flags so the deployed CloudFormation template keeps the API origin/behavior.
+
+## Public S3 Assets Through Frontend CloudFront
+
+To let the frontend CloudFront distribution serve product images stored in the
+product images S3 bucket, pass the bucket regional S3 domain as an extra origin:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-aws.ps1 `
+  -FrontendCloudFrontOnly `
+  -FrontendPublicAssetsOriginDomainName "supermarketawsstack-productimagesbucket03bda4c8-u88kfbwbooqy.s3.ap-southeast-1.amazonaws.com"
+```
+
+This makes both `/public/*` and `/admin/public/*` work through the frontend
+CloudFront domain. `/admin/public/*` is rewritten to `/public/*` before the
+request is sent to S3.

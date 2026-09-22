@@ -14,8 +14,13 @@ import { Construct } from "constructs";
 export interface FrontendCloudFrontStackProps extends StackProps {
   readonly certificateArn?: string;
   readonly domainNames?: string[];
+  readonly publicAssetsOriginDomainName?: string;
   readonly apiOriginDomainName?: string;
   readonly apiOriginPath?: string;
+}
+
+function normalizeOriginDomainName(value: string): string {
+  return value.trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "");
 }
 
 export class FrontendCloudFrontStack extends Stack {
@@ -214,6 +219,57 @@ function handler(event) {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS
       }
     );
+
+    if (props.publicAssetsOriginDomainName) {
+      const publicAssetsOrigin = new origins.HttpOrigin(
+        normalizeOriginDomainName(props.publicAssetsOriginDomainName),
+        {
+          protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY
+        }
+      );
+
+      const adminPublicAssetsRewriteFunction = new cloudfront.Function(this, "AdminPublicAssetsRewriteFunction", {
+        code: cloudfront.FunctionCode.fromInline(`
+function handler(event) {
+  var request = event.request;
+  var prefix = "/admin";
+
+  if (request.uri.startsWith(prefix + "/public/")) {
+    request.uri = request.uri.substring(prefix.length);
+  }
+
+  return request;
+}
+`)
+      });
+
+      const publicAssetsBehavior: cloudfront.AddBehaviorOptions = {
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+        cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        compress: true,
+        responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS_WITH_PREFLIGHT_AND_SECURITY_HEADERS,
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS
+      };
+
+      distribution.addBehavior(
+        "/public/*",
+        publicAssetsOrigin,
+        publicAssetsBehavior
+      );
+
+      distribution.addBehavior(
+        "/admin/public/*",
+        publicAssetsOrigin,
+        {
+          ...publicAssetsBehavior,
+          functionAssociations: [{
+            eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
+            function: adminPublicAssetsRewriteFunction
+          }]
+        }
+      );
+    }
 
     if (props.apiOriginDomainName) {
       const apiProxyRewriteFunction = new cloudfront.Function(this, "ApiProxyRewriteFunction", {

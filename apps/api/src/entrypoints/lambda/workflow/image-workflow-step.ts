@@ -12,6 +12,11 @@ type ImageWorkflowInput = {
 };
 
 function buildPublicUrl(bucket: string, objectKey: string, region: string) {
+  const publicBaseUrl = process.env.S3_PUBLIC_BASE_URL?.replace(/\/+$/, "");
+  if (publicBaseUrl) {
+    return `${publicBaseUrl}/${objectKey}`;
+  }
+
   return `https://${bucket}.s3.${region}.amazonaws.com/${objectKey}`;
 }
 

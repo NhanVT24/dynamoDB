@@ -274,6 +274,11 @@ POST /uploads/presign
 
 Browser upload thẳng S3, không upload file qua API server. Điều này giảm tải Lambda/API và tránh timeout với file lớn.
 
+Public read URLs are served through the ProductImages CloudFront distribution.
+Uploads still use S3 presigned URLs directly; only the returned `fileUrl` uses
+`S3_PUBLIC_BASE_URL`, which is injected by CDK as the CloudFront base URL. The
+distribution rejects non-`/public/*` paths at the edge.
+
 ### 7. Sale campaign
 
 | File | Function chính | Công dụng |

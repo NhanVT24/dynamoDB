@@ -11,7 +11,8 @@ const contextEnvNames: Record<string, string> = {
   frontendApiOriginDomainName: "FRONTEND_API_ORIGIN_DOMAIN_NAME",
   frontendApiOriginPath: "FRONTEND_API_ORIGIN_PATH",
   frontendCertificateArn: "FRONTEND_CERTIFICATE_ARN",
-  frontendDomainNames: "FRONTEND_DOMAIN_NAMES"
+  frontendDomainNames: "FRONTEND_DOMAIN_NAMES",
+  frontendPublicAssetsOriginDomainName: "FRONTEND_PUBLIC_ASSETS_ORIGIN_DOMAIN_NAME"
 };
 
 new AwsApiStack(app, "SupermarketAwsStack", {
@@ -44,6 +45,7 @@ const frontendApiOriginPath = readContextString("frontendApiOriginPath");
 new FrontendCloudFrontStack(app, "SupermarketFrontendCloudFrontStack", {
   certificateArn: readContextString("frontendCertificateArn"),
   domainNames: readContextList("frontendDomainNames"),
+  publicAssetsOriginDomainName: readContextString("frontendPublicAssetsOriginDomainName"),
   apiOriginDomainName: readContextString("frontendApiOriginDomainName") ?? defaultFrontendApiOriginDomainName,
   apiOriginPath: frontendApiOriginPath?.startsWith("/") ? frontendApiOriginPath : frontendApiOriginPath ? `/${frontendApiOriginPath}` : defaultFrontendApiOriginPath,
   env: {
