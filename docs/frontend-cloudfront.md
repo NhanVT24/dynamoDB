@@ -50,6 +50,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-aws.ps1 `
   -FrontendApiOriginPath "/prod"
 ```
 
+If the domain is hosted in Route 53, CDK can create the CloudFront ACM
+certificate for you:
+
+```powershell
+npm run cdk:aws:deploy:frontend-certificate -- `
+  -c frontendCertificateDomainName=shop.example.com `
+  -c frontendCertificateHostedZoneDomainName=example.com
+```
+
+For a wildcard certificate:
+
+```powershell
+npm run cdk:aws:deploy:frontend-certificate -- `
+  -c frontendCertificateDomainName=example.com `
+  -c frontendCertificateHostedZoneDomainName=example.com `
+  -c frontendCertificateSubjectAlternativeNames=*.example.com
+```
+
+This certificate stack is created in `us-east-1`, which is required by
+CloudFront. Use its `FrontendCertificateArn` output as `-FrontendCertificateArn`
+when deploying the frontend distribution.
+
 ## Current Frontend Constraint
 
 The current `apps/web` build is configured for static export. S3 can store files, but it cannot run a Next.js server. Keep API traffic behind API Gateway and CloudFront behaviors.
