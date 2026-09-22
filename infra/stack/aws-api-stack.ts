@@ -243,7 +243,8 @@ export class AwsApiStack extends Stack {
         restrictPublicBuckets: false
       }),
       encryption: s3.BucketEncryption.S3_MANAGED,
-      publicReadAccess: true,
+      enforceSSL: true,
+      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
       cors: [
         {
           allowedOrigins: ["*"],
@@ -256,6 +257,14 @@ export class AwsApiStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true
     });
+
+    productImagesBucket.addToResourcePolicy(new iam.PolicyStatement({
+      sid: "AllowPublicReadOnlyForPublicPrefix",
+      effect: iam.Effect.ALLOW,
+      principals: [new iam.AnyPrincipal()],
+      actions: ["s3:GetObject"],
+      resources: [productImagesBucket.arnForObjects("public/*")]
+    }));
 
     const notificationsDlq = new sqs.Queue(this, "NotificationsDlq", {
       queueName: "supermarket-notifications-dlq",
@@ -819,7 +828,29 @@ export class AwsApiStack extends Stack {
         resources: [adminAlertsTopic.topicArn]
       }));
 
-      productImagesBucket.grantReadWrite(fn);
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        actions: [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject"
+        ],
+        resources: [
+          productImagesBucket.arnForObjects("public/*"),
+          productImagesBucket.arnForObjects("private/*")
+        ]
+      }));
+      fn.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["s3:ListBucket"],
+        resources: [productImagesBucket.bucketArn],
+        conditions: {
+          StringLike: {
+            "s3:prefix": [
+              "public/*",
+              "private/*"
+            ]
+          }
+        }
+      }));
       notificationsQueue.grantSendMessages(fn);
       auditQueue.grantSendMessages(fn);
       storefrontOrdersQueue.grantSendMessages(fn);

@@ -15,6 +15,12 @@ type ProfileMetricCardProps = {
   isDark: boolean;
 };
 
+type DefaultAvatarItem = {
+  key: string;
+  fileName: string;
+  fileUrl: string;
+};
+
 function ProfileMetricCard({ label, value, tone = "neutral", isDark }: ProfileMetricCardProps) {
   const toneClassName = isDark
     ? tone === "warm"
@@ -136,6 +142,7 @@ function makeInitials(name: string, email: string) {
 
 const avatarStoragePrefix = "web-storefront-avatar-";
 const avatarUploadEndpoint = "/api/lambda-proxy/api/uploads/avatar/presign";
+const defaultAvatarsEndpoint = "/api/lambda-proxy/api/uploads/default-avatars";
 
 const purchaseOrderStatuses = new Set(["paid", "completed", "done", "delivered", "fulfilled", "succeeded", "success"]);
 
@@ -159,6 +166,7 @@ export default function StoreProfilePage() {
   const [productsPage, setProductsPage] = useState(1);
   const [ordersPage, setOrdersPage] = useState(1);
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [defaultAvatars, setDefaultAvatars] = useState<DefaultAvatarItem[]>([]);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -169,6 +177,15 @@ export default function StoreProfilePage() {
       setAvatarUrl(session ? window.localStorage.getItem(avatarStorageKey(session.email)) ?? "" : "");
       setIsLoading(true);
       setProductsLoading(true);
+
+      fetch(defaultAvatarsEndpoint)
+        .then((response) => response.ok ? response.json() : Promise.reject(new Error("Could not load default avatars.")))
+        .then((payload: { items?: DefaultAvatarItem[] }) => {
+          if (!cancelled) setDefaultAvatars(payload.items ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setDefaultAvatars([]);
+        });
 
       if (!session) {
         if (!cancelled) {
@@ -289,6 +306,12 @@ export default function StoreProfilePage() {
     }
   }
 
+  function chooseDefaultAvatar(fileUrl: string) {
+    if (!session) return;
+    window.localStorage.setItem(avatarStorageKey(session.email), fileUrl);
+    setAvatarUrl(fileUrl);
+  }
+
   if (isLoading) {
     return <ProfileSkeleton isDark={isDark} />;
   }
@@ -390,6 +413,31 @@ export default function StoreProfilePage() {
                   </span>
                 </div>
               </div>
+
+              {defaultAvatars.length > 0 ? (
+                <div className="mt-5">
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Default Avatars</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {defaultAvatars.map((avatar) => (
+                      <button
+                        key={avatar.key}
+                        type="button"
+                        onClick={() => chooseDefaultAvatar(avatar.fileUrl)}
+                        className={`h-12 w-12 overflow-hidden rounded-2xl border transition ${
+                          avatarUrl === avatar.fileUrl
+                            ? "border-orange-500 ring-2 ring-orange-300"
+                            : isDark
+                              ? "border-white/10 hover:border-white/30"
+                              : "border-slate-200 hover:border-orange-300"
+                        }`}
+                        title={avatar.fileName}
+                      >
+                        <img src={avatar.fileUrl} alt={avatar.fileName} className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="mt-6 grid gap-3">
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>

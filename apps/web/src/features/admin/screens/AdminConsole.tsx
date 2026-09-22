@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import ShoppingManager from "../components/ShoppingManager";
 import EmailCenter from "../components/EmailCenter";
+import StorageManager from "../components/StorageManager";
 import UserPermissionManager from "../components/UserPermissionManager";
 import {
   beginGoogleSignIn,
@@ -429,7 +430,7 @@ export default function Home() {
   const searchParams = useSearchParams();
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
-  const [adminTab, setAdminTab] = useState<"products" | "email" | "permissions">("products");
+  const [adminTab, setAdminTab] = useState<"products" | "email" | "storage" | "permissions">("products");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [message, setMessage] = useState("Use a Cognito account to access the AWS admin API.");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -985,6 +986,8 @@ export default function Home() {
           permissions={session.permissions}
           workspaceContent={adminTab === "email"
             ? <EmailCenter authToken={session.accessToken} />
+            : adminTab === "storage"
+              ? <StorageManager />
             : adminTab === "permissions"
               ? <UserPermissionManager />
               : null}
@@ -992,6 +995,7 @@ export default function Home() {
           <nav className="flex w-full justify-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
           <button type="button" onClick={() => setAdminTab("products")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "products" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Products</button>
           {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("email")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "email" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Email Center</button> : null}
+          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("storage")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "storage" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Storage</button> : null}
           {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("permissions")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "permissions" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Permissions</button> : null}
           </nav>
           )}

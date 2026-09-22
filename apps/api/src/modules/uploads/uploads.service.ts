@@ -1,5 +1,5 @@
-import { Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { BadRequestException, Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
+import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "node:crypto";
 import {
@@ -7,7 +7,10 @@ import {
   logQueueWarn
 } from "../../common/logging/queue-logger.js";
 import { env } from "../../config/env.js";
-import type { CreateUploadPresignInput } from "./uploads.schema.js";
+import type { CreateReportOpenPresignInput, CreateReportUploadPresignInput, CreateUploadPresignInput } from "./uploads.schema.js";
+
+const DEFAULT_AVATAR_PREFIX = "public/default-avatars";
+const ADMIN_REPORT_PREFIX = "private/admin-reports";
 
 const s3Client = new S3Client({
   region: env.AWS_REGION,
@@ -23,10 +26,19 @@ function sanitizeFileName(fileName: string) {
   return normalized.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
+function resolveStoragePrefix(scope: string) {
+  const normalizedScope = scope.trim().replace(/^\/+|\/+$/g, "");
+  if (normalizedScope === "default-avatars") return DEFAULT_AVATAR_PREFIX;
+  if (normalizedScope === "avatars") return "public/avatars";
+  if (normalizedScope === "products") return "public/products";
+  if (normalizedScope.startsWith("public/") || normalizedScope.startsWith("private/")) return normalizedScope;
+  return `public/${normalizedScope}`;
+}
+
 function buildObjectKey(scope: string, fileName: string) {
   const safeFileName = sanitizeFileName(fileName) || "upload.bin";
   const datePrefix = new Date().toISOString().slice(0, 10);
-  return `${scope}/${datePrefix}/${randomUUID()}-${safeFileName}`;
+  return `${resolveStoragePrefix(scope)}/${datePrefix}/${randomUUID()}-${safeFileName}`;
 }
 
 function buildPublicUrl(bucketName: string, objectKey: string) {
@@ -67,6 +79,105 @@ export class UploadsService {
       contentType: input.contentType,
       uploadUrl,
       fileUrl: buildPublicUrl(env.S3_BUCKET_NAME, objectKey),
+      expiresIn: env.S3_PRESIGN_EXPIRES_SECONDS
+    };
+  }
+
+  async createDefaultAvatarUpload(input: CreateUploadPresignInput) {
+    return this.createPresignedUpload({ ...input, scope: "default-avatars" });
+  }
+
+  async listDefaultAvatars() {
+    if (!env.S3_BUCKET_NAME) {
+      throw new InternalServerErrorException("S3 bucket is not configured");
+    }
+
+    const response = await s3Client.send(new ListObjectsV2Command({
+      Bucket: env.S3_BUCKET_NAME,
+      Prefix: `${DEFAULT_AVATAR_PREFIX}/`,
+      MaxKeys: 100
+    }));
+
+    return {
+      items: (response.Contents ?? [])
+        .filter((item) => item.Key && Number(item.Size ?? 0) > 0)
+        .map((item) => ({
+          key: item.Key!,
+          fileName: item.Key!.split("/").at(-1) ?? item.Key!,
+          fileUrl: buildPublicUrl(env.S3_BUCKET_NAME!, item.Key!),
+          size: Number(item.Size ?? 0),
+          updatedAt: item.LastModified?.toISOString() ?? ""
+        }))
+    };
+  }
+
+  async createAdminReportUpload(input: CreateReportUploadPresignInput) {
+    if (!env.S3_BUCKET_NAME) {
+      throw new InternalServerErrorException("S3 bucket is not configured");
+    }
+
+    const objectKey = buildObjectKey(ADMIN_REPORT_PREFIX, input.fileName);
+    const command = new PutObjectCommand({
+      Bucket: env.S3_BUCKET_NAME,
+      Key: objectKey,
+      ContentType: input.contentType
+    });
+
+    const uploadUrl = await getSignedUrl(s3Client, command, {
+      expiresIn: env.S3_PRESIGN_EXPIRES_SECONDS
+    });
+
+    return {
+      bucket: env.S3_BUCKET_NAME,
+      key: objectKey,
+      contentType: input.contentType,
+      uploadUrl,
+      expiresIn: env.S3_PRESIGN_EXPIRES_SECONDS
+    };
+  }
+
+  async listAdminReports() {
+    if (!env.S3_BUCKET_NAME) {
+      throw new InternalServerErrorException("S3 bucket is not configured");
+    }
+
+    const response = await s3Client.send(new ListObjectsV2Command({
+      Bucket: env.S3_BUCKET_NAME,
+      Prefix: `${ADMIN_REPORT_PREFIX}/`,
+      MaxKeys: 100
+    }));
+
+    return {
+      items: (response.Contents ?? [])
+        .filter((item) => item.Key && Number(item.Size ?? 0) > 0)
+        .map((item) => ({
+          key: item.Key!,
+          fileName: item.Key!.split("/").at(-1) ?? item.Key!,
+          size: Number(item.Size ?? 0),
+          updatedAt: item.LastModified?.toISOString() ?? ""
+        }))
+    };
+  }
+
+  async createAdminReportOpenUrl(input: CreateReportOpenPresignInput) {
+    if (!env.S3_BUCKET_NAME) {
+      throw new InternalServerErrorException("S3 bucket is not configured");
+    }
+
+    if (!input.key.startsWith(`${ADMIN_REPORT_PREFIX}/`)) {
+      throw new BadRequestException("Invalid private report key");
+    }
+
+    const command = new GetObjectCommand({
+      Bucket: env.S3_BUCKET_NAME,
+      Key: input.key
+    });
+
+    return {
+      key: input.key,
+      downloadUrl: await getSignedUrl(s3Client, command, {
+        expiresIn: env.S3_PRESIGN_EXPIRES_SECONDS
+      }),
       expiresIn: env.S3_PRESIGN_EXPIRES_SECONDS
     };
   }
