@@ -8,12 +8,15 @@ import {
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as route53 from "aws-cdk-lib/aws-route53";
+import * as targets from "aws-cdk-lib/aws-route53-targets";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 
 export interface FrontendCloudFrontStackProps extends StackProps {
   readonly certificateArn?: string;
   readonly domainNames?: string[];
+  readonly hostedZoneDomainName?: string;
   readonly publicAssetsOriginDomainName?: string;
   readonly apiOriginDomainName?: string;
   readonly apiOriginPath?: string;
@@ -154,6 +157,9 @@ function handler(event) {
 `)
     });
 
+    // Import the ACM certificate that proves CloudFront may serve HTTPS for
+    // truyenmasinhvien.com/www.truyenmasinhvien.com. CloudFront requires this
+    // certificate to live in us-east-1.
     const certificate = props.certificateArn
       ? acm.Certificate.fromCertificateArn(this, "FrontendCertificate", props.certificateArn)
       : undefined;
@@ -171,6 +177,8 @@ function handler(event) {
       queryStringBehavior: cloudfront.CacheQueryStringBehavior.none()
     });
 
+    // Frontend traffic flow:
+    // browser -> truyenmasinhvien.com -> Route53 Alias -> CloudFront -> private S3 bucket.
     const distribution = new cloudfront.Distribution(this, "FrontendDistribution", {
       comment: "Experimental static frontend hosting for Supermarket web app",
       defaultRootObject: "index.html",
@@ -207,6 +215,30 @@ function handler(event) {
       priceClass: cloudfront.PriceClass.PRICE_CLASS_200
     });
 
+    if (domainNames.length > 0 && props.hostedZoneDomainName) {
+      const hostedZone = route53.HostedZone.fromLookup(this, "FrontendHostedZone", {
+        domainName: props.hostedZoneDomainName
+      });
+      // In Route53, an Alias A/AAAA record is the AWS-native equivalent of
+      // "CNAME this domain to the CloudFront distribution". Alias works for
+      // both root domains and subdomains; a normal CNAME cannot be used at the
+      // zone apex truyenmasinhvien.com.
+      const target = route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(distribution));
+
+      domainNames.forEach((domainName, index) => {
+        new route53.ARecord(this, `FrontendAliasARecord${index + 1}`, {
+          zone: hostedZone,
+          recordName: domainName,
+          target
+        });
+        new route53.AaaaRecord(this, `FrontendAliasAaaaRecord${index + 1}`, {
+          zone: hostedZone,
+          recordName: domainName,
+          target
+        });
+      });
+    }
+
     distribution.addBehavior(
       "/_next/static/*",
       frontendOrigin,
@@ -221,6 +253,9 @@ function handler(event) {
     );
 
     if (props.publicAssetsOriginDomainName) {
+      // Optional compatibility path: the frontend CloudFront distribution can
+      // also proxy /public/* to the product-images S3 origin. The dedicated
+      // assets domain is configured in AwsApiStack.
       const publicAssetsOrigin = new origins.HttpOrigin(
         normalizeOriginDomainName(props.publicAssetsOriginDomainName),
         {
@@ -294,6 +329,9 @@ function handler(event) {
 
       distribution.addBehavior(
         "/api/lambda-proxy/*",
+        // The static export cannot run Next.js rewrites at runtime, so
+        // CloudFront proxies API calls matching /api/lambda-proxy/* to the API
+        // origin and strips the prefix in the viewer-request function above.
         new origins.HttpOrigin(props.apiOriginDomainName, {
           originPath: props.apiOriginPath ?? "/prod",
           protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY
@@ -322,6 +360,10 @@ function handler(event) {
 
     new CfnOutput(this, "FrontendDistributionDomainName", {
       value: distribution.distributionDomainName
+    });
+
+    new CfnOutput(this, "FrontendCustomDomainNames", {
+      value: domainNames.join(",")
     });
   }
 }

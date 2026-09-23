@@ -4,11 +4,18 @@ param(
   [switch]$Clean,
   [switch]$FrontendCloudFrontOnly,
   [switch]$SkipFrontendCloudFront,
+  [string]$ApiCertificateArn,
+  [string]$ApiCustomDomainName,
+  [string]$ApiHostedZoneDomainName,
   [string]$FrontendApiOriginDomainName,
   [string]$FrontendApiOriginPath = "/prod",
   [string]$FrontendCertificateArn,
   [string]$FrontendDomainNames,
+  [string]$FrontendHostedZoneDomainName,
   [string]$FrontendPublicAssetsOriginDomainName,
+  [string]$ProductImagesCertificateArn,
+  [string]$ProductImagesDomainNames,
+  [string]$ProductImagesHostedZoneDomainName,
   [string]$VnpayReturnUrl = $env:VNPAY_RETURN_URL,
   [string]$VnpayIpnUrl = $env:VNPAY_IPN_URL,
   [string]$CallbackUrl = $env:COGNITO_CALLBACK_URL,
@@ -26,6 +33,18 @@ if ($FrontendCloudFrontOnly -and $SkipFrontendCloudFront) {
   throw "Use either -FrontendCloudFrontOnly or -SkipFrontendCloudFront, not both."
 }
 
+if ($ApiCertificateArn) {
+  $env:API_CERTIFICATE_ARN = $ApiCertificateArn
+}
+
+if ($ApiCustomDomainName) {
+  $env:API_CUSTOM_DOMAIN_NAME = $ApiCustomDomainName
+}
+
+if ($ApiHostedZoneDomainName) {
+  $env:API_HOSTED_ZONE_DOMAIN_NAME = $ApiHostedZoneDomainName
+}
+
 if ($FrontendApiOriginDomainName) {
   $env:FRONTEND_API_ORIGIN_DOMAIN_NAME = $FrontendApiOriginDomainName
   $env:FRONTEND_API_ORIGIN_PATH = $FrontendApiOriginPath
@@ -39,8 +58,24 @@ if ($FrontendDomainNames) {
   $env:FRONTEND_DOMAIN_NAMES = $FrontendDomainNames
 }
 
+if ($FrontendHostedZoneDomainName) {
+  $env:FRONTEND_HOSTED_ZONE_DOMAIN_NAME = $FrontendHostedZoneDomainName
+}
+
 if ($FrontendPublicAssetsOriginDomainName) {
   $env:FRONTEND_PUBLIC_ASSETS_ORIGIN_DOMAIN_NAME = $FrontendPublicAssetsOriginDomainName
+}
+
+if ($ProductImagesCertificateArn) {
+  $env:PRODUCT_IMAGES_CERTIFICATE_ARN = $ProductImagesCertificateArn
+}
+
+if ($ProductImagesDomainNames) {
+  $env:PRODUCT_IMAGES_DOMAIN_NAMES = $ProductImagesDomainNames
+}
+
+if ($ProductImagesHostedZoneDomainName) {
+  $env:PRODUCT_IMAGES_HOSTED_ZONE_DOMAIN_NAME = $ProductImagesHostedZoneDomainName
 }
 
 Write-Host "Deploying with AWS profile: $AwsProfile"
@@ -112,6 +147,24 @@ if (-not $FrontendCloudFrontOnly) {
   if ($CognitoDomainPrefix) {
     $apiDeployArgs += @("--parameters", "CognitoDomainPrefix=$CognitoDomainPrefix")
   }
+  if ($ApiCertificateArn) {
+    $apiDeployArgs += @("-c", "apiCertificateArn=$ApiCertificateArn")
+  }
+  if ($ApiCustomDomainName) {
+    $apiDeployArgs += @("-c", "apiCustomDomainName=$ApiCustomDomainName")
+  }
+  if ($ApiHostedZoneDomainName) {
+    $apiDeployArgs += @("-c", "apiHostedZoneDomainName=$ApiHostedZoneDomainName")
+  }
+  if ($ProductImagesCertificateArn) {
+    $apiDeployArgs += @("-c", "productImagesCertificateArn=$ProductImagesCertificateArn")
+  }
+  if ($ProductImagesDomainNames) {
+    $apiDeployArgs += @("-c", "productImagesDomainNames=$ProductImagesDomainNames")
+  }
+  if ($ProductImagesHostedZoneDomainName) {
+    $apiDeployArgs += @("-c", "productImagesHostedZoneDomainName=$ProductImagesHostedZoneDomainName")
+  }
 
   & npx @apiDeployArgs
   if ($LASTEXITCODE -ne 0) {
@@ -121,7 +174,7 @@ if (-not $FrontendCloudFrontOnly) {
 
 if (-not $SkipFrontendCloudFront) {
   $frontendDeployArgs = @("run", "cdk:aws:deploy:frontend")
-  if ($FrontendApiOriginDomainName -or $FrontendCertificateArn -or $FrontendDomainNames -or $FrontendPublicAssetsOriginDomainName) {
+  if ($FrontendApiOriginDomainName -or $FrontendCertificateArn -or $FrontendDomainNames -or $FrontendHostedZoneDomainName -or $FrontendPublicAssetsOriginDomainName) {
     $frontendDeployArgs += "--"
     if ($FrontendApiOriginDomainName) {
       $frontendDeployArgs += @("-c", "frontendApiOriginDomainName=$FrontendApiOriginDomainName")
@@ -132,6 +185,9 @@ if (-not $SkipFrontendCloudFront) {
     }
     if ($FrontendDomainNames) {
       $frontendDeployArgs += @("-c", "frontendDomainNames=$FrontendDomainNames")
+    }
+    if ($FrontendHostedZoneDomainName) {
+      $frontendDeployArgs += @("-c", "frontendHostedZoneDomainName=$FrontendHostedZoneDomainName")
     }
     if ($FrontendPublicAssetsOriginDomainName) {
       $frontendDeployArgs += @("-c", "frontendPublicAssetsOriginDomainName=$FrontendPublicAssetsOriginDomainName")

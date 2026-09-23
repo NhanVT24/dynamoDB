@@ -1,0 +1,10 @@
+{
+  "hosted-zone:account=510935912072:domainName=truyenmasinhvien.com:region=us-east-1": {
+    "Id": "/hostedzone/Z036171028QG16SFD2WTH",
+    "Name": "truyenmasinhvien.com."
+  },
+  "hosted-zone:account=510935912072:domainName=truyenmasinhvien.com:region=ap-southeast-1": {
+    "Id": "/hostedzone/Z036171028QG16SFD2WTH",
+    "Name": "truyenmasinhvien.com."
+  }
+}

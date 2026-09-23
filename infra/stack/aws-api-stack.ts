@@ -10,6 +10,7 @@ import {
   Stack,
   StackProps
 } from "aws-cdk-lib";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
@@ -27,6 +28,8 @@ import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3n from "aws-cdk-lib/aws-s3-notifications";
+import * as route53 from "aws-cdk-lib/aws-route53";
+import * as targets from "aws-cdk-lib/aws-route53-targets";
 import * as ses from "aws-cdk-lib/aws-ses";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
@@ -35,8 +38,21 @@ import * as sfn from "aws-cdk-lib/aws-stepfunctions";
 import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import { Construct } from "constructs";
 
+export interface AwsApiStackProps extends StackProps {
+  // API Gateway REGIONAL custom domain: api.truyenmasinhvien.com.
+  // This certificate must be in the API region, ap-southeast-1.
+  readonly apiCertificateArn?: string;
+  readonly apiCustomDomainName?: string;
+  readonly apiHostedZoneDomainName?: string;
+  // Product image CDN custom domain: assets.truyenmasinhvien.com.
+  // This uses CloudFront, so its certificate must be in us-east-1.
+  readonly productImagesCertificateArn?: string;
+  readonly productImagesDomainNames?: string[];
+  readonly productImagesHostedZoneDomainName?: string;
+}
+
 export class AwsApiStack extends Stack {
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props: AwsApiStackProps = {}) {
     super(scope, id, props);
 
     const gsiDeploymentPhase = this.node.tryGetContext("dynamodbGsiDeploymentPhase");
@@ -46,6 +62,9 @@ export class AwsApiStack extends Stack {
     // DynamoDB permits only one GSI create/delete operation per table update.
     // Use entity-only for the first deployment, then deploy normally to add the sale index.
     const includeSaleCampaignTimelineIndex = gsiDeploymentPhase !== "entity-only";
+    if (props.apiCustomDomainName && !props.apiCertificateArn) {
+      throw new Error("apiCertificateArn is required when apiCustomDomainName is provided.");
+    }
 
     const callbackUrl = new CfnParameter(this, "CallbackUrl", {
       type: "String",
@@ -237,6 +256,13 @@ export class AwsApiStack extends Stack {
     });
     table.applyRemovalPolicy(RemovalPolicy.DESTROY);
 
+    const productImagesDomainNames = props.productImagesDomainNames ?? [];
+    if (productImagesDomainNames.length > 0 && !props.productImagesCertificateArn) {
+      throw new Error("productImagesCertificateArn is required when productImagesDomainNames is provided.");
+    }
+
+    // Uploads still land in S3. The custom domain changes the public read URL,
+    // not the storage location or the presigned PUT upload flow.
     const productImagesBucket = new s3.Bucket(this, "ProductImagesBucket", {
       blockPublicAccess: new s3.BlockPublicAccess({
         blockPublicAcls: true,
@@ -289,8 +315,18 @@ function handler(event) {
 `)
     });
 
+    // CloudFront terminates HTTPS for assets.truyenmasinhvien.com and reads
+    // from the S3 bucket through Origin Access Control.
+    const productImagesCertificate = props.productImagesCertificateArn
+      ? acm.Certificate.fromCertificateArn(this, "ProductImagesCertificate", props.productImagesCertificateArn)
+      : undefined;
+
+    // Public asset flow:
+    // browser -> assets.truyenmasinhvien.com -> Route53 Alias -> CloudFront -> S3 bucket.
     const productImagesDistribution = new cloudfront.Distribution(this, "ProductImagesDistribution", {
       comment: "Public CDN endpoint for product images and uploaded public assets",
+      certificate: productImagesCertificate,
+      domainNames: productImagesDomainNames.length > 0 ? productImagesDomainNames : undefined,
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(productImagesBucket),
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
@@ -308,7 +344,35 @@ function handler(event) {
       priceClass: cloudfront.PriceClass.PRICE_CLASS_200
     });
 
-    const productImagesPublicBaseUrl = `https://${productImagesDistribution.distributionDomainName}`;
+    if (productImagesDomainNames.length > 0 && props.productImagesHostedZoneDomainName) {
+      const productImagesHostedZone = route53.HostedZone.fromLookup(this, "ProductImagesHostedZone", {
+        domainName: props.productImagesHostedZoneDomainName
+      });
+      // Route53 Alias A/AAAA points the assets hostname at the CloudFront
+      // distribution. This behaves like a CNAME to CloudFront but also works
+      // with AWS alias targets and supports IPv6 via AAAA.
+      const productImagesTarget = route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(productImagesDistribution));
+
+      productImagesDomainNames.forEach((domainName, index) => {
+        new route53.ARecord(this, `ProductImagesAliasARecord${index + 1}`, {
+          zone: productImagesHostedZone,
+          recordName: domainName,
+          target: productImagesTarget
+        });
+        new route53.AaaaRecord(this, `ProductImagesAliasAaaaRecord${index + 1}`, {
+          zone: productImagesHostedZone,
+          recordName: domainName,
+          target: productImagesTarget
+        });
+      });
+    }
+
+    // API responses store/render fileUrl from this base URL. With a custom
+    // assets domain, new public files become
+    // https://assets.truyenmasinhvien.com/public/...
+    const productImagesPublicBaseUrl = productImagesDomainNames.length > 0
+      ? `https://${productImagesDomainNames[0]}`
+      : `https://${productImagesDistribution.distributionDomainName}`;
 
     const notificationsDlq = new sqs.Queue(this, "NotificationsDlq", {
       queueName: "supermarket-notifications-dlq",
@@ -2059,6 +2123,50 @@ function handler(event) {
       authorizationScopes: ["supermarket-api/access"]
     });
 
+    // API custom domain flow:
+    // browser/frontend -> api.truyenmasinhvien.com -> Route53 Alias -> API Gateway -> Lambda.
+    const apiCertificate = props.apiCertificateArn
+      ? acm.Certificate.fromCertificateArn(this, "ApiCertificate", props.apiCertificateArn)
+      : undefined;
+    const apiCustomDomain = props.apiCustomDomainName && apiCertificate
+      ? new apigateway.DomainName(this, "ApiCustomDomain", {
+        domainName: props.apiCustomDomainName,
+        certificate: apiCertificate,
+        endpointType: apigateway.EndpointType.REGIONAL,
+        securityPolicy: apigateway.SecurityPolicy.TLS_1_2
+      })
+      : undefined;
+
+    if (apiCustomDomain) {
+      // Empty base path maps https://api.truyenmasinhvien.com directly to the
+      // deployed API stage, so callers do not need to include /prod.
+      new apigateway.BasePathMapping(this, "ApiCustomDomainBasePathMapping", {
+        domainName: apiCustomDomain,
+        restApi: api,
+        stage: api.deploymentStage
+      });
+
+      if (props.apiHostedZoneDomainName) {
+        const apiHostedZone = route53.HostedZone.fromLookup(this, "ApiHostedZone", {
+          domainName: props.apiHostedZoneDomainName
+        });
+        // Route53 Alias A/AAAA points api.truyenmasinhvien.com at the regional
+        // API Gateway custom-domain target.
+        const apiTarget = route53.RecordTarget.fromAlias(new targets.ApiGatewayDomain(apiCustomDomain));
+
+        new route53.ARecord(this, "ApiAliasARecord", {
+          zone: apiHostedZone,
+          recordName: props.apiCustomDomainName,
+          target: apiTarget
+        });
+        new route53.AaaaRecord(this, "ApiAliasAaaaRecord", {
+          zone: apiHostedZone,
+          recordName: props.apiCustomDomainName,
+          target: apiTarget
+        });
+      }
+    }
+
     new CfnOutput(this, "TableName", {
       value: table.tableName ?? dynamoTableName.valueAsString
     });
@@ -2127,12 +2235,20 @@ function handler(event) {
       value: api.url
     });
 
+    new CfnOutput(this, "ApiCustomDomainUrl", {
+      value: props.apiCustomDomainName ? `https://${props.apiCustomDomainName}` : ""
+    });
+
     new CfnOutput(this, "ProductImagesBucketName", {
       value: productImagesBucket.bucketName
     });
 
     new CfnOutput(this, "ProductImagesDistributionDomainName", {
       value: productImagesDistribution.distributionDomainName
+    });
+
+    new CfnOutput(this, "ProductImagesCustomDomainNames", {
+      value: productImagesDomainNames.join(",")
     });
 
     new CfnOutput(this, "ProductImagesPublicBaseUrl", {

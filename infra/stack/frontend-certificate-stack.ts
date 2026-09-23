@@ -17,6 +17,9 @@ export class FrontendCertificateStack extends Stack {
   constructor(scope: Construct, id: string, props: FrontendCertificateStackProps) {
     super(scope, id, props);
 
+    // ACM validates ownership by writing DNS validation records into Route53.
+    // For CloudFront domains this stack must be deployed in us-east-1; for
+    // API Gateway REGIONAL domains it must be deployed in the API region.
     const hostedZone = route53.HostedZone.fromLookup(this, "HostedZone", {
       domainName: props.hostedZoneDomainName
     });
