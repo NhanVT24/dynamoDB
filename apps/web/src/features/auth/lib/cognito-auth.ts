@@ -439,6 +439,7 @@ export function consumePostLoginRedirect() {
 export function beginGoogleSignIn() {
   const url = new URL(`${getCognitoDomain()}/oauth2/authorize`);
   url.searchParams.set("identity_provider", "Google");
+  url.searchParams.set("prompt", "select_account");
   url.searchParams.set("redirect_uri", getRedirectUri());
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", getCognitoClientId());
