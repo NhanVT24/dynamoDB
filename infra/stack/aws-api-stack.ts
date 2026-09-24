@@ -13,11 +13,8 @@ import {
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as budgets from "aws-cdk-lib/aws-budgets";
-import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
-import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cognito from "aws-cdk-lib/aws-cognito";
-import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -28,8 +25,6 @@ import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3n from "aws-cdk-lib/aws-s3-notifications";
-import * as route53 from "aws-cdk-lib/aws-route53";
-import * as targets from "aws-cdk-lib/aws-route53-targets";
 import * as ses from "aws-cdk-lib/aws-ses";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
@@ -37,6 +32,11 @@ import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as sfn from "aws-cdk-lib/aws-stepfunctions";
 import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import { Construct } from "constructs";
+import { createProductImagesDistribution } from "../module/cloudfront";
+import { createMarketplaceTable } from "../module/dynamodb";
+import { createQueues, createSesFeedbackDlq } from "../module/sqs";
+import { createApiAliases, createProductImagesAliases } from "../module/route53";
+import { createProductImagesBucket } from "../module/s3";
 
 export interface AwsApiStackProps extends StackProps {
   // API Gateway REGIONAL custom domain: api.truyenmasinhvien.com.
@@ -186,332 +186,44 @@ export class AwsApiStack extends Stack {
       description: "Admin email address that receives the weekly revenue report"
     });
 
-    const table = new dynamodb.CfnTable(this, "MarketplaceProductsTable", {
-      tableName: dynamoTableName.valueAsString,
-      billingMode: "PAY_PER_REQUEST",
-      attributeDefinitions: [
-        { attributeName: "PK", attributeType: "S" },
-        { attributeName: "SK", attributeType: "S" },
-        { attributeName: "status", attributeType: "S" },
-        { attributeName: "searchName", attributeType: "S" },
-        { attributeName: "searchField", attributeType: "S" },
-        { attributeName: "entityType", attributeType: "S" },
-        { attributeName: "marketingAudience", attributeType: "S" },
-        { attributeName: "emailSearch", attributeType: "S" },
-        ...(includeSaleCampaignTimelineIndex ? [
-          { attributeName: "campaignStatus", attributeType: "S" },
-          { attributeName: "startAt", attributeType: "S" }
-        ] : []),
-        { attributeName: "updatedAt", attributeType: "S" }
-      ],
-      keySchema: [
-        { attributeName: "PK", keyType: "HASH" },
-        { attributeName: "SK", keyType: "RANGE" }
-      ],
-      globalSecondaryIndexes: [
-        {
-          indexName: "StatusTimelineIndex",
-          keySchema: [
-            { attributeName: "status", keyType: "HASH" },
-            { attributeName: "updatedAt", keyType: "RANGE" },
-            { attributeName: "searchName", keyType: "RANGE" },
-            { attributeName: "PK", keyType: "RANGE" }
-          ],
-          projection: { projectionType: "ALL" }
-        },
-        {
-          indexName: "SearchNameIndex",
-          keySchema: [
-            { attributeName: "searchField", keyType: "HASH" },
-            { attributeName: "searchName", keyType: "RANGE" },
-            { attributeName: "PK", keyType: "RANGE" }
-          ],
-          projection: { projectionType: "ALL" }
-        },
-        {
-          indexName: "EntityUpdatedAtIndex",
-          keySchema: [
-            { attributeName: "entityType", keyType: "HASH" },
-            { attributeName: "updatedAt", keyType: "RANGE" }
-          ],
-          projection: { projectionType: "ALL" }
-        },
-        {
-          indexName: "CustomerMarketingIndex",
-          keySchema: [
-            { attributeName: "marketingAudience", keyType: "HASH" },
-            { attributeName: "emailSearch", keyType: "RANGE" }
-          ],
-          projection: { projectionType: "ALL" }
-        },
-        ...(includeSaleCampaignTimelineIndex ? [{
-          indexName: "SaleCampaignTimelineIndex",
-          keySchema: [
-            { attributeName: "campaignStatus", keyType: "HASH" },
-            { attributeName: "startAt", keyType: "RANGE" }
-          ],
-          projection: { projectionType: "ALL" }
-        }] : [])
-      ]
+    const table = createMarketplaceTable(this, dynamoTableName.valueAsString, includeSaleCampaignTimelineIndex);
+
+    const productImagesBucket = createProductImagesBucket(this);
+    const {
+      productImagesDistribution,
+      productImagesDomainNames,
+      productImagesPublicBaseUrl
+    } = createProductImagesDistribution(this, productImagesBucket, {
+      certificateArn: props.productImagesCertificateArn,
+      domainNames: props.productImagesDomainNames
     });
-    table.applyRemovalPolicy(RemovalPolicy.DESTROY);
+    createProductImagesAliases(
+      this,
+      productImagesDistribution,
+      productImagesDomainNames,
+      props.productImagesHostedZoneDomainName
+    );
 
-    const productImagesDomainNames = props.productImagesDomainNames ?? [];
-    if (productImagesDomainNames.length > 0 && !props.productImagesCertificateArn) {
-      throw new Error("productImagesCertificateArn is required when productImagesDomainNames is provided.");
-    }
-
-    // Uploads still land in S3. The custom domain changes the public read URL,
-    // not the storage location or the presigned PUT upload flow.
-    const productImagesBucket = new s3.Bucket(this, "ProductImagesBucket", {
-      blockPublicAccess: new s3.BlockPublicAccess({
-        blockPublicAcls: true,
-        ignorePublicAcls: true,
-        blockPublicPolicy: false,
-        restrictPublicBuckets: false
-      }),
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      enforceSSL: true,
-      objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
-      cors: [
-        {
-          allowedOrigins: ["*"],
-          allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET, s3.HttpMethods.HEAD],
-          allowedHeaders: ["*"],
-          exposedHeaders: ["ETag"],
-          maxAge: 3000
-        }
-      ],
-      removalPolicy: RemovalPolicy.DESTROY,
-      autoDeleteObjects: true
-    });
-
-    productImagesBucket.addToResourcePolicy(new iam.PolicyStatement({
-      sid: "AllowPublicReadOnlyForPublicPrefix",
-      effect: iam.Effect.ALLOW,
-      principals: [new iam.AnyPrincipal()],
-      actions: ["s3:GetObject"],
-      resources: [productImagesBucket.arnForObjects("public/*")]
-    }));
-
-    const productImagesPublicOnlyFunction = new cloudfront.Function(this, "ProductImagesPublicOnlyFunction", {
-      code: cloudfront.FunctionCode.fromInline(`
-function handler(event) {
-  var request = event.request;
-  if (request.uri.indexOf("/public/") !== 0) {
-    return {
-      statusCode: 403,
-      statusDescription: "Forbidden",
-      headers: {
-        "cache-control": { value: "no-store" },
-        "content-type": { value: "text/plain; charset=utf-8" }
-      },
-      body: "Forbidden"
-    };
-  }
-
-  return request;
-}
-`)
-    });
-
-    // CloudFront terminates HTTPS for assets.truyenmasinhvien.com and reads
-    // from the S3 bucket through Origin Access Control.
-    const productImagesCertificate = props.productImagesCertificateArn
-      ? acm.Certificate.fromCertificateArn(this, "ProductImagesCertificate", props.productImagesCertificateArn)
-      : undefined;
-
-    // Public asset flow:
-    // browser -> assets.truyenmasinhvien.com -> Route53 Alias -> CloudFront -> S3 bucket.
-    const productImagesDistribution = new cloudfront.Distribution(this, "ProductImagesDistribution", {
-      comment: "Public CDN endpoint for product images and uploaded public assets",
-      certificate: productImagesCertificate,
-      domainNames: productImagesDomainNames.length > 0 ? productImagesDomainNames : undefined,
-      defaultBehavior: {
-        origin: origins.S3BucketOrigin.withOriginAccessControl(productImagesBucket),
-        allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
-        cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
-        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
-        compress: true,
-        functionAssociations: [{
-          eventType: cloudfront.FunctionEventType.VIEWER_REQUEST,
-          function: productImagesPublicOnlyFunction
-        }],
-        responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS_WITH_PREFLIGHT_AND_SECURITY_HEADERS,
-        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS
-      },
-      enableIpv6: true,
-      priceClass: cloudfront.PriceClass.PRICE_CLASS_200
-    });
-
-    if (productImagesDomainNames.length > 0 && props.productImagesHostedZoneDomainName) {
-      const productImagesHostedZone = route53.HostedZone.fromLookup(this, "ProductImagesHostedZone", {
-        domainName: props.productImagesHostedZoneDomainName
-      });
-      // Route53 Alias A/AAAA points the assets hostname at the CloudFront
-      // distribution. This behaves like a CNAME to CloudFront but also works
-      // with AWS alias targets and supports IPv6 via AAAA.
-      const productImagesTarget = route53.RecordTarget.fromAlias(new targets.CloudFrontTarget(productImagesDistribution));
-
-      productImagesDomainNames.forEach((domainName, index) => {
-        new route53.ARecord(this, `ProductImagesAliasARecord${index + 1}`, {
-          zone: productImagesHostedZone,
-          recordName: domainName,
-          target: productImagesTarget
-        });
-        new route53.AaaaRecord(this, `ProductImagesAliasAaaaRecord${index + 1}`, {
-          zone: productImagesHostedZone,
-          recordName: domainName,
-          target: productImagesTarget
-        });
-      });
-    }
-
-    // API responses store/render fileUrl from this base URL. With a custom
-    // assets domain, new public files become
-    // https://assets.truyenmasinhvien.com/public/...
-    const productImagesPublicBaseUrl = productImagesDomainNames.length > 0
-      ? `https://${productImagesDomainNames[0]}`
-      : `https://${productImagesDistribution.distributionDomainName}`;
-
-    const notificationsDlq = new sqs.Queue(this, "NotificationsDlq", {
-      queueName: "supermarket-notifications-dlq",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(14)
-    });
-
-    const notificationsQueue = new sqs.Queue(this, "NotificationsQueue", {
-      queueName: "supermarket-notifications",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(4),
-      deadLetterQueue: {
-        queue: notificationsDlq,
-        maxReceiveCount: 3
-      }
-    });
-
-    const auditQueue = new sqs.Queue(this, "AuditQueue", {
-      queueName: "supermarket-audit-log",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(4)
-    });
-
-    const eventBridgeTargetDlq = new sqs.Queue(this, "EventBridgeTargetDlq", {
-      queueName: "supermarket-eventbridge-target-dlq",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(14)
-    });
-
-    const storefrontOrdersDlq = new sqs.Queue(this, "StorefrontOrdersDlq", {
-      queueName: "supermarket-storefront-orders-dlq",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(14)
-    });
-
-    const storefrontOrdersQueue = new sqs.Queue(this, "StorefrontOrdersQueue", {
-      queueName: "supermarket-storefront-orders",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(4),
-      deadLetterQueue: {
-        queue: storefrontOrdersDlq,
-        maxReceiveCount: 3
-      }
-    });
-
-    const paymentEventsDlq = new sqs.Queue(this, "PaymentEventsDlq", {
-      queueName: "supermarket-payment-events-dlq",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(14)
-    });
-
-    const paymentEventsQueue = new sqs.Queue(this, "PaymentEventsQueue", {
-      queueName: "supermarket-payment-events",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(4),
-      deadLetterQueue: {
-        queue: paymentEventsDlq,
-        maxReceiveCount: 3
-      }
-    });
-
-    const emailJobsDlq = new sqs.Queue(this, "EmailJobsDlq", {
-      queueName: "supermarket-email-jobs-dlq",
-      visibilityTimeout: Duration.seconds(120),
-      retentionPeriod: Duration.days(14)
-    });
-
-    // This queue receives failures before an email job reaches the primary
-    // SQS queue (for example, EventBridge cannot SendMessage to the target).
-    // It is deliberately separate from EmailJobsDlq: the latter contains jobs
-    // that did reach the queue but failed in Pipe/Lambda processing.
-    const emailEventBridgeDeliveryDlq = new sqs.Queue(this, "EmailEventBridgeDeliveryDlq", {
-      queueName: "supermarket-email-eventbridge-delivery-dlq",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(14)
-    });
-
-    const emailRouteTrackerDlq = new sqs.Queue(this, "EmailRouteTrackerDlq", {
-      queueName: "supermarket-email-route-tracker-dlq",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(14),
-      encryption: sqs.QueueEncryption.SQS_MANAGED,
-      enforceSSL: true
-    });
-
-    const emailRoutingWatchdogDlq = new sqs.Queue(this, "EmailRoutingWatchdogDlq", {
-      queueName: "supermarket-email-routing-watchdog-dlq",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(14),
-      encryption: sqs.QueueEncryption.SQS_MANAGED,
-      enforceSSL: true
-    });
-
-    const emailPublishRecoveryDlq = new sqs.Queue(this, "EmailPublishRecoveryDlq", {
-      queueName: "supermarket-email-publish-recovery-dlq",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(14),
-      encryption: sqs.QueueEncryption.SQS_MANAGED,
-      enforceSSL: true
-    });
-
-    // Disabled-by-default, isolated resources used only to verify the
-    // EventBridge target-delivery DLQ path. They are never part of mail flow.
-    const emailEventBridgeFailureTestTargetQueue = new sqs.Queue(this, "EmailEventBridgeFailureTestTargetQueue", {
-      queueName: "supermarket-email-eventbridge-failure-test-target",
-      retentionPeriod: Duration.hours(1)
-    });
-    const emailEventBridgeSuccessTestQueue = new sqs.Queue(this, "EmailEventBridgeSuccessTestQueue", {
-      queueName: "supermarket-email-eventbridge-success-test-target",
-      retentionPeriod: Duration.hours(1)
-    });
-
-    const emailJobsQueue = new sqs.Queue(this, "EmailJobsQueue", {
-      queueName: "supermarket-email-jobs",
-      // Must outlive the Email Worker timeout so SQS cannot redeliver a job
-      // while its SES request is still running.
-      visibilityTimeout: Duration.seconds(120),
-      retentionPeriod: Duration.days(4),
-      deadLetterQueue: {
-        queue: emailJobsDlq,
-        maxReceiveCount: 5
-      }
-    });
-
-    const imageUploadsDlq = new sqs.Queue(this, "ImageUploadsDlq", {
-      queueName: "supermarket-image-uploads-dlq",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(14)
-    });
-
-    const imageUploadsQueue = new sqs.Queue(this, "ImageUploadsQueue", {
-      queueName: "supermarket-image-uploads",
-      visibilityTimeout: Duration.seconds(30),
-      retentionPeriod: Duration.days(4),
-      deadLetterQueue: {
-        queue: imageUploadsDlq,
-        maxReceiveCount: 3
-      }
-    });
+    const {
+      notificationsDlq,
+      notificationsQueue,
+      auditQueue,
+      eventBridgeTargetDlq,
+      storefrontOrdersDlq,
+      storefrontOrdersQueue,
+      paymentEventsDlq,
+      paymentEventsQueue,
+      emailJobsDlq,
+      emailEventBridgeDeliveryDlq,
+      emailRouteTrackerDlq,
+      emailRoutingWatchdogDlq,
+      emailPublishRecoveryDlq,
+      emailEventBridgeFailureTestTargetQueue,
+      emailEventBridgeSuccessTestQueue,
+      emailJobsQueue,
+      imageUploadsDlq,
+      imageUploadsQueue
+    } = createQueues(this);
 
     const commerceEventBus = new events.EventBus(this, "SupermarketCommerceEventBus", {
       eventBusName: "supermarket-commerce-bus"
@@ -1097,12 +809,7 @@ function handler(event) {
       256
     );
     sesInventoryEventFunction.addEnvironment("SES_EVENTS_TOPIC_ARN", inventoryReportEventsTopic.topicArn);
-    const sesFeedbackDlq = new sqs.Queue(this, "SesFeedbackDlq", {
-      queueName: "supermarket-ses-feedback-dlq",
-      retentionPeriod: Duration.days(14),
-      encryption: sqs.QueueEncryption.SQS_MANAGED,
-      enforceSSL: true
-    });
+    const sesFeedbackDlq = createSesFeedbackDlq(this);
     // SNS delivery failures and Lambda execution failures are separate stages.
     inventoryReportEventsTopic.addSubscription(new subscriptions.LambdaSubscription(sesInventoryEventFunction, {
       deadLetterQueue: sesFeedbackDlq
@@ -2146,24 +1853,8 @@ function handler(event) {
         stage: api.deploymentStage
       });
 
-      if (props.apiHostedZoneDomainName) {
-        const apiHostedZone = route53.HostedZone.fromLookup(this, "ApiHostedZone", {
-          domainName: props.apiHostedZoneDomainName
-        });
-        // Route53 Alias A/AAAA points api.truyenmasinhvien.com at the regional
-        // API Gateway custom-domain target.
-        const apiTarget = route53.RecordTarget.fromAlias(new targets.ApiGatewayDomain(apiCustomDomain));
-
-        new route53.ARecord(this, "ApiAliasARecord", {
-          zone: apiHostedZone,
-          recordName: props.apiCustomDomainName,
-          target: apiTarget
-        });
-        new route53.AaaaRecord(this, "ApiAliasAaaaRecord", {
-          zone: apiHostedZone,
-          recordName: props.apiCustomDomainName,
-          target: apiTarget
-        });
+      if (props.apiHostedZoneDomainName && props.apiCustomDomainName) {
+        createApiAliases(this, apiCustomDomain, props.apiCustomDomainName, props.apiHostedZoneDomainName);
       }
     }
 

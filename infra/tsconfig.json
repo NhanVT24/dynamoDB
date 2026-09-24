@@ -11,5 +11,5 @@
     "types": ["node"],
     "outDir": "dist"
   },
-  "include": ["*.ts", "bin/**/*.ts", "lib/**/*.ts", "stack/**/*.ts"]
+  "include": ["*.ts", "bin/**/*.ts", "lib/**/*.ts", "module/**/*.ts", "stack/**/*.ts"]
 }

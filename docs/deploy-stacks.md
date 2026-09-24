@@ -1,5 +1,33 @@
 # Lệnh deploy các AWS stack
 
+## Deploy chính — dùng khi cập nhật hạ tầng đang chạy
+
+Chạy tại thư mục gốc repo bằng PowerShell. Lệnh này deploy theo thứ tự
+**API/backend → frontend CloudFront → S3 storage**, tự đọc lại certificate,
+domain và các URL đang dùng từ CloudFormation. Nó dừng trước khi deploy nếu
+thiếu dữ liệu bắt buộc.
+
+```powershell
+npm run cdk:aws:deploy:all -- -AwsProfile nhandev -DomainName truyenmasinhvien.com
+```
+
+Kiểm tra đầu vào mà **không deploy**:
+
+```powershell
+npm run cdk:aws:deploy:all -- -AwsProfile nhandev -DomainName truyenmasinhvien.com -CheckOnly
+```
+
+Lệnh chính cần hosted zone, certificate và API stack đã tồn tại. Nó không
+upload file frontend; khi code Next.js thay đổi, chạy thêm
+`npm run deploy:frontend:static -- -AwsProfile nhandev`.
+
+| Nhu cầu | Xem mục |
+| --- | --- |
+| Deploy toàn bộ ba stack ứng dụng | Lệnh **Deploy chính** ngay trên |
+| Chỉ cập nhật API/backend | [Deploy từng stack](#deploy-từng-stack) |
+| Chỉ cập nhật frontend/geo restriction | [Frontend/CloudFront](#frontendcloudfront--supermarketfrontendcloudfrontstack) |
+| Chỉ cập nhật S3 storage | [S3 storage](#s3-storage--supermarkets3storagestack) |
+
 Chạy các lệnh dưới đây bằng PowerShell tại thư mục gốc của repo. File này dùng
 AWS profile `nhandev`, region `ap-southeast-1` và domain `truyenmasinhvien.com`.
 Thay các giá trị này nếu môi trường của bạn khác.
@@ -168,51 +196,3 @@ frontend lần đầu.
 ```powershell
 npm run deploy:frontend:static -- -AwsProfile $awsProfile
 ```
-
-## Một lệnh deploy API + frontend
-
-Lệnh dưới đây gọi `scripts/deploy-aws.ps1`: build Lambda, deploy API trước, rồi
-deploy frontend. Nó không tạo lại hosted zone, certificate, S3 storage stack và
-không upload static frontend files. Cần chạy phần **Lấy các giá trị đang dùng**
-ở trên; với môi trường đã có API stack, chạy thêm phần lấy `$apiOriginDomain`.
-
-```powershell
-npm run deploy:aws -- `
-  -AwsProfile $awsProfile `
-  -ApiCustomDomainName "api.$domain" `
-  -ApiCertificateArn $apiCertArn `
-  -ApiHostedZoneDomainName $domain `
-  -ProductImagesDomainNames "assets.$domain" `
-  -ProductImagesCertificateArn $frontendCertArn `
-  -ProductImagesHostedZoneDomainName $domain `
-  -FrontendDomainNames "$domain,www.$domain" `
-  -FrontendCertificateArn $frontendCertArn `
-  -FrontendHostedZoneDomainName $domain `
-  -FrontendApiOriginDomainName $apiOriginDomain `
-  -FrontendApiOriginPath "/prod" `
-  -CallbackUrl $callbackUrl `
-  -LogoutUrl $logoutUrl `
-  -CognitoDomainPrefix $cognitoDomainPrefix `
-  -VnpayReturnUrl $vnpayReturnUrl `
-  -VnpayIpnUrl $vnpayIpnUrl
-```
-
-## Một lệnh deploy cả ba stack ứng dụng
-
-Lệnh này đọc certificate ARN, API origin và các URL đang dùng từ CloudFormation,
-sau đó deploy API, frontend và S3 storage theo thứ tự. Nó dừng trước khi deploy
-nếu không đọc được các giá trị bắt buộc. Certificate và hosted zone phải tồn tại;
-đây không phải lệnh khởi tạo môi trường mới. Lệnh không upload static frontend
-files.
-
-```powershell
-npm run cdk:aws:deploy:all -- -AwsProfile $awsProfile -DomainName $domain -CheckOnly
-npm run cdk:aws:deploy:all -- -AwsProfile $awsProfile -DomainName $domain
-```
-
-Dòng `-CheckOnly` chỉ xác nhận AWS profile, certificate và tham số cần thiết;
-nó không deploy.
-
-Lệnh `:all` cũ đã được thay bằng script có bước kiểm tra này. Lệnh cũ từng
-deploy CDK mà không truyền custom domain context, làm xóa Alias A/AAAA của
-`truyenmasinhvien.com`, `www`, `api` và `assets`.
