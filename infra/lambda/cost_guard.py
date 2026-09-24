@@ -145,6 +145,7 @@ def send_alert(threshold, level, results):
     try:
         ses_client.send_email(
             FromEmailAddress=os.environ["SES_FROM_EMAIL"],
+            ReplyToAddresses=[os.environ["SES_REPLY_TO_EMAIL"]] if os.environ.get("SES_REPLY_TO_EMAIL") else [],
             Destination={"ToAddresses": [os.environ["ALERT_EMAIL"]]},
             Content={"Simple": {
                 "Subject": {"Data": subject, "Charset": "UTF-8"},

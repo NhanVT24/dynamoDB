@@ -222,6 +222,7 @@ export async function sendWeeklyRevenueReportEmail(summary: WeeklyRevenueSummary
 
   await sesClient.send(new SendEmailCommand({
     FromEmailAddress: env.SES_FROM_EMAIL,
+    ReplyToAddresses: env.SES_REPLY_TO_EMAIL ? [env.SES_REPLY_TO_EMAIL] : undefined,
     Destination: {
       ToAddresses: [env.ADMIN_REPORT_EMAIL]
     },

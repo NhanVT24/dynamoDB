@@ -13,6 +13,7 @@ import {
   type EmailType
 } from "../../modules/email-deliveries/email-delivery.repository.js";
 import { sesClient } from "./client.js";
+import { replyToAddresses } from "./sender-config.js";
 
 const maxRecipientsPerSend = 50;
 const mailboxSimulatorDomain = "simulator.amazonses.com";
@@ -154,6 +155,7 @@ export async function sendSharedEmail(input: SharedEmailInput) {
   try {
     const result = await sesClient.send(new SendEmailCommand({
       FromEmailAddress: input.senderEmail,
+      ReplyToAddresses: replyToAddresses(),
       Destination: {
         ToAddresses: deliverable.filter((value) => value.recipient.type === "to").map((value) => value.recipient.email),
         ...(deliverable.some((value) => value.recipient.type === "cc") ? { CcAddresses: deliverable.filter((value) => value.recipient.type === "cc").map((value) => value.recipient.email) } : {}),
@@ -238,6 +240,7 @@ export async function sendBulkSaleEmailBatch(input: BulkSaleEmailBatchInput): Pr
   try {
       const result = await sesClient.send(new SendBulkEmailCommand({
         FromEmailAddress: input.senderEmail,
+        ReplyToAddresses: replyToAddresses(),
         ConfigurationSetName: env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME,
         DefaultContent: content(input),
         BulkEmailEntries: recipients.map((recipient) => ({

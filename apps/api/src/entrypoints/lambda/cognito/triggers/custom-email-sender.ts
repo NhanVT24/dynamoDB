@@ -8,6 +8,7 @@ import type { CognitoTriggerEvent } from "../types.js";
 import { normalizeEmail } from "../helper/attributes.js";
 import {
   adminCreateUserMessage,
+  authenticationCodeMessage,
   resetPasswordMessage,
   verificationMessage
 } from "./custom-message.js";
@@ -51,6 +52,8 @@ function emailContent(event: CognitoTriggerEvent, code: string) {
       return verificationMessage({ code, email: recipientEmail(event) });
     case "CustomEmailSender_ForgotPassword":
       return resetPasswordMessage({ code });
+    case "CustomEmailSender_Authentication":
+      return authenticationCodeMessage({ code });
     case "CustomEmailSender_AdminCreateUser":
       return adminCreateUserMessage({
         code,
@@ -68,6 +71,7 @@ function isSupportedCustomEmailSender(triggerSource?: string) {
     "CustomEmailSender_UpdateUserAttribute",
     "CustomEmailSender_VerifyUserAttribute",
     "CustomEmailSender_ForgotPassword",
+    "CustomEmailSender_Authentication",
     "CustomEmailSender_AdminCreateUser"
   ].includes(triggerSource || "");
 }
@@ -82,8 +86,8 @@ export async function TriggerCustomEmailSender(event: CognitoTriggerEvent) {
     return event;
   }
 
-  const fromEmail = process.env.SES_FROM_EMAIL;
-  if (!fromEmail) throw new Error("Missing SES_FROM_EMAIL for Cognito custom email sender.");
+  const fromEmail = process.env.SES_AUTH_FROM_EMAIL ?? process.env.SES_FROM_EMAIL;
+  if (!fromEmail) throw new Error("Missing SES_AUTH_FROM_EMAIL for Cognito custom email sender.");
 
   const toEmail = recipientEmail(event);
   console.info("[cognito-custom-email-sender] received", {
@@ -108,6 +112,7 @@ export async function TriggerCustomEmailSender(event: CognitoTriggerEvent) {
 
     const result = await sesClient.send(new SendEmailCommand({
       FromEmailAddress: fromEmail,
+      ...(process.env.SES_REPLY_TO_EMAIL ? { ReplyToAddresses: [process.env.SES_REPLY_TO_EMAIL] } : {}),
       Destination: {
         ToAddresses: [toEmail]
       },

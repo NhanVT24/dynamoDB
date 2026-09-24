@@ -173,6 +173,21 @@ export class AwsApiStack extends Stack {
       default: "noreply@truyenmasinhvien.com",
       description: "SES sender address covered by a verified email or domain identity"
     });
+    const sesAuthFromEmail = new CfnParameter(this, "SesAuthFromEmail", {
+      type: "String",
+      default: "auth@truyenmasinhvien.com",
+      description: "SES sender for Cognito authentication and welcome emails"
+    });
+    const sesOrdersFromEmail = new CfnParameter(this, "SesOrdersFromEmail", {
+      type: "String",
+      default: "orders@truyenmasinhvien.com",
+      description: "SES sender for order and payment emails"
+    });
+    const sesReplyToEmail = new CfnParameter(this, "SesReplyToEmail", {
+      type: "String",
+      default: "nhan18072020@gmail.com",
+      description: "Inbox for replies to outgoing email"
+    });
 
     const emailWorkerTestMode = new CfnParameter(this, "EmailWorkerTestMode", {
       type: "String",
@@ -320,7 +335,9 @@ export class AwsApiStack extends Stack {
         EVENTBRIDGE_DEFAULT_BUS_NAME: platformEventBus.eventBusName,
         EVENTBRIDGE_PLATFORM_BUS_NAME: platformEventBus.eventBusName,
         COGNITO_CUSTOM_SENDER_KMS_KEY_ARN: cognitoCustomSenderKey.keyArn,
-        SES_FROM_EMAIL: sesFromEmail.valueAsString
+        SES_FROM_EMAIL: sesAuthFromEmail.valueAsString,
+        SES_AUTH_FROM_EMAIL: sesAuthFromEmail.valueAsString,
+        SES_REPLY_TO_EMAIL: sesReplyToEmail.valueAsString
       },
       code: sharedLambdaCode,
       initialPolicy: [
@@ -355,9 +372,9 @@ export class AwsApiStack extends Stack {
       signInAliases: { email: true },
       autoVerify: { email: true },
       email: cognito.UserPoolEmail.withSES({
-        fromEmail: sesFromEmail.valueAsString,
+        fromEmail: sesAuthFromEmail.valueAsString,
         fromName: "Supermarket",
-        replyTo: sesFromEmail.valueAsString
+        replyTo: sesReplyToEmail.valueAsString
       }),
       mfa: cognito.Mfa.OFF,
       customSenderKmsKey: cognitoCustomSenderKey,
@@ -384,7 +401,7 @@ export class AwsApiStack extends Stack {
     });
     // Cognito must reference the verified SES domain identity, while From
     // remains the full sender address. CDK defaults SourceArn to the address.
-    const sesSenderDomain = Fn.select(1, Fn.split("@", sesFromEmail.valueAsString));
+    const sesSenderDomain = Fn.select(1, Fn.split("@", sesAuthFromEmail.valueAsString));
     (userPool.node.defaultChild as cognito.CfnUserPool).addPropertyOverride(
       "EmailConfiguration.SourceArn",
       this.formatArn({ service: "ses", resource: "identity", resourceName: sesSenderDomain })
@@ -582,6 +599,9 @@ export class AwsApiStack extends Stack {
       CHECKOUT_TX_RACE_LOGGING: "false",
       SNS_ADMIN_ALERTS_TOPIC_ARN: adminAlertsTopic.topicArn,
       SES_FROM_EMAIL: sesFromEmail.valueAsString,
+      SES_AUTH_FROM_EMAIL: sesAuthFromEmail.valueAsString,
+      SES_ORDERS_FROM_EMAIL: sesOrdersFromEmail.valueAsString,
+      SES_REPLY_TO_EMAIL: sesReplyToEmail.valueAsString,
       SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME: inventoryReportConfigurationSet.ref,
       ADMIN_REPORT_EMAIL: adminReportEmail.valueAsString,
       VNPAY_TMN_CODE: vnpayTmnCodeValue,
@@ -1658,6 +1678,7 @@ export class AwsApiStack extends Stack {
       environment: {
         ALERT_EMAIL: adminReportEmail.valueAsString,
         SES_FROM_EMAIL: sesFromEmail.valueAsString,
+        SES_REPLY_TO_EMAIL: sesReplyToEmail.valueAsString,
         STATE_PARAMETER_NAME: costGuardStateParameterName,
         SALE_SCHEDULE_GROUP: saleSchedulerGroup.ref,
         ALL_APPLICATION_LAMBDAS: JSON.stringify(allApplicationLambdaNames),

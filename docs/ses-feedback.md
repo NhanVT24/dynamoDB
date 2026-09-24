@@ -22,7 +22,7 @@ Deploy script cập nhật toàn bộ stack, không chỉ SES. Đọc CDK diff t
 Không cần nhập callback URL trong SES: SNS subscription dùng Lambda ARN, AWS tự gọi Lambda.
 Không cần verify HTTP signature trong Lambda integration; dùng SNS resource policy, Lambda invoke permission và kiểm tra TopicArn.
 
-Điều kiện SES riêng của account: `SES_FROM_EMAIL` hoặc domain phải được verified; nếu account còn sandbox thì địa chỉ nhận cũng phải verified (ngoại trừ SES mailbox simulator). Production access và DNS verification không được script này tự hoàn tất.
+Các sender được tách theo luồng: `SES_AUTH_FROM_EMAIL` cho mã Cognito và mail chào mừng, `SES_ORDERS_FROM_EMAIL` cho đơn hàng/thanh toán, `SES_FROM_EMAIL` cho thông báo chung. `SES_REPLY_TO_EMAIL` là inbox nhận thư trả lời (hiện dùng `nhan18072020@gmail.com`); cấu hình này không nhận mail gửi trực tiếp tới các địa chỉ `@truyenmasinhvien.com` và không thay thế MX hoặc SES inbound. Điều kiện SES riêng của account: các sender hoặc domain phải được verified; nếu account còn sandbox thì địa chỉ nhận cũng phải verified (ngoại trừ SES mailbox simulator). Production access và DNS verification không được script này tự hoàn tất.
 
 Nếu chạy sender local, đặt `SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME=supermarket-inventory-daily-report`.
 Tracked mailer sẽ từ chối gửi nếu thiếu configuration set, tránh gửi email không có feedback.

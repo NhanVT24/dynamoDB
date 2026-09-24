@@ -73,6 +73,7 @@ export async function sendInventoryDigestEmail(input: InventoryDigestInput) {
 
   const result = await sesClient.send(new SendEmailCommand({
     FromEmailAddress: env.SES_FROM_EMAIL,
+    ReplyToAddresses: env.SES_REPLY_TO_EMAIL ? [env.SES_REPLY_TO_EMAIL] : undefined,
     Destination: { ToAddresses: [recipientEmail] },
     ConfigurationSetName: env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME,
     // SES copies these tags to SNS feedback events so the receiving Lambda can find this report.

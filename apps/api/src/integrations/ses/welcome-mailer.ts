@@ -1,5 +1,5 @@
-import { env } from "../../config/env.js";
 import { sendSharedEmail } from "./bulk-mailer.js";
+import { authSenderEmail } from "./sender-config.js";
 
 function escapeHtml(value: string) {
   return value
@@ -16,8 +16,9 @@ export async function sendWelcomeEmail(input: {
   displayName?: string;
   userSub: string;
 }) {
-  if (!env.SES_FROM_EMAIL) {
-    throw new Error("Missing SES_FROM_EMAIL for welcome email.");
+  const senderEmail = authSenderEmail();
+  if (!senderEmail) {
+    throw new Error("Missing SES_AUTH_FROM_EMAIL for welcome email.");
   }
 
   const name = input.displayName?.trim() || input.toEmail;
@@ -44,7 +45,7 @@ export async function sendWelcomeEmail(input: {
   return sendSharedEmail({
     emailId: input.emailJobId,
     emailType: "account_welcome",
-    senderEmail: env.SES_FROM_EMAIL,
+    senderEmail,
     subject,
     html,
     text,

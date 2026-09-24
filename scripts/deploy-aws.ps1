@@ -21,7 +21,10 @@ param(
   [string]$CallbackUrl = $env:COGNITO_CALLBACK_URL,
   [string]$LogoutUrl = $env:COGNITO_LOGOUT_URL,
   [string]$CognitoDomainPrefix = $env:COGNITO_DOMAIN_PREFIX,
-  [string]$SesFromEmail = "noreply@truyenmasinhvien.com"
+  [string]$SesFromEmail = "noreply@truyenmasinhvien.com",
+  [string]$SesAuthFromEmail = "auth@truyenmasinhvien.com",
+  [string]$SesOrdersFromEmail = "orders@truyenmasinhvien.com",
+  [string]$SesReplyToEmail = "nhan18072020@gmail.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -131,7 +134,10 @@ if (-not $FrontendCloudFrontOnly) {
     "--app", "npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts",
     "--output", "cdk.out",
     "--require-approval", "never",
-    "--parameters", "SesFromEmail=$SesFromEmail"
+    "--parameters", "SesFromEmail=$SesFromEmail",
+    "--parameters", "SesAuthFromEmail=$SesAuthFromEmail",
+    "--parameters", "SesOrdersFromEmail=$SesOrdersFromEmail",
+    "--parameters", "SesReplyToEmail=$SesReplyToEmail"
   )
 
   if ($VnpayReturnUrl) {

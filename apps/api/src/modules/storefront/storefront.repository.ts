@@ -14,6 +14,7 @@ type OrderLine = {
   productId: string;
   productName: string;
   price: number;
+  originalUnitPrice?: number;
   quantity: number;
   lineTotal: number;
 };
@@ -48,6 +49,7 @@ export type StorefrontOrderItemRecord = {
   customerEmail: string;
   productName: string;
   unitPrice: number;
+  originalUnitPrice?: number;
   quantity: number;
   lineTotal: number;
   createdAt: string;
@@ -93,6 +95,7 @@ export type CheckoutReservationRecord = {
   customerEmail: string;
   quantity: number;
   unitPrice: number;
+  originalUnitPrice?: number;
   productName: string;
   status: "reserved" | "released" | "committed";
   productVersionAtReserve: number;
@@ -700,6 +703,7 @@ export async function createCheckoutReservations(input: {
           throw new Error(`Insufficient reserved availability for ${product.name}`);
         }
 
+        const resolvedPrice = resolveSalePrice(product, saleCampaigns);
         const reservationRecord: CheckoutReservationRecord = {
           ...buildCheckoutReservationKey(input.requestId, item.productId),
           entityType: "CHECKOUT_RESERVATION",
@@ -707,7 +711,8 @@ export async function createCheckoutReservations(input: {
           productId: item.productId,
           customerEmail: input.email,
           quantity: item.quantity,
-          unitPrice: resolveSalePrice(product, saleCampaigns).price,
+          unitPrice: resolvedPrice.price,
+          originalUnitPrice: resolvedPrice.originalPrice,
           productName: String(product.name ?? ""),
           status: "reserved",
           productVersionAtReserve: Number(product.version ?? 0),
@@ -963,6 +968,7 @@ export async function commitCheckoutReservationsToOrder(input: {
     productId: reservation.productId,
     productName: reservation.productName,
     price: reservation.unitPrice,
+    originalUnitPrice: reservation.originalUnitPrice,
     quantity: reservation.quantity,
     lineTotal: reservation.unitPrice * reservation.quantity
   }));
@@ -1172,7 +1178,8 @@ export async function createAwaitingPaymentOrder(input: {
       throw new Error(`Insufficient stock for ${product.name}`);
     }
 
-    const unitPrice = resolveSalePrice(product, saleCampaigns).price;
+    const resolvedPrice = resolveSalePrice(product, saleCampaigns);
+    const unitPrice = resolvedPrice.price;
     const lineTotal = unitPrice * item.quantity;
     totalAmount += lineTotal;
     products.set(item.productId, product);
@@ -1184,6 +1191,7 @@ export async function createAwaitingPaymentOrder(input: {
       customerEmail: input.email,
       productName: String(product.name ?? ""),
       unitPrice,
+      originalUnitPrice: resolvedPrice.originalPrice,
       quantity: item.quantity,
       lineTotal,
       createdAt: now,

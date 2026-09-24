@@ -64,6 +64,23 @@ export function resetPasswordMessage(input: { code: string }) {
   };
 }
 
+export function authenticationCodeMessage(input: { code: string }) {
+  return {
+    subject: "Your Supermarket sign-in code",
+    text: [
+      "Use this code to sign in to your Supermarket account:",
+      input.code,
+      "",
+      "If you did not try to sign in, you can ignore this email."
+    ].join("\n"),
+    message: [
+      "<p>Use this code to sign in to your Supermarket account:</p>",
+      `<p style="font-size:24px;font-weight:700;letter-spacing:4px;">${escapeHtml(input.code)}</p>`,
+      "<p>If you did not try to sign in, you can ignore this email.</p>"
+    ].join("")
+  };
+}
+
 export function adminCreateUserMessage(input: { code: string; username?: string }) {
   const username = input.username || "your account";
   return {

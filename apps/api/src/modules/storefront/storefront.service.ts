@@ -10,6 +10,7 @@ import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { sqsClient } from "../../integrations/sqs/client.js";
 import { sendOrderConfirmationEmail, sendOrderFailureEmail } from "../../integrations/ses/order-mailer.js";
+import { ordersSenderEmail } from "../../integrations/ses/sender-config.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { resolveSalePrice } from "../sales/sale-pricing.js";
 import { listActiveSaleCampaigns } from "../sales/sales.repository.js";
@@ -432,7 +433,7 @@ export class StorefrontService {
         }
       });
 
-      if (env.SES_FROM_EMAIL) {
+      if (ordersSenderEmail()) {
         try {
           await sendOrderConfirmationEmail({
             toEmail: email,
@@ -442,6 +443,8 @@ export class StorefrontService {
             items: order.items.map((item) => ({
               productName: item.productName,
               quantity: item.quantity,
+              unitPrice: item.price,
+              originalUnitPrice: item.originalUnitPrice,
               lineTotal: item.lineTotal
             }))
           });
@@ -490,7 +493,7 @@ export class StorefrontService {
           `[dynamo-stock] insufficient_after_queue requestId=${requestId ?? ""} customer=${email} reason=insufficient_stock error=${error.message}`
         );
 
-        if (env.SES_FROM_EMAIL) {
+        if (ordersSenderEmail()) {
           try {
             await sendOrderFailureEmail({
               toEmail: email,

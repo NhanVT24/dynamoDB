@@ -7,6 +7,7 @@ import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { publishAdminAlert } from "../../integrations/sns/publisher.js";
 import { sendOrderConfirmationEmail, sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
+import { ordersSenderEmail } from "../../integrations/ses/sender-config.js";
 import { commitCheckoutReservationsToOrder, getAwaitingPaymentOrder, transitionAwaitingPaymentOrder, getOrderById, markOrderAsDone, type InventoryStockChange } from "../storefront/storefront.repository.js";
 import {
   createNotification,
@@ -101,13 +102,16 @@ export class NotificationsService {
     orderId: string;
     totalAmount: number;
     createdAt: string;
+    paymentConfirmedAt?: string;
     items: Array<{
       productName: string;
       quantity: number;
+      unitPrice: number;
+      originalUnitPrice?: number;
       lineTotal: number;
     }>;
   }) {
-    if (!env.SES_FROM_EMAIL) {
+    if (!ordersSenderEmail()) {
       this.logger.warn(`[mail-ses] order_success_skipped orderId=${input.orderId} reason=ses_not_configured`);
       return { sent: false };
     }
@@ -577,6 +581,7 @@ export class NotificationsService {
       order: Awaited<ReturnType<typeof getOrderById>> | null;
       orderId: string;
       stockChanges: InventoryStockChange[];
+      paymentConfirmedAt?: string;
     };
 
     try {
@@ -591,6 +596,7 @@ export class NotificationsService {
         committed = {
           orderId: requestId,
           stockChanges: [],
+          paymentConfirmedAt: outcome.order.updatedAt,
           order: {
             ...outcome.order,
             id: requestId,
@@ -598,7 +604,8 @@ export class NotificationsService {
             status: "pending",
             items: outcome.items.map((item) => ({
               productId: item.productId, productName: item.productName,
-              price: item.unitPrice, quantity: item.quantity, lineTotal: item.lineTotal
+              price: item.unitPrice, originalUnitPrice: item.originalUnitPrice,
+              quantity: item.quantity, lineTotal: item.lineTotal
             }))
           }
         };
@@ -684,9 +691,12 @@ export class NotificationsService {
         orderId: committed.order.id,
         totalAmount: committed.order.totalAmount,
         createdAt: committed.order.createdAt,
+        paymentConfirmedAt: committed.paymentConfirmedAt,
         items: committed.order.items.map((item) => ({
           productName: item.productName,
           quantity: item.quantity,
+          unitPrice: item.price,
+          originalUnitPrice: item.originalUnitPrice,
           lineTotal: item.lineTotal
         }))
       });
