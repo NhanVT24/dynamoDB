@@ -1,32 +1,22 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import ShoppingManager from "../components/ShoppingManager";
 import EmailCenter from "../components/EmailCenter";
 import StorageManager from "../components/StorageManager";
 import UserPermissionManager from "../components/UserPermissionManager";
 import {
-  beginGoogleSignIn,
   clearAuthSession,
-  confirmForgotPassword,
-  confirmSignUpWithCognito,
-  consumePostLoginRedirect,
   rememberPostLoginRedirect,
   authSessionChangedEvent,
   authenticatedFetch,
-  resolvePostLoginRoute,
   type AuthSession,
-  forgotPassword,
   readAuthSession,
-  resendConfirmationCode,
-  signInWithCognito,
-  signOutLocally,
-  signUpWithCognito
+  signOutFromCognitoHostedUi
 } from "../../auth/lib/cognito-auth";
 
-type AuthMode = "login" | "register" | "confirm" | "forgot" | "reset";
 type AdminNotification = {
   id: string;
   title: string;
@@ -41,75 +31,6 @@ type AdminNotification = {
     [key: string]: unknown;
   };
 };
-
-const inputClassName =
-  "h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100";
-
-function PasswordField({
-  value,
-  onChange,
-  placeholder,
-  autoComplete = "current-password"
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  autoComplete?: string;
-}) {
-  const [visible, setVisible] = useState(false);
-
-  return (
-    <div className="relative z-50">
-      <input
-        className={`${inputClassName} pr-12`}
-        type={visible ? "text" : "password"}
-        placeholder={placeholder}
-        value={value}
-        autoComplete={autoComplete}
-        onChange={(event) => onChange(event.target.value)}
-        required
-      />
-      <button
-        type="button"
-        onClick={() => setVisible((current) => !current)}
-        aria-label={visible ? "Hide password" : "Show password"}
-        title={visible ? "Hide password" : "Show password"}
-        className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-      >
-        {visible ? (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M3 3L21 21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            <path d="M10.58 10.58A2 2 0 0 0 13.41 13.41" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            <path
-              d="M9.88 5.09A10.94 10.94 0 0 1 12 4.91C17 4.91 20.27 9.11 21 12c-.34 1.35-1.27 3.19-2.86 4.73"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M6.61 6.61C4.62 8 3.36 10.11 3 12c.73 2.89 4 7.09 9 7.09 1.51 0 2.9-.38 4.13-1.01"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        ) : (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M2.46 12C3.73 7.94 7.52 5 12 5c4.48 0 8.27 2.94 9.54 7-1.27 4.06-5.06 7-9.54 7-4.48 0-8.27-2.94-9.54-7Z"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
-            <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
-          </svg>
-        )}
-      </button>
-    </div>
-  );
-}
 
 function formatNotificationTime(value?: string) {
   if (!value) return "";
@@ -427,31 +348,9 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
 
 export default function Home() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [adminTab, setAdminTab] = useState<"products" | "email" | "storage" | "permissions">("products");
-  const [authMode, setAuthMode] = useState<AuthMode>("login");
-  const [message, setMessage] = useState("Use a Cognito account to access the AWS admin API.");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [resendCountdown, setResendCountdown] = useState(0);
-
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-
-  const [registerName, setRegisterName] = useState("");
-  const [registerEmail, setRegisterEmail] = useState("");
-  const [registerPassword, setRegisterPassword] = useState("");
-  const [registerConfirmPassword, setRegisterConfirmPassword] = useState("");
-
-  const [confirmEmail, setConfirmEmail] = useState("");
-  const [confirmCode, setConfirmCode] = useState("");
-
-  const [forgotEmail, setForgotEmail] = useState("");
-  const [resetCode, setResetCode] = useState("");
-  const [resetPassword, setResetPassword] = useState("");
-  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
-
   useEffect(() => {
     const nextSession = readAuthSession();
     if (!nextSession) {
@@ -474,12 +373,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (searchParams.get("auth") === "insufficient-role") {
-      setMessage("The current account is logged in but does not belong to the admin group, so it cannot access the admin panel.");
-    }
-  }, [searchParams]);
-
-  useEffect(() => {
     if (!ready || session) {
       return;
     }
@@ -490,21 +383,6 @@ export default function Home() {
   }, [ready, router, session]);
 
   useEffect(() => {
-    if (!ready || !session) return;
-
-    const postLoginRedirect = consumePostLoginRedirect();
-    const nextRoute = resolvePostLoginRoute(session, postLoginRedirect);
-    if (nextRoute !== "/admin") {
-      router.replace(nextRoute);
-      return;
-    }
-
-    if (session.role !== "admin") {
-      setMessage(`The account ${session.email} has the role ${session.role}. To access the admin panel, please log in with a user from the admin group.`);
-    }
-  }, [ready, router, session]);
-
-  useEffect(() => {
     if (!ready || !session || session.role === "admin") {
       return;
     }
@@ -512,474 +390,15 @@ export default function Home() {
     router.replace("/store");
   }, [ready, router, session]);
 
-  useEffect(() => {
-    if (resendCountdown <= 0) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setResendCountdown((current) => Math.max(0, current - 1));
-    }, 1000);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [resendCountdown]);
-
-  function handleLogout() {
-    // Do not notify this mounted admin screen, otherwise it briefly renders its login fallback.
-    signOutLocally({ notify: false });
-    window.location.replace("/store");
-  }
-
-  function handleHostedLogout() {
-    handleLogout();
-  }
-
-  function renderMessageTone() {
-    const lowered = message.toLowerCase();
-
-    if (
-      lowered.includes("failed") ||
-      lowered.includes("cannot") ||
-      lowered.includes("could not") ||
-      lowered.includes("invalid") ||
-      lowered.includes("not") ||
-      lowered.includes("incorrect") ||
-      lowered.includes("expired") ||
-      lowered.includes("mismatch") ||
-      lowered.includes("must") ||
-      lowered.includes("policy") ||
-      lowered.includes("error") ||
-      lowered.includes("already registered") ||
-      lowered.includes("does not belong to the admin group")
-    ) {
-      return "border-rose-200 bg-rose-50 text-rose-700";
-    }
-
-    if (
-      lowered.includes("success") ||
-      lowered.includes("created") ||
-      lowered.includes("confirmed") ||
-      lowered.includes("sent") ||
-      lowered.includes("updated") ||
-      lowered.includes("reset successfully")
-    ) {
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    }
-
-    return "border-cyan-200 bg-cyan-50 text-cyan-700";
-  }
-
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      if (!loginEmail.trim() || !loginPassword.trim()) {
-        throw new Error("Please enter both email and password.");
-      }
-
-      const nextSession = await signInWithCognito({
-        email: loginEmail,
-        password: loginPassword
-      });
-
-      setSession(nextSession);
-      const nextRoute = resolvePostLoginRoute(nextSession, consumePostLoginRedirect());
-      if (nextRoute !== "/admin") {
-        router.replace(nextRoute);
-        return;
-      }
-      setMessage(
-        nextSession.role === "admin"
-          ? "Successfully logged in as admin."
-          : `Successfully logged in but the current account has the role ${nextSession.role}, which is not sufficient to access the admin panel.`
-      );
-    } catch (error) {
-      const text = error instanceof Error ? error.message : "Failed to log in";
-      setMessage(text);
-
-      if (/confirm/i.test(text)) {
-        setConfirmEmail(loginEmail);
-        setAuthMode("confirm");
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handleRegister(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      if (registerPassword.length < 8) {
-        throw new Error("Password must be at least 8 characters long.");
-      }
-
-      if (registerPassword !== registerConfirmPassword) {
-        throw new Error("The confirmation password does not match.");
-      }
-
-      await signUpWithCognito({
-        email: registerEmail,
-        password: registerPassword,
-        name: registerName
-      });
-
-      setConfirmEmail(registerEmail);
-      setLoginEmail(registerEmail);
-      setLoginPassword(registerPassword);
-      setResendCountdown(60);
-      setAuthMode("confirm");
-      setMessage("Successfully created account. Please check your email for the confirmation code.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to create account");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handleConfirm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      if (!confirmCode.trim()) {
-        throw new Error("Please enter the confirmation code.");
-      }
-
-      await confirmSignUpWithCognito({
-        email: confirmEmail,
-        code: confirmCode
-      });
-
-      setResendCountdown(0);
-      setAuthMode("login");
-      setMessage("Successfully confirmed account. You can log in now.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to confirm account");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handleForgotPassword(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      if (!forgotEmail.trim()) {
-        throw new Error("Please enter your email to receive the password reset code.");
-      }
-
-      await forgotPassword(forgotEmail);
-      setAuthMode("reset");
-      setMessage("The password reset code has been sent to your email.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to initiate password reset");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handleResetPassword(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      if (resetPassword.length < 8) {
-        throw new Error("New password must be at least 8 characters long.");
-      }
-
-      if (resetPassword !== resetConfirmPassword) {
-        throw new Error("The confirmation password does not match.");
-      }
-
-      if (resetPassword === loginPassword && forgotEmail.trim().toLowerCase() === loginEmail.trim().toLowerCase()) {
-        throw new Error("The new password should not be the same as the previous password.");
-      }
-
-      await confirmForgotPassword({
-        email: forgotEmail,
-        code: resetCode,
-        newPassword: resetPassword
-      });
-
-      setAuthMode("login");
-      setLoginEmail(forgotEmail);
-      setLoginPassword("");
-      setMessage("Successfully updated password. Please log in with your new password.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to reset password");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
-  async function handleResendCode() {
-    if (resendCountdown > 0) {
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      await resendConfirmationCode(confirmEmail);
-      setResendCountdown(60);
-      setMessage("The confirmation code has been sent again.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to resend confirmation code");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }
-
   if (!ready) {
     return null;
   }
 
-  const singleActionMode = authMode === "register" || authMode === "confirm" || authMode === "forgot" || authMode === "reset";
-  const hasProductWorkspaceAccess = session?.role === "admin";
-  const showAdminLoginScreen = !hasProductWorkspaceAccess;
+  if (session?.role !== "admin") return null;
 
   return (
-    <div
-      className={`grid gap-4 ${
-        showAdminLoginScreen
-          ? "min-h-[calc(100vh-11rem)] place-items-center rounded-[2rem] border border-cyan-100 bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.16),_transparent_34%),linear-gradient(180deg,_#f8fbff_0%,_#eef6ff_45%,_#fdfefe_100%)] p-4 shadow-[0_30px_100px_rgba(15,23,42,0.08)]"
-          : ""
-      }`}
-    >
-      {!hasProductWorkspaceAccess ? (
-        <section className="mx-auto w-full max-w-md rounded-[28px] border border-white/80 bg-white/95 p-6 shadow-[0_30px_100px_rgba(15,23,42,0.12)] backdrop-blur">
-          <div className="mb-5 text-center">
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
-              {authMode === "login" && "Log in"}
-              {authMode === "register" && "Create account"}
-              {authMode === "confirm" && "Confirm email"}
-              {authMode === "forgot" && "Forgot password"}
-              {authMode === "reset" && "Reset password"}
-            </h2>
-            <p className={`mt-3 rounded-2xl border px-4 py-3 text-left text-sm ${renderMessageTone()}`}>{message}</p>
-            {session && session.role !== "admin" ? (
-              <div className="mt-3 flex flex-wrap justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => router.push("/")}
-                  className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Back to home
-                </button>
-                <button
-                  type="button"
-                  onClick={handleHostedLogout}
-                  className="inline-flex h-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 text-sm font-semibold text-rose-700 transition hover:bg-rose-100"
-                >
-                  Log out to switch accounts
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          {!session ? (
-            <>
-              {authMode === "login" ? (
-                <form className="grid gap-4" onSubmit={handleLogin}>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Email</span>
-                    <input className={inputClassName} type="email" placeholder="admin@example.com" value={loginEmail} onChange={(event) => setLoginEmail(event.target.value)} required />
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Password</span>
-                    <PasswordField
-                      value={loginPassword}
-                      onChange={setLoginPassword}
-                      placeholder="Enter your password"
-                      autoComplete="current-password"
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSubmitting ? "Logging in..." : "Log in"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={beginGoogleSignIn}
-                    className="inline-flex h-11 items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-                      <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.8-6-6.2s2.7-6.2 6-6.2c1.9 0 3.2.8 3.9 1.5l2.7-2.6C17 2.9 14.7 2 12 2 6.9 2 2.8 6.3 2.8 11.8S6.9 21.5 12 21.5c6.9 0 9.2-4.9 9.2-7.5 0-.5 0-.9-.1-1.3H12Z" />
-                      <path fill="#4285F4" d="M3.8 7.3l3.2 2.4C7.8 7.3 9.7 5.6 12 5.6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C17 2.9 14.7 2 12 2 8 2 4.6 4.3 3 7.7l.8-.4Z" />
-                      <path fill="#FBBC05" d="M12 21.5c2.6 0 4.8-.9 6.4-2.5l-3-2.5c-.8.6-1.9 1-3.4 1-3.9 0-5.2-2.6-5.5-3.9l-3.2 2.5C4.6 19.2 8 21.5 12 21.5Z" />
-                      <path fill="#34A853" d="M6.5 13.6c-.2-.6-.3-1.2-.3-1.8s.1-1.2.3-1.8L3.3 7.5C2.8 8.7 2.5 10.2 2.5 11.8s.3 3.1.8 4.3l3.2-2.5Z" />
-                    </svg>
-                    <span>Log in with Google</span>
-                  </button>
-                </form>
-              ) : null}
-
-              {authMode === "register" ? (
-                <form className="grid gap-4" onSubmit={handleRegister}>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Full name</span>
-                    <input className={inputClassName} placeholder="e.g., John Doe" value={registerName} onChange={(event) => setRegisterName(event.target.value)} />
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Email</span>
-                    <input className={inputClassName} type="email" placeholder="you@example.com" value={registerEmail} onChange={(event) => setRegisterEmail(event.target.value)} required />
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Password</span>
-                    <PasswordField
-                      value={registerPassword}
-                      onChange={setRegisterPassword}
-                      placeholder="At least 8 characters, with uppercase, lowercase and numbers"
-                      autoComplete="new-password"
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Confirm password</span>
-                    <PasswordField
-                      value={registerConfirmPassword}
-                      onChange={setRegisterConfirmPassword}
-                      placeholder="Enter your password again"
-                      autoComplete="new-password"
-                    />
-                  </label>
-                  <p className="text-xs text-slate-500">
-                    Password rules: at least 8 characters, with uppercase, lowercase and numbers.
-                  </p>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="inline-flex h-11 items-center justify-center rounded-xl bg-cyan-600 px-4 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSubmitting ? "Creating account..." : "Create account"}
-                  </button>
-                </form>
-              ) : null}
-
-              {authMode === "confirm" ? (
-                <form className="grid gap-4" onSubmit={handleConfirm}>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Email</span>
-                    <input className={inputClassName} type="email" placeholder="Email you just registered" value={confirmEmail} onChange={(event) => setConfirmEmail(event.target.value)} required />
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Confirmation code</span>
-                    <input className={inputClassName} placeholder="Enter the 6-digit code from your email" value={confirmCode} onChange={(event) => setConfirmCode(event.target.value)} required />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSubmitting ? "Confirming..." : "Confirm account"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleResendCode}
-                    disabled={isSubmitting || resendCountdown > 0}
-                    className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {resendCountdown > 0 ? `Resend code in ${resendCountdown}s` : "Resend code"}
-                  </button>
-                </form>
-              ) : null}
-
-              {authMode === "forgot" ? (
-                <form className="grid gap-4" onSubmit={handleForgotPassword}>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Email</span>
-                    <input className={inputClassName} type="email" placeholder="Enter your account's email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSubmitting ? "Sending code..." : "Send reset code"}
-                  </button>
-                </form>
-              ) : null}
-
-              {authMode === "reset" ? (
-                <form className="grid gap-4" onSubmit={handleResetPassword}>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Email</span>
-                    <input className={inputClassName} type="email" placeholder="Enter your account's email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} required />
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Reset code</span>
-                    <input className={inputClassName} placeholder="Enter the reset code from your email" value={resetCode} onChange={(event) => setResetCode(event.target.value)} required />
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>New password</span>
-                    <PasswordField
-                      value={resetPassword}
-                      onChange={setResetPassword}
-                      placeholder="Create a stronger new password"
-                      autoComplete="new-password"
-                    />
-                  </label>
-                  <label className="grid gap-2 text-sm font-medium text-slate-700">
-                    <span>Confirm new password</span>
-                    <PasswordField
-                      value={resetConfirmPassword}
-                      onChange={setResetConfirmPassword}
-                      placeholder="Confirm your new password"
-                      autoComplete="new-password"
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="inline-flex h-11 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSubmitting ? "Updating password..." : "Update password"}
-                  </button>
-                </form>
-              ) : null}
-
-              <div className={`mt-5 grid gap-3 ${singleActionMode ? "grid-cols-1" : "grid-cols-2"}`}>
-                {authMode !== "register" && authMode !== "forgot" && authMode !== "reset" && authMode !== "confirm" ? (
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode("register")}
-                    className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-cyan-200 bg-cyan-50 px-4 text-sm font-semibold text-cyan-700 transition hover:bg-cyan-100"
-                  >
-                    Create account
-                  </button>
-                ) : null}
-                {authMode !== "forgot" && authMode !== "reset" && authMode !== "register" && authMode !== "confirm" ? (
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode("forgot")}
-                    className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Forgot password
-                  </button>
-                ) : null}
-                {authMode !== "login" ? (
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode("login")}
-                    className="inline-flex h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    Back to login
-                  </button>
-                ) : null}
-              </div>
-            </>
-          ) : null}
-        </section>
-      ) : null}
-
-      {session && hasProductWorkspaceAccess ? (
-        <ShoppingManager
+    <div className="grid gap-4">
+      <ShoppingManager
           authToken={session.accessToken}
           canManageProducts={session.role === "admin"}
           currentUserSubject={session.subject}
@@ -1011,7 +430,7 @@ export default function Home() {
               </div>
               <button
                 type="button"
-                onClick={handleHostedLogout}
+                onClick={signOutFromCognitoHostedUi}
                 className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 Logout
@@ -1019,7 +438,6 @@ export default function Home() {
             </div>
           )}
         />
-      ) : null}
     </div>
   );
 }

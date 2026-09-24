@@ -19,7 +19,7 @@ import {
   rememberPostLoginRedirect,
   resendConfirmationCode,
   signInWithCognito,
-  signOutLocally,
+  signOutFromCognitoHostedUi,
   signUpWithCognito,
   forgotPassword,
   resolvePostLoginRoute,
@@ -1691,8 +1691,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
 
   function handleStorefrontLogout() {
     clearStorefrontSessionArtifacts();
-    signOutLocally();
-    setSession(null);
+    signOutFromCognitoHostedUi();
   }
 
   return (

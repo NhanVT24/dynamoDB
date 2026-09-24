@@ -71,6 +71,12 @@ function dispatchAuthSessionChanged() {
   window.dispatchEvent(new Event(authSessionChangedEvent));
 }
 
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === sessionStorageKey) dispatchAuthSessionChanged();
+  });
+}
+
 function dispatchAuthSessionEnded(reason: AuthSessionEndedReason, message: string) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(authSessionEndedEvent, {
@@ -360,9 +366,12 @@ export async function refreshAuthSession(): Promise<AuthSession | null> {
         RefreshToken: current.refreshToken
       });
       const result = await client.send(command);
+      // Logout or another login may replace the session while refresh runs.
+      if (readStoredSession()?.refreshToken !== current.refreshToken) return null;
       return buildSession(result.AuthenticationResult ?? {}, current);
     } catch (error) {
       if (isInvalidRefreshTokenError(error)) {
+        if (readStoredSession()?.refreshToken !== current.refreshToken) return null;
         clearAuthSession();
         if (isBlockedAccountRefreshError(error)) {
           dispatchAuthSessionEnded(
@@ -412,11 +421,6 @@ export async function authenticatedFetch(input: RequestInfo | URL, init: Request
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${session.accessToken}`);
   return fetch(input, { ...init, headers });
-}
-
-export function signOutLocally(options?: { notify?: boolean }) {
-  clearPostLoginRedirect();
-  clearAuthSession(options);
 }
 
 export function rememberPostLoginRedirect(path: string) {
@@ -484,7 +488,8 @@ export async function exchangeAuthorizationCodeForSession(code: string) {
 
 export function signOutFromCognitoHostedUi() {
   clearPostLoginRedirect();
-  clearAuthSession();
+  // The browser navigates immediately; mounted screens need no intermediate event.
+  clearAuthSession({ notify: false });
 
   const url = new URL(`${getCognitoDomain()}/logout`);
   url.searchParams.set("client_id", getCognitoClientId());

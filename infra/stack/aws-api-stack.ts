@@ -480,8 +480,15 @@ export class AwsApiStack extends Stack {
     ).toString();
 
     const userPoolDomain = userPool.addDomain("HostedUiDomain", {
-      cognitoDomain: { domainPrefix: cognitoDomainPrefix.valueAsString }
+      cognitoDomain: { domainPrefix: cognitoDomainPrefix.valueAsString },
+      managedLoginVersion: cognito.ManagedLoginVersion.NEWER_MANAGED_LOGIN
     });
+    const managedLoginBranding = new cognito.CfnManagedLoginBranding(this, "ManagedLoginBranding", {
+      userPoolId: userPool.userPoolId,
+      clientId: userPoolClient.userPoolClientId,
+      useCognitoProvidedValues: true
+    });
+    managedLoginBranding.node.addDependency(userPoolDomain);
 
     const adminAlertsTopic = new sns.Topic(this, "AdminAlertsTopic", {
       topicName: "supermarket-admin-alerts",
