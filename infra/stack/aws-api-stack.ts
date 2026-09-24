@@ -5,6 +5,7 @@ import {
   CfnOutput,
   CfnParameter,
   Duration,
+  Fn,
   RemovalPolicy,
   SecretValue,
   Stack,
@@ -169,8 +170,8 @@ export class AwsApiStack extends Stack {
 
     const sesFromEmail = new CfnParameter(this, "SesFromEmail", {
       type: "String",
-      default: "nhan18072020@gmail.com",
-      description: "Verified SES sender email address"
+      default: "noreply@truyenmasinhvien.com",
+      description: "SES sender address covered by a verified email or domain identity"
     });
 
     const emailWorkerTestMode = new CfnParameter(this, "EmailWorkerTestMode", {
@@ -381,6 +382,13 @@ export class AwsApiStack extends Stack {
         postConfirmation: cognitoTriggerFunction
       }
     });
+    // Cognito must reference the verified SES domain identity, while From
+    // remains the full sender address. CDK defaults SourceArn to the address.
+    const sesSenderDomain = Fn.select(1, Fn.split("@", sesFromEmail.valueAsString));
+    (userPool.node.defaultChild as cognito.CfnUserPool).addPropertyOverride(
+      "EmailConfiguration.SourceArn",
+      this.formatArn({ service: "ses", resource: "identity", resourceName: sesSenderDomain })
+    );
     userPool.addTrigger(
       cognito.UserPoolOperation.PRE_TOKEN_GENERATION_CONFIG,
       cognitoTriggerFunction,
@@ -1829,7 +1837,6 @@ export class AwsApiStack extends Stack {
       authorizationType: apigateway.AuthorizationType.COGNITO,
       authorizationScopes: ["supermarket-api/access"]
     });
-
     // API custom domain flow:
     // browser/frontend -> api.truyenmasinhvien.com -> Route53 Alias -> API Gateway -> Lambda.
     const apiCertificate = props.apiCertificateArn

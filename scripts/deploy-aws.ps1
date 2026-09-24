@@ -20,7 +20,8 @@ param(
   [string]$VnpayIpnUrl = $env:VNPAY_IPN_URL,
   [string]$CallbackUrl = $env:COGNITO_CALLBACK_URL,
   [string]$LogoutUrl = $env:COGNITO_LOGOUT_URL,
-  [string]$CognitoDomainPrefix = $env:COGNITO_DOMAIN_PREFIX
+  [string]$CognitoDomainPrefix = $env:COGNITO_DOMAIN_PREFIX,
+  [string]$SesFromEmail = "noreply@truyenmasinhvien.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -129,7 +130,8 @@ if (-not $FrontendCloudFrontOnly) {
     "cdk", "deploy", "SupermarketAwsStack",
     "--app", "npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts",
     "--output", "cdk.out",
-    "--require-approval", "never"
+    "--require-approval", "never",
+    "--parameters", "SesFromEmail=$SesFromEmail"
   )
 
   if ($VnpayReturnUrl) {
