@@ -3,7 +3,7 @@ import { BadRequestException, Body, ConflictException, Controller, Get, Logger, 
 import { z } from "zod";
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
-import { getEmailDelivery, listEmailDeliveries } from "./email-delivery.repository.js";
+import { getEmailDelivery, listEmailDeliveriesWithStatus } from "./email-delivery.repository.js";
 import {
   ensureEmailRoute,
   listFailedEmailRoutePublishes,
@@ -120,7 +120,7 @@ export class EmailDeliveriesController {
   @Get()
   async list(@Query("limit") limit = "30") {
     const parsedLimit = Number(limit);
-    const items = await listEmailDeliveries(Number.isFinite(parsedLimit) ? parsedLimit : 30);
+    const items = await listEmailDeliveriesWithStatus(Number.isFinite(parsedLimit) ? parsedLimit : 30);
     return { items: items.map((item) => publicMeta(item)) };
   }
 

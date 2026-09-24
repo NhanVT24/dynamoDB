@@ -292,6 +292,31 @@ export async function listEmailDeliveries(limit = 30) {
   return (result.Items ?? []).map((value) => unmarshall(value) as EmailDeliveryMeta);
 }
 
+/** The list badge shows the recipient outcome for one-recipient emails.
+ * Bound concurrent reads because the admin history page can request 50 rows. */
+export async function listEmailDeliveriesWithStatus(limit = 30) {
+  const items = await listEmailDeliveries(limit);
+  const result: Array<EmailDeliveryMeta & { deliveryStatus?: EmailDeliveryStatus }> = [];
+  for (let offset = 0; offset < items.length; offset += 10) {
+    const page = await Promise.all(items.slice(offset, offset + 10).map(async (meta) => {
+      if (meta.recipientCount !== 1) return meta;
+      const response = await rawDb.send(new QueryCommand({
+        TableName,
+        ConsistentRead: true,
+        KeyConditionExpression: "PK = :pk AND begins_with(SK, :prefix)",
+        ExpressionAttributeValues: item({ ":pk": meta.PK, ":prefix": "RECIPIENT#" }),
+        ProjectionExpression: "#status",
+        ExpressionAttributeNames: { "#status": "status" },
+        Limit: 1
+      }));
+      const deliveryStatus = response.Items?.[0]?.status?.S as EmailDeliveryStatus | undefined;
+      return deliveryStatus ? { ...meta, deliveryStatus } : meta;
+    }));
+    result.push(...page);
+  }
+  return result;
+}
+
 export async function getEmailDelivery(emailId: string) {
   const result = await rawDb.send(new GetItemCommand({ TableName, Key: item(metaKey(emailId)), ConsistentRead: true }));
   if (!result.Item) return null;
