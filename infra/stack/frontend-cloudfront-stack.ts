@@ -184,6 +184,7 @@ function handler(event) {
       defaultRootObject: "index.html",
       certificate,
       domainNames: domainNames.length > 0 ? domainNames : undefined,
+      geoRestriction: cloudfront.GeoRestriction.denylist("US"),
       defaultBehavior: {
         origin: frontendOrigin,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
@@ -197,13 +198,9 @@ function handler(event) {
         responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.SECURITY_HEADERS,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS
       },
+      // Keep 403 responses intact so geo restrictions and S3 access failures remain visible.
+      // Frontend routes are mapped to exported HTML files by the viewer-request function above.
       errorResponses: [
-        {
-          httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: "/index.html",
-          ttl: Duration.minutes(1)
-        },
         {
           httpStatus: 404,
           responseHttpStatus: 200,
