@@ -5,6 +5,7 @@ export type OrderConfirmationInput = {
   totalAmount: number;
   createdAt: string;
   paymentConfirmedAt?: string;
+  orderUrl?: string;
   items: Array<{
     productName: string;
     quantity: number;
@@ -104,6 +105,7 @@ export function orderConfirmationContent(input: OrderConfirmationInput) {
         <div style="margin-top:28px;padding:10px 12px;background:#f8fafc;border-radius:8px;color:#64748b;font-size:12px;word-break:break-all;">
           Mã đơn hàng để tra cứu/hỗ trợ: ${escapeHtml(input.orderId)}
         </div>
+        ${input.orderUrl ? `<p style="margin:24px 0 0;text-align:center;"><a href="${escapeHtml(input.orderUrl)}" style="display:inline-block;padding:12px 20px;border-radius:10px;background:#ea580c;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;">Xem chi tiết đơn hàng</a></p>` : ""}
       </div>
     </div>
   </div>`;
@@ -120,7 +122,8 @@ export function orderConfirmationContent(input: OrderConfirmationInput) {
     "",
     ...(savings ? [`Giá trước giảm: ${money(originalTotal!)}`, `Đã giảm: -${money(savings)}`] : []),
     `${paid ? "Tổng đã thanh toán" : "Tổng giá trị đơn hàng"}: ${money(input.totalAmount)}`,
-    `Mã đơn hàng để tra cứu/hỗ trợ: ${input.orderId}`
+    `Mã đơn hàng để tra cứu/hỗ trợ: ${input.orderId}`,
+    ...(input.orderUrl ? [`Xem chi tiết đơn hàng: ${input.orderUrl}`] : [])
   ].join("\n");
 
   return { subject, html, text };

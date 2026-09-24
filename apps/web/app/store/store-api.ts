@@ -49,12 +49,14 @@ type StorefrontOrderApiItem = {
     productId: string;
     productName: string;
     price: number;
+    originalUnitPrice?: number;
     quantity: number;
     lineTotal: number;
   }>;
   totalAmount: number;
   createdAt: string;
   updatedAt: string;
+  paymentConfirmedAt?: string;
 };
 
 const publicApiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
@@ -184,20 +186,39 @@ export async function fetchMyOrders() {
 
   const payload = (await response.json().catch(() => [])) as StorefrontOrderApiItem[];
   return payload.flatMap((item): StoreOrder[] => {
-    const orderId = String(item.id ?? item.PK?.replace(/^ORDER#/, "") ?? "").trim();
-    // A malformed historical record must not crash the customer's profile.
-    if (!orderId) return [];
-
-    return [{
-      id: orderId,
-      customerEmail: item.customerEmail,
-      status: item.status,
-      items: item.items ?? [],
-      totalAmount: Number(item.totalAmount ?? 0),
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt
-    }];
+    const order = toStoreOrder(item);
+    return order ? [order] : [];
   });
+}
+
+function toStoreOrder(item: StorefrontOrderApiItem): StoreOrder | null {
+  const orderId = String(item.id ?? item.PK?.replace(/^ORDER#/, "") ?? "").trim();
+  if (!orderId) return null;
+  return {
+    id: orderId,
+    customerEmail: item.customerEmail,
+    status: item.status,
+    items: item.items ?? [],
+    totalAmount: Number(item.totalAmount ?? 0),
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    paymentConfirmedAt: item.paymentConfirmedAt
+  };
+}
+
+export async function fetchOrderDetails(orderId: string): Promise<StoreOrder> {
+  const response = await authenticatedFetch(`${getStorefrontBasePath()}/orders/${encodeURIComponent(orderId)}/details`, {
+    method: "GET",
+    cache: "no-store"
+  });
+  if (!response.ok) {
+    if (response.status === 404) throw new Error("Không tìm thấy đơn hàng trong tài khoản này.");
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(payload?.message || "Không thể tải chi tiết đơn hàng.");
+  }
+  const order = toStoreOrder(await response.json() as StorefrontOrderApiItem);
+  if (!order) throw new Error("Dữ liệu đơn hàng không hợp lệ.");
+  return order;
 }
 
 export async function fetchMyProducts() {

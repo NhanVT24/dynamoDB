@@ -1111,6 +1111,7 @@ export async function commitCheckoutReservationsToOrder(input: {
 export async function getOrderById(id: string) {
   const result = await rawDb.send(new GetItemCommand({
     TableName,
+    ConsistentRead: true,
     Key: toDynamoItem({
       PK: `ORDER#${id}`,
       SK: "DETAIL"

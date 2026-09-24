@@ -310,6 +310,12 @@ export default function StoreOrdersPage() {
                     {order.items.slice(0, 2).map((item) => `${item.productName} × ${item.quantity}`).join(" · ")}
                     {order.items.length > 2 ? ` · +${order.items.length - 2} more` : ""}
                   </div>
+                  <Link
+                    href={`/store/orders/detail?orderId=${encodeURIComponent(order.id)}`}
+                    className={`mt-4 inline-flex rounded-full px-4 py-2 text-sm font-semibold ${isDark ? "bg-white/10 text-white hover:bg-white/15" : "bg-orange-50 text-orange-700 hover:bg-orange-100"}`}
+                  >
+                    Xem chi tiết đơn hàng
+                  </Link>
                 </article>
               ))}
             </div>

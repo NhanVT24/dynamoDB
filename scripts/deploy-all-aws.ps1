@@ -102,6 +102,7 @@ Write-Host "Deploying API and frontend with custom domains for $DomainName."
   -CallbackUrl $callbackUrl `
   -LogoutUrl $logoutUrl `
   -CognitoDomainPrefix $cognitoDomainPrefix `
+  -StorefrontPublicUrl "https://$DomainName" `
   -VnpayReturnUrl $vnpayReturnUrl `
   -VnpayIpnUrl $vnpayIpnUrl
 if ($LASTEXITCODE -ne 0) {

@@ -9,6 +9,7 @@ test("paid receipt shows the checkout price snapshot and keeps order ID out of t
     totalAmount: 180_000,
     createdAt: "2026-09-24T08:00:00.000Z",
     paymentConfirmedAt: "2026-09-24T08:05:00.000Z",
+    orderUrl: "https://truyenmasinhvien.com/store/orders/detail?orderId=order-123",
     items: [{
       productName: "Áo <Sale>", quantity: 2,
       unitPrice: 90_000, originalUnitPrice: 120_000, lineTotal: 180_000
@@ -23,6 +24,7 @@ test("paid receipt shows the checkout price snapshot and keeps order ID out of t
   assert.match(receipt.html, /Xác nhận thanh toán/);
   assert.match(receipt.html, /Mã đơn hàng để tra cứu\/hỗ trợ: order-123/);
   assert.match(receipt.text, /120\.000.*90\.000.*180\.000/);
+  assert.match(receipt.html, /href="https:\/\/truyenmasinhvien\.com\/store\/orders\/detail\?orderId=order-123"/);
 });
 
 test("new order does not claim it was paid or invent a historical discount", () => {

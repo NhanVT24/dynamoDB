@@ -65,4 +65,11 @@ export class StorefrontController {
 
     return this.storefrontService.listMyOrders(principal.email);
   }
+
+  @Get("orders/:orderId/details")
+  async getOrderDetails(@Req() request: FastifyRequest, @Param("orderId") orderId: string) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal) throw new ForbiddenException("Sign in to view your order.");
+    return this.storefrontService.getOrderDetails(principal.email, orderId);
+  }
 }

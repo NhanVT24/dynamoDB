@@ -213,7 +213,10 @@ function buildOrderFailureHtml(input: SendOrderFailureEmailInput) {
 }
 
 export async function sendOrderConfirmationEmail(input: OrderConfirmationInput) {
-  const content = orderConfirmationContent(input);
+  const orderUrl = env.STOREFRONT_PUBLIC_URL
+    ? new URL(`/store/orders/detail?orderId=${encodeURIComponent(input.orderId)}`, env.STOREFRONT_PUBLIC_URL).toString()
+    : undefined;
+  const content = orderConfirmationContent({ ...input, orderUrl });
   return sendTrackedOrderEmail({
     emailType: "order_confirmation",
     toEmail: input.toEmail,

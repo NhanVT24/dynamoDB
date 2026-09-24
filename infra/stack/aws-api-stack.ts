@@ -188,6 +188,11 @@ export class AwsApiStack extends Stack {
       default: "nhan18072020@gmail.com",
       description: "Inbox for replies to outgoing email"
     });
+    const storefrontPublicUrl = new CfnParameter(this, "StorefrontPublicUrl", {
+      type: "String",
+      default: "https://truyenmasinhvien.com",
+      description: "Public storefront origin for links in customer emails"
+    });
 
     const emailWorkerTestMode = new CfnParameter(this, "EmailWorkerTestMode", {
       type: "String",
@@ -602,6 +607,7 @@ export class AwsApiStack extends Stack {
       SES_AUTH_FROM_EMAIL: sesAuthFromEmail.valueAsString,
       SES_ORDERS_FROM_EMAIL: sesOrdersFromEmail.valueAsString,
       SES_REPLY_TO_EMAIL: sesReplyToEmail.valueAsString,
+      STOREFRONT_PUBLIC_URL: storefrontPublicUrl.valueAsString,
       SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME: inventoryReportConfigurationSet.ref,
       ADMIN_REPORT_EMAIL: adminReportEmail.valueAsString,
       VNPAY_TMN_CODE: vnpayTmnCodeValue,

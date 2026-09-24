@@ -24,7 +24,8 @@ param(
   [string]$SesFromEmail = "noreply@truyenmasinhvien.com",
   [string]$SesAuthFromEmail = "auth@truyenmasinhvien.com",
   [string]$SesOrdersFromEmail = "orders@truyenmasinhvien.com",
-  [string]$SesReplyToEmail = "nhan18072020@gmail.com"
+  [string]$SesReplyToEmail = "nhan18072020@gmail.com",
+  [string]$StorefrontPublicUrl = "https://truyenmasinhvien.com"
 )
 
 $ErrorActionPreference = "Stop"
@@ -137,7 +138,8 @@ if (-not $FrontendCloudFrontOnly) {
     "--parameters", "SesFromEmail=$SesFromEmail",
     "--parameters", "SesAuthFromEmail=$SesAuthFromEmail",
     "--parameters", "SesOrdersFromEmail=$SesOrdersFromEmail",
-    "--parameters", "SesReplyToEmail=$SesReplyToEmail"
+    "--parameters", "SesReplyToEmail=$SesReplyToEmail",
+    "--parameters", "StorefrontPublicUrl=$StorefrontPublicUrl"
   )
 
   if ($VnpayReturnUrl) {

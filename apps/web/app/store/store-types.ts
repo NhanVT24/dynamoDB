@@ -70,6 +70,7 @@ export type StoreOrderLine = {
   productId: string;
   productName: string;
   price: number;
+  originalUnitPrice?: number;
   quantity: number;
   lineTotal: number;
 };
@@ -82,4 +83,5 @@ export type StoreOrder = {
   totalAmount: number;
   createdAt: string;
   updatedAt: string;
+  paymentConfirmedAt?: string;
 };

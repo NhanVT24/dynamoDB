@@ -21,12 +21,14 @@ import {
   createAwaitingPaymentOrder,
   createStorefrontOrder,
   getAwaitingPaymentOrder,
+  getOrderById,
   getCheckoutGateRequestById,
   isDynamoConditionalConflict,
   releaseCheckoutGateReservation,
   releaseReservedInventory,
   type InventoryStockChange,
   listCheckoutReservationsByRequestId,
+  listOrderItems,
   listOrdersByCustomer,
   transitionAwaitingPaymentOrder,
   listStorefrontProducts,
@@ -263,6 +265,46 @@ export class StorefrontService {
       order = outcome.order;
     }
     return { orderId, status: order.status, lockedUntil: order.lockedUntil };
+  }
+
+  async getOrderDetails(email: string, orderId: string) {
+    const normalizedOrderId = orderId.trim();
+    if (!normalizedOrderId || normalizedOrderId.length > 128) throw new NotFoundException("Order not found.");
+
+    const order = await getOrderById(normalizedOrderId);
+    if (order) {
+      if (order.customerEmail !== email) throw new NotFoundException("Order not found.");
+      return {
+        id: order.id,
+        customerEmail: order.customerEmail,
+        status: order.status,
+        items: order.items,
+        totalAmount: order.totalAmount,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt
+      };
+    }
+
+    const awaitingOrder = await getAwaitingPaymentOrder(normalizedOrderId);
+    if (!awaitingOrder || awaitingOrder.customerEmail !== email) throw new NotFoundException("Order not found.");
+    const items = await listOrderItems(normalizedOrderId);
+    return {
+      id: normalizedOrderId,
+      customerEmail: awaitingOrder.customerEmail,
+      status: awaitingOrder.status,
+      items: items.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        price: item.unitPrice,
+        originalUnitPrice: item.originalUnitPrice,
+        quantity: item.quantity,
+        lineTotal: item.lineTotal
+      })),
+      totalAmount: awaitingOrder.totalAmount,
+      createdAt: awaitingOrder.createdAt,
+      updatedAt: awaitingOrder.updatedAt,
+      paymentConfirmedAt: awaitingOrder.status === "paid" ? awaitingOrder.updatedAt : undefined
+    };
   }
 
   async createOrder(email: string, input: CreateStorefrontOrderInput) {

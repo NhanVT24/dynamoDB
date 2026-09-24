@@ -514,12 +514,12 @@ function CheckoutResultPageContent() {
           </Link>
           {isSuccess ? (
             <Link
-              href="/store/orders"
+              href={requestId ? `/store/orders/detail?orderId=${encodeURIComponent(requestId)}` : "/store/orders"}
               className={`rounded-full px-5 py-3 text-sm font-semibold ${
                 isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
               }`}
             >
-              View order history
+              {requestId ? "View order details" : "View order history"}
             </Link>
           ) : null}
         </div>
