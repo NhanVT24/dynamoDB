@@ -5,7 +5,10 @@ với `NEW_AND_OLD_IMAGES`. Lambda event source mapping chỉ chuyển record c�
 `PK` bắt đầu bằng `ORDER#` và `SK` bằng `ORDER` hoặc `DETAIL` đến consumer.
 `ORDER_ITEM#...` và audit record không đi vào consumer.
 
-Consumer ghi cùng table theo schema:
+Lambda đọc Stream tạo nội dung audit tối thiểu, gửi vào FIFO queue
+`supermarket-order-audit-main.fifo`. `MessageGroupId` theo order ID để giữ thứ tự
+trong từng order; `MessageDeduplicationId` theo Stream event ID. Lambda worker
+đọc queue và ghi audit vào cùng table theo schema:
 
 - `PK = AUDIT_LOG_ORDER#<orderId>`
 - `SK = EVENT#<thời gian Stream event>#<eventID>`
@@ -18,9 +21,24 @@ thái cuối trước khi xóa. Hiện luồng order không chủ động xóa o
 consumer đã hỗ trợ sự kiện này. Audit không sao chép email hoặc toàn bộ order.
 
 Key audit được tạo từ identity của Stream event, và `PutItem` có condition
-chống ghi trùng khi Lambda retry. Consumer trả về failed sequence numbers để
-retry phần batch lỗi; sau 5 lần retry, sự kiện lỗi được chuyển đến
-`supermarket-order-audit-stream-dlq` và có CloudWatch alarm.
+chống ghi trùng khi Lambda hoặc SQS retry. Hai chỗ xử lý lỗi độc lập:
+
+- Nếu publisher không gửi được vào main queue, nó trả failed Stream sequence
+  number để Lambda event source mapping retry. Hết 5 lần retry, metadata batch
+  lỗi vào `supermarket-order-audit-stream-dlq`. Queue này không giữ full Stream
+  event; phải xử lý trước khi event gốc hết hạn 24 giờ.
+- Nếu audit worker không ghi được vào DynamoDB, message ở main queue hiện lại
+  sau visibility timeout và AWS retry. Sau 5 lần nhận không thành công, message
+  gốc vào `supermarket-order-audit-worker-dlq.fifo`. Worker nhận mỗi lần một
+  message để một lỗi không đẩy những message chưa xử lý vào DLQ cùng nó.
+
+Main queue và worker DLQ giữ message tối đa 14 ngày. Stream DLQ giữ metadata
+tối đa 14 ngày; thời gian đó không kéo dài tuổi thọ event gốc trong Stream.
+Hai DLQ đều có CloudWatch alarm gửi đến admin alert SNS topic. Alarm cũng theo
+dõi tuổi message trong main queue, độ trễ Stream (`IteratorAge`) và lỗi gửi
+event vào Stream DLQ (`DestinationDeliveryFailures`). Khi có message trong
+Stream DLQ, cần lấy event gốc và xử lý trước khi Stream hết hạn 24 giờ.
+Queue cũ `supermarket-audit-log` không nằm trong luồng order audit này.
 
 Stream chỉ bắt các thay đổi từ sau khi Stream được bật; mapping đọc từ đầu
 Stream để không bỏ sót thay đổi xảy ra trong lúc deploy. Không backfill order cũ.

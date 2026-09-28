@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 type StringAttribute = { S?: string };
 
 export type OrderStreamRecord = {
@@ -25,6 +27,31 @@ export type OrderAuditRecord = {
   sourceEventId: string;
   sourceSequenceNumber: string;
 };
+
+const orderAuditMessageSchema = z.object({
+  PK: z.string(),
+  SK: z.string(),
+  entityType: z.literal("AUDIT_LOG_ORDER"),
+  orderId: z.string().min(1),
+  sourceSK: z.enum(["ORDER", "DETAIL"]),
+  eventName: z.enum(["INSERT", "MODIFY", "REMOVE"]),
+  previousStatus: z.string().optional(),
+  status: z.string().optional(),
+  occurredAt: z.iso.datetime(),
+  sourceEventId: z.string().min(1),
+  sourceSequenceNumber: z.string().min(1)
+}).strict();
+
+export function parseOrderAuditMessage(body: string | undefined): OrderAuditRecord {
+  if (!body) throw new Error("Order audit queue message is empty.");
+  const audit = orderAuditMessageSchema.parse(JSON.parse(body));
+  if (audit.PK !== `AUDIT_LOG_ORDER#${audit.orderId}`
+    || audit.SK !== `EVENT#${audit.occurredAt}#${audit.sourceEventId}`
+    || (audit.eventName === "REMOVE" ? !audit.previousStatus || audit.status !== undefined : !audit.status)) {
+    throw new Error("Order audit queue message has invalid identity or status.");
+  }
+  return audit;
+}
 
 export function buildOrderAuditRecord(record: OrderStreamRecord): OrderAuditRecord | null {
   const keys = record.dynamodb?.Keys;

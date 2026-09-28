@@ -15,6 +15,7 @@ import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
@@ -22,6 +23,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as kms from "aws-cdk-lib/aws-kms";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaDestinations from "aws-cdk-lib/aws-lambda-destinations";
+import * as lambdaEventSources from "aws-cdk-lib/aws-lambda-event-sources";
 import * as pipes from "aws-cdk-lib/aws-pipes";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -766,6 +768,22 @@ export class AwsApiStack extends Stack {
       25,
       256
     );
+    const orderAuditWorkerDlq = new sqs.Queue(this, "OrderAuditWorkerDlq", {
+      queueName: "supermarket-order-audit-worker-dlq.fifo",
+      fifo: true,
+      retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true
+    });
+    const orderAuditMainQueue = new sqs.Queue(this, "OrderAuditMainQueue", {
+      queueName: "supermarket-order-audit-main.fifo",
+      fifo: true,
+      visibilityTimeout: Duration.minutes(3),
+      retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      deadLetterQueue: { queue: orderAuditWorkerDlq, maxReceiveCount: 5 }
+    });
     const orderAuditFunction = new lambda.Function(this, "OrderAuditStreamFunction", {
       functionName: "supermarket-order-audit-stream",
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -774,12 +792,27 @@ export class AwsApiStack extends Stack {
       timeout: Duration.seconds(30),
       memorySize: 256,
       code: sharedLambdaCode,
+      environment: { SQS_ORDER_AUDIT_QUEUE_URL: orderAuditMainQueue.queueUrl }
+    });
+    orderAuditMainQueue.grantSendMessages(orderAuditFunction);
+    const orderAuditWorkerFunction = new lambda.Function(this, "OrderAuditWorkerFunction", {
+      functionName: "supermarket-order-audit-worker",
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.X86_64,
+      handler: "src/entrypoints/lambda/queue/order-audit-worker.handler",
+      timeout: Duration.seconds(30),
+      memorySize: 256,
+      code: sharedLambdaCode,
       environment: { DYNAMODB_TABLE_NAME: dynamoTableName.valueAsString }
     });
-    orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
+    orderAuditWorkerFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["dynamodb:PutItem"],
       resources: [table.attrArn],
       conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["AUDIT_LOG_ORDER#*"] } }
+    }));
+    orderAuditWorkerFunction.addEventSource(new lambdaEventSources.SqsEventSource(orderAuditMainQueue, {
+      batchSize: 1,
+      reportBatchItemFailures: true
     }));
     orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["dynamodb:DescribeStream", "dynamodb:GetRecords", "dynamodb:GetShardIterator"],
@@ -1820,7 +1853,7 @@ export class AwsApiStack extends Stack {
     });
 
     const createDlqAlarm = (id: string, queue: sqs.Queue, queueName: string) => {
-      new cloudwatch.Alarm(this, id, {
+      return new cloudwatch.Alarm(this, id, {
         alarmName: `${queueName}-messages-visible`,
         metric: queue.metricApproximateNumberOfMessagesVisible({
           period: Duration.minutes(5),
@@ -1842,7 +1875,49 @@ export class AwsApiStack extends Stack {
     createDlqAlarm("EmailRoutingWatchdogDlqAlarm", emailRoutingWatchdogDlq, "supermarket-email-routing-watchdog-dlq");
     createDlqAlarm("EmailPublishRecoveryDlqAlarm", emailPublishRecoveryDlq, "supermarket-email-publish-recovery-dlq");
     createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
-    createDlqAlarm("OrderAuditStreamDlqAlarm", orderAuditStreamDlq, "supermarket-order-audit-stream-dlq");
+    createDlqAlarm("OrderAuditStreamDlqAlarm", orderAuditStreamDlq, "supermarket-order-audit-stream-dlq")
+      .addAlarmAction(new cloudwatchActions.SnsAction(adminAlertsTopic));
+    createDlqAlarm("OrderAuditWorkerDlqAlarm", orderAuditWorkerDlq, "supermarket-order-audit-worker-dlq.fifo")
+      .addAlarmAction(new cloudwatchActions.SnsAction(adminAlertsTopic));
+    new cloudwatch.Alarm(this, "OrderAuditMainQueueAgeAlarm", {
+      alarmName: "supermarket-order-audit-main-age",
+      metric: orderAuditMainQueue.metricApproximateAgeOfOldestMessage({ period: Duration.minutes(5) }),
+      threshold: Duration.hours(1).toSeconds(),
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: "Audit worker backlog older than one hour"
+    }).addAlarmAction(new cloudwatchActions.SnsAction(adminAlertsTopic));
+    new cloudwatch.Alarm(this, "OrderAuditStreamLagAlarm", {
+      alarmName: "supermarket-order-audit-stream-lag",
+      metric: new cloudwatch.Metric({
+        namespace: "AWS/Lambda",
+        metricName: "IteratorAge",
+        dimensionsMap: { FunctionName: orderAuditFunction.functionName },
+        statistic: "Maximum",
+        period: Duration.minutes(5)
+      }),
+      threshold: Duration.hours(1).toMilliseconds(),
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: "Order audit Stream publisher is at least one hour behind"
+    }).addAlarmAction(new cloudwatchActions.SnsAction(adminAlertsTopic));
+    new cloudwatch.Alarm(this, "OrderAuditStreamDestinationFailureAlarm", {
+      alarmName: "supermarket-order-audit-stream-destination-failures",
+      metric: new cloudwatch.Metric({
+        namespace: "AWS/Lambda",
+        metricName: "DestinationDeliveryFailures",
+        dimensionsMap: { FunctionName: orderAuditFunction.functionName },
+        statistic: "Sum",
+        period: Duration.minutes(5)
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+      alarmDescription: "Order audit Stream failed to deliver discarded records to its DLQ"
+    }).addAlarmAction(new cloudwatchActions.SnsAction(adminAlertsTopic));
     createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");
     createDlqAlarm("EventBridgeTargetDlqAlarm", eventBridgeTargetDlq, "supermarket-eventbridge-target-dlq");
@@ -2057,6 +2132,18 @@ export class AwsApiStack extends Stack {
 
     new CfnOutput(this, "AuditQueueUrl", {
       value: auditQueue.queueUrl
+    });
+
+    new CfnOutput(this, "OrderAuditMainQueueUrl", {
+      value: orderAuditMainQueue.queueUrl
+    });
+
+    new CfnOutput(this, "OrderAuditWorkerDlqUrl", {
+      value: orderAuditWorkerDlq.queueUrl
+    });
+
+    new CfnOutput(this, "OrderAuditStreamDlqUrl", {
+      value: orderAuditStreamDlq.queueUrl
     });
 
     new CfnOutput(this, "StorefrontOrdersQueueUrl", {
