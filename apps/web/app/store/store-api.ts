@@ -57,6 +57,9 @@ type StorefrontOrderApiItem = {
   createdAt: string;
   updatedAt: string;
   paymentConfirmedAt?: string;
+  refundStatus?: string;
+  refundUpdatedAt?: string;
+  serverNow?: string;
 };
 
 const publicApiBaseUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
@@ -202,7 +205,10 @@ function toStoreOrder(item: StorefrontOrderApiItem): StoreOrder | null {
     totalAmount: Number(item.totalAmount ?? 0),
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
-    paymentConfirmedAt: item.paymentConfirmedAt
+    paymentConfirmedAt: item.paymentConfirmedAt,
+    refundStatus: item.refundStatus,
+    refundUpdatedAt: item.refundUpdatedAt,
+    serverNow: item.serverNow
   };
 }
 
@@ -219,6 +225,22 @@ export async function fetchOrderDetails(orderId: string): Promise<StoreOrder> {
   const order = toStoreOrder(await response.json() as StorefrontOrderApiItem);
   if (!order) throw new Error("Dữ liệu đơn hàng không hợp lệ.");
   return order;
+}
+
+export async function requestOrderRefund(orderId: string): Promise<void> {
+  const response = await authenticatedFetch(`${getStorefrontBasePath()}/orders/${encodeURIComponent(orderId)}/refund`, {
+    method: "POST"
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(payload?.message || "Không thể gửi yêu cầu hoàn tiền.");
+  }
+}
+
+export async function refreshOrderRefundStatus(orderId: string): Promise<void> {
+  await authenticatedFetch(`${getStorefrontBasePath()}/orders/${encodeURIComponent(orderId)}/refund/status`, {
+    method: "POST"
+  });
 }
 
 export async function fetchMyProducts() {

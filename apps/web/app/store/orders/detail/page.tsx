@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { useStorefront } from "../../store-client";
-import { fetchOrderDetails } from "../../store-api";
+import { fetchOrderDetails, refreshOrderRefundStatus, requestOrderRefund } from "../../store-api";
 import type { StoreOrder } from "../../store-types";
 import { formatCurrency } from "../../store-utils";
 
@@ -15,7 +15,10 @@ const statusLabels: Record<string, string> = {
   done: "Hoàn tất",
   cancelled: "Đã hủy",
   expired: "Đã hết hạn",
-  payment_failed: "Thanh toán không thành công"
+  payment_failed: "Thanh toán không thành công",
+  refund_pending: "Đang xử lý hoàn tiền",
+  refund_sent: "Đã gửi hoàn tiền sang ngân hàng",
+  refund_rejected: "Yêu cầu hoàn tiền bị từ chối"
 };
 
 function formatDateTime(value: string) {
@@ -33,6 +36,15 @@ function OrderDetailContent() {
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
+  const [refundBusy, setRefundBusy] = useState(false);
+  const [refundError, setRefundError] = useState("");
+  const [serverClockOffset, setServerClockOffset] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,11 +56,22 @@ function OrderDetailContent() {
     }
     setIsLoading(true);
     void fetchOrderDetails(orderId).then(
-      (result) => { if (!cancelled) setOrder(result); },
+      (result) => { if (!cancelled) { setOrder(result); setServerClockOffset(result.serverNow ? Date.parse(result.serverNow) - Date.now() : 0); } },
       (cause: unknown) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Không thể tải đơn hàng."); }
     ).finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
   }, [orderId, session?.accessToken]);
+
+  useEffect(() => {
+    if (!order || order.status !== "refund_pending") return;
+    const timer = window.setInterval(() => {
+      void refreshOrderRefundStatus(order.id)
+        .then(() => fetchOrderDetails(order.id))
+        .then(setOrder)
+        .catch(() => undefined);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [order?.id, order?.status]);
 
   const originalTotal = order && order.items.every((item) => typeof item.originalUnitPrice === "number")
     ? order.items.reduce((sum, item) => sum + Math.max(item.price, item.originalUnitPrice!) * item.quantity, 0)
@@ -57,6 +80,30 @@ function OrderDetailContent() {
     ? originalTotal - order.totalAmount
     : 0;
   const panelClass = isDark ? "border-white/10 bg-[#101826] text-white" : "border-slate-200 bg-white text-slate-950";
+  const refundDeadline = order?.paymentConfirmedAt ? Date.parse(order.paymentConfirmedAt) + 5 * 60 * 1000 : NaN;
+  const refundRemainingSeconds = Number.isFinite(refundDeadline) ? Math.max(0, Math.ceil((refundDeadline - now - serverClockOffset) / 1000)) : 0;
+  const canRefund = order?.status === "paid" && refundRemainingSeconds > 0;
+
+  useEffect(() => {
+    if (!Number.isFinite(refundDeadline) || refundDeadline <= Date.now() + serverClockOffset) return;
+    const timer = window.setTimeout(() => setNow(Date.now()), refundDeadline - Date.now() - serverClockOffset);
+    return () => window.clearTimeout(timer);
+  }, [refundDeadline, serverClockOffset]);
+
+  async function handleRefund() {
+    if (!order || !canRefund || refundBusy) return;
+    setRefundBusy(true);
+    setRefundError("");
+    try {
+      await requestOrderRefund(order.id);
+      setOrder(await fetchOrderDetails(order.id));
+    } catch (cause) {
+      setRefundError(cause instanceof Error ? cause.message : "Không thể gửi yêu cầu hoàn tiền.");
+      setOrder(await fetchOrderDetails(order.id).catch(() => order));
+    } finally {
+      setRefundBusy(false);
+    }
+  }
 
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
@@ -88,6 +135,23 @@ function OrderDetailContent() {
                   {order.paymentConfirmedAt ? <p className="mt-1">Xác nhận thanh toán: <strong>{formatDateTime(order.paymentConfirmedAt)}</strong></p> : null}
                 </div>
               </div>
+
+              {order.paymentConfirmedAt || order.status.startsWith("refund_") ? (
+                <div className={`mt-5 rounded-2xl border p-4 ${panelClass}`}>
+                  <p className="text-sm font-semibold">Hoàn tiền qua VNPAY</p>
+                  {order.status === "paid" ? (
+                    <p className="mt-1 text-sm">{refundRemainingSeconds > 0
+                      ? `Có thể yêu cầu trong ${Math.floor(refundRemainingSeconds / 60)}:${String(refundRemainingSeconds % 60).padStart(2, "0")}`
+                      : "Đã hết hạn yêu cầu hoàn tiền (5 phút sau thanh toán)."}</p>
+                  ) : null}
+                  {order.status.startsWith("refund_") ? <p className="mt-1 text-sm">{statusLabels[order.status]}. Tiền về tài khoản phụ thuộc ngân hàng.</p> : null}
+                  <button type="button" onClick={() => void handleRefund()} disabled={!canRefund || refundBusy}
+                    className="mt-3 rounded-full bg-orange-600 px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
+                    {refundBusy ? "Đang gửi yêu cầu…" : "Yêu cầu hoàn tiền"}
+                  </button>
+                  {refundError ? <p role="alert" className="mt-2 text-sm text-rose-600">{refundError}</p> : null}
+                </div>
+              ) : null}
 
               <div className="mt-7 space-y-4">
                 <h2 className="text-lg font-bold">Sản phẩm đã đặt</h2>

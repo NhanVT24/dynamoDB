@@ -11,8 +11,11 @@ type PaginationToken = number | "ellipsis";
 
 function StatusBadge({ status, isDark }: { status: string; isDark: boolean }) {
   const normalizedStatus = String(status).toLowerCase();
-  const isPending = normalizedStatus === "pending";
-  const isFailed = normalizedStatus === "failed";
+  const isPending = normalizedStatus === "pending" || normalizedStatus === "refund_pending";
+  const isFailed = normalizedStatus === "failed" || normalizedStatus === "refund_rejected";
+  const label = normalizedStatus === "refund_pending" ? "Đang hoàn tiền"
+    : normalizedStatus === "refund_sent" ? "Đã gửi hoàn tiền"
+    : normalizedStatus === "refund_rejected" ? "Hoàn tiền bị từ chối" : status;
 
   return (
     <span
@@ -30,7 +33,7 @@ function StatusBadge({ status, isDark }: { status: string; isDark: boolean }) {
               : "bg-emerald-100 text-emerald-700"
       }`}
     >
-      {status}
+      {label}
     </span>
   );
 }

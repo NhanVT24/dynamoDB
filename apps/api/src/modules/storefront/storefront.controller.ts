@@ -56,6 +56,26 @@ export class StorefrontController {
     return this.storefrontService.cancelOrder(principal.email, orderId);
   }
 
+  @Post("orders/:orderId/refund")
+  @HttpCode(HttpStatus.OK)
+  async refundOrder(@Req() request: FastifyRequest, @Param("orderId") orderId: string) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
+      throw new ForbiddenException("Only customer or admin can request a refund.");
+    }
+    return this.storefrontService.refundOrder(principal.email, orderId);
+  }
+
+  @Post("orders/:orderId/refund/status")
+  @HttpCode(HttpStatus.OK)
+  async refreshRefundStatus(@Req() request: FastifyRequest, @Param("orderId") orderId: string) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || (principal.role !== "customer" && principal.role !== "admin")) {
+      throw new ForbiddenException("Only customer or admin can view refund status.");
+    }
+    return this.storefrontService.refreshRefundStatus(principal.email, orderId);
+  }
+
   @Get("orders/me")
   async listMyOrders(@Req() request: FastifyRequest) {
     const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);

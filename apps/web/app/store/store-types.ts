@@ -84,4 +84,7 @@ export type StoreOrder = {
   createdAt: string;
   updatedAt: string;
   paymentConfirmedAt?: string;
+  refundStatus?: string;
+  refundUpdatedAt?: string;
+  serverNow?: string;
 };

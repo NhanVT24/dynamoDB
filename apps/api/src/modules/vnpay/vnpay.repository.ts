@@ -21,6 +21,7 @@ export type PaymentSessionRecord = {
   amount: number;
   status: PaymentSessionStatus;
   createdAt: string;
+  transactionDate?: string;
   updatedAt: string;
   expiresAt: string;
   finalizedAt?: string;
@@ -39,6 +40,7 @@ export async function createPaymentSession(input: {
   orderInfo: string;
   amount: number;
   expiresAt: string;
+  transactionDate: string;
 }) {
   const now = new Date().toISOString();
   const record: PaymentSessionRecord = {
@@ -52,7 +54,8 @@ export async function createPaymentSession(input: {
     status: "pending",
     createdAt: now,
     updatedAt: now,
-    expiresAt: input.expiresAt
+    expiresAt: input.expiresAt,
+    transactionDate: input.transactionDate
   };
 
   await rawDb.send(new PutItemCommand({

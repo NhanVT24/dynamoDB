@@ -83,6 +83,10 @@ export class VnpayService {
     private readonly runtimeConfigService: RuntimeConfigService
   ) {}
 
+  getPaymentConfig() {
+    return this.runtimeConfigService.getPaymentConfig();
+  }
+
   async createPaymentUrl(
     input: CreateVnpayPaymentInput,
     ipAddress: string,
@@ -149,7 +153,8 @@ export class VnpayService {
       email: input.email?.trim().toLowerCase(),
       orderInfo,
       amount,
-      expiresAt: expiresAt.toISOString()
+      expiresAt: expiresAt.toISOString(),
+      transactionDate: createDate
     });
 
     this.logger.log(`[payment-vnpay] created txnRef=${txnRef} amount=${amount} itemCount=${input.items.length} expiresAt=${expiresAt.toISOString()}`);

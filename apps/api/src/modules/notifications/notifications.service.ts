@@ -27,6 +27,20 @@ function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T):
     : payload;
 }
 
+function parseVnpayPaymentDate(value: string | undefined): string | undefined {
+  if (!value || !/^\d{14}$/.test(value)) return undefined;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(4, 6));
+  const day = Number(value.slice(6, 8));
+  const hour = Number(value.slice(8, 10));
+  const minute = Number(value.slice(10, 12));
+  const second = Number(value.slice(12, 14));
+  const timestamp = Date.UTC(year, month - 1, day, hour - 7, minute, second);
+  const date = new Date(timestamp);
+  if (!Number.isFinite(timestamp) || date.getTime() > Date.now() + 60000) return undefined;
+  return date.toISOString();
+}
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
@@ -591,7 +605,8 @@ export class NotificationsService {
           throw new Error("Payment customer or amount does not match held order");
         }
         const outcome = await transitionAwaitingPaymentOrder({
-          orderId: requestId, expectedCustomerEmail: email, status: "paid"
+          orderId: requestId, expectedCustomerEmail: email, status: "paid",
+          paymentConfirmedAt: parseVnpayPaymentDate(payload.payDate)
         });
         committed = {
           orderId: requestId,

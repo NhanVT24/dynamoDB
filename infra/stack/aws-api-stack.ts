@@ -143,6 +143,18 @@ export class AwsApiStack extends Stack {
       description: "SSM parameter path for VNPay payment gateway URL"
     });
 
+    const vnpayTransactionUrl = new CfnParameter(this, "VnpayTransactionUrl", {
+      type: "String",
+      default: "",
+      description: "VNPay merchant transaction API URL for refund and querydr; leave blank for sandbox"
+    });
+
+    const vnpayMerchantIp = new CfnParameter(this, "VnpayMerchantIp", {
+      type: "String",
+      default: "",
+      description: "Merchant server IP used in VNPay refund and query requests"
+    });
+
     const vnpayHashSecretSsmPath = new CfnParameter(this, "VnpayHashSecretSsmPath", {
       type: "String",
       default: "/supermarket/vnpay/hash-secret",
@@ -613,6 +625,8 @@ export class AwsApiStack extends Stack {
       VNPAY_TMN_CODE: vnpayTmnCodeValue,
       VNPAY_HASH_SECRET: vnpayHashSecretValue,
       VNPAY_PAYMENT_URL: vnpayPaymentUrlValue,
+      VNPAY_TRANSACTION_URL: vnpayTransactionUrl.valueAsString,
+      VNPAY_MERCHANT_IP: vnpayMerchantIp.valueAsString,
       VNPAY_RETURN_URL: vnpayReturnUrl.valueAsString,
       VNPAY_IPN_URL: vnpayIpnUrl.valueAsString
     };

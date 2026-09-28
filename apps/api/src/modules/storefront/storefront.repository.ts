@@ -24,7 +24,7 @@ type CreateOrderPayload = {
   items: Array<{ productId: string; quantity: number }>;
 };
 
-export type AwaitingPaymentOrderStatus = "awaiting_payment" | "paid" | "cancelled" | "expired" | "payment_failed";
+export type AwaitingPaymentOrderStatus = "awaiting_payment" | "paid" | "cancelled" | "expired" | "payment_failed" | "refund_pending" | "refund_sent" | "refund_rejected";
 
 export type StorefrontAwaitingPaymentOrderRecord = {
   PK: string;
@@ -38,6 +38,12 @@ export type StorefrontAwaitingPaymentOrderRecord = {
   createdAt: string;
   updatedAt: string;
   paymentUrl?: string;
+  paymentTxnRef?: string;
+  paymentConfirmedAt?: string;
+  refundRequestId?: string;
+  refundStatus?: string;
+  refundTransactionNo?: string;
+  refundUpdatedAt?: string;
 };
 
 export type StorefrontOrderItemRecord = {
@@ -1270,10 +1276,74 @@ export async function getAwaitingPaymentOrder(orderId: string) {
   return result.Item ? unmarshall(result.Item) as StorefrontAwaitingPaymentOrderRecord : null;
 }
 
+export async function attachPaymentTxnRef(orderId: string, txnRef: string) {
+  await rawDb.send(new UpdateItemCommand({
+    TableName,
+    Key: toDynamoItem(buildOrderMetaKey(orderId)),
+    ConditionExpression: "#status = :awaiting AND (attribute_not_exists(paymentTxnRef) OR paymentTxnRef = :txnRef)",
+    UpdateExpression: "SET paymentTxnRef = :txnRef",
+    ExpressionAttributeNames: { "#status": "status" },
+    ExpressionAttributeValues: toDynamoItem({ ":awaiting": "awaiting_payment", ":txnRef": txnRef })
+  }));
+}
+
+export async function beginOrderRefund(orderId: string, paymentConfirmedAt: string, requestId: string) {
+  const now = new Date().toISOString();
+  const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  await rawDb.send(new UpdateItemCommand({
+    TableName,
+    Key: toDynamoItem(buildOrderMetaKey(orderId)),
+    ConditionExpression: "#status = :paid AND paymentConfirmedAt = :paidAt AND paymentConfirmedAt > :cutoff AND attribute_exists(paymentTxnRef) AND attribute_not_exists(refundRequestId)",
+    UpdateExpression: "SET #status = :pending, refundRequestId = :requestId, refundStatus = :refundStatus, refundUpdatedAt = :now, updatedAt = :now",
+    ExpressionAttributeNames: { "#status": "status" },
+    ExpressionAttributeValues: toDynamoItem({ ":paid": "paid", ":paidAt": paymentConfirmedAt, ":cutoff": cutoff,
+      ":pending": "refund_pending", ":requestId": requestId, ":refundStatus": "pending", ":now": now })
+  }));
+}
+
+export async function updateOrderRefund(input: { orderId: string; requestId: string; status: "refund_pending" | "refund_sent" | "refund_rejected"; gatewayStatus: string; transactionNo?: string }) {
+  const now = new Date().toISOString();
+  const update = input.transactionNo
+    ? "SET #status = :status, refundStatus = :gatewayStatus, refundTransactionNo = :transactionNo, refundUpdatedAt = :now, updatedAt = :now"
+    : "SET #status = :status, refundStatus = :gatewayStatus, refundUpdatedAt = :now, updatedAt = :now";
+  const orderUpdate = {
+    TableName,
+    Key: toDynamoItem(buildOrderMetaKey(input.orderId)),
+    ConditionExpression: "refundRequestId = :requestId AND #status = :pending",
+    UpdateExpression: update,
+    ExpressionAttributeNames: { "#status": "status" },
+    ExpressionAttributeValues: toDynamoItem({
+      ":requestId": input.requestId, ":status": input.status, ":gatewayStatus": input.gatewayStatus,
+      ":transactionNo": input.transactionNo, ":now": now,
+      ":pending": "refund_pending"
+    })
+  };
+  if (input.status !== "refund_sent") {
+    await rawDb.send(new UpdateItemCommand(orderUpdate));
+    return;
+  }
+  const items = await listOrderItems(input.orderId);
+  if (items.length === 0) throw new Error("Order items missing during refund");
+  await rawDb.send(new TransactWriteItemsCommand({
+    TransactItems: [
+      { Update: orderUpdate },
+      ...items.map((item) => ({ Update: {
+        TableName,
+        Key: toDynamoItem(keys.product(item.productId)),
+        ConditionExpression: "attribute_exists(PK) AND soldCount >= :quantity",
+        UpdateExpression: "SET #stock = #stock + :quantity, soldCount = soldCount - :quantity, updatedAt = :now, #version = if_not_exists(#version, :zero) + :one",
+        ExpressionAttributeNames: { "#stock": "stock", "#version": "version" },
+        ExpressionAttributeValues: toDynamoItem({ ":quantity": item.quantity, ":now": now, ":zero": 0, ":one": 1 })
+      } }))
+    ]
+  }));
+}
+
 export async function transitionAwaitingPaymentOrder(input: {
   orderId: string;
   expectedCustomerEmail?: string;
   status: Extract<AwaitingPaymentOrderStatus, "paid" | "cancelled" | "expired" | "payment_failed">;
+  paymentConfirmedAt?: string;
 }) {
   const order = await getAwaitingPaymentOrder(input.orderId);
   if (!order) throw new Error("Order not found");
@@ -1291,6 +1361,7 @@ export async function transitionAwaitingPaymentOrder(input: {
   if (items.length === 0) throw new Error("Order has no held items");
   const now = new Date().toISOString();
   const isPaymentSuccess = input.status === "paid";
+  const paymentConfirmedAt = isPaymentSuccess && input.paymentConfirmedAt ? input.paymentConfirmedAt : now;
 
   await rawDb.send(new TransactWriteItemsCommand({
     TransactItems: [
@@ -1299,9 +1370,12 @@ export async function transitionAwaitingPaymentOrder(input: {
           TableName,
           Key: toDynamoItem(buildOrderMetaKey(input.orderId)),
           ConditionExpression: "#status = :awaitingPayment",
-          UpdateExpression: "SET #status = :status, updatedAt = :updatedAt, finalizedAt = :updatedAt",
+          UpdateExpression: isPaymentSuccess
+            ? "SET #status = :status, updatedAt = :updatedAt, finalizedAt = :updatedAt, paymentConfirmedAt = :paymentConfirmedAt"
+            : "SET #status = :status, updatedAt = :updatedAt, finalizedAt = :updatedAt",
           ExpressionAttributeNames: { "#status": "status" },
-          ExpressionAttributeValues: toDynamoItem({ ":awaitingPayment": "awaiting_payment", ":status": input.status, ":updatedAt": now })
+          ExpressionAttributeValues: toDynamoItem({ ":awaitingPayment": "awaiting_payment", ":status": input.status, ":updatedAt": now,
+            ":paymentConfirmedAt": isPaymentSuccess ? paymentConfirmedAt : undefined })
         }
       },
       ...items.map((item) => ({

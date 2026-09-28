@@ -5,6 +5,8 @@ type RuntimeConfig = {
   vnpayTmnCode: string;
   vnpayHashSecret: string;
   vnpayPaymentUrl: string;
+  vnpayTransactionUrl?: string;
+  vnpayMerchantIp?: string;
   vnpayReturnUrl: string;
   vnpayIpnUrl: string;
 };
@@ -25,6 +27,8 @@ export class RuntimeConfigService {
       vnpayTmnCode: env.VNPAY_TMN_CODE,
       vnpayHashSecret: env.VNPAY_HASH_SECRET,
       vnpayPaymentUrl: env.VNPAY_PAYMENT_URL,
+      vnpayTransactionUrl: env.VNPAY_TRANSACTION_URL || undefined,
+      vnpayMerchantIp: env.VNPAY_MERCHANT_IP || undefined,
       vnpayReturnUrl: env.VNPAY_RETURN_URL,
       vnpayIpnUrl: env.VNPAY_IPN_URL
     };

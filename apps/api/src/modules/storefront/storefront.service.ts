@@ -19,6 +19,9 @@ import { getShoppingItem } from "../shopping/shopping.repository.js";
 import { VnpayService } from "../vnpay/vnpay.service.js";
 import {
   createAwaitingPaymentOrder,
+  attachPaymentTxnRef,
+  beginOrderRefund,
+  updateOrderRefund,
   createStorefrontOrder,
   getAwaitingPaymentOrder,
   getOrderById,
@@ -38,6 +41,8 @@ import {
   waitForCheckoutRaceBarrier
 } from "./storefront.repository.js";
 import type { CreateStorefrontOrderInput, PrepareStorefrontCheckoutInput } from "./storefront.schema.js";
+import { getPaymentSessionByTxnRef } from "../vnpay/vnpay.repository.js";
+import { queryVnpayRefund, sendVnpayRefund } from "../vnpay/vnpay-refund.js";
 
 type ProductRecord = Record<string, any>;
 type PublicProductListResponse = {
@@ -281,7 +286,8 @@ export class StorefrontService {
         items: order.items,
         totalAmount: order.totalAmount,
         createdAt: order.createdAt,
-        updatedAt: order.updatedAt
+        updatedAt: order.updatedAt,
+        serverNow: new Date().toISOString()
       };
     }
 
@@ -303,7 +309,10 @@ export class StorefrontService {
       totalAmount: awaitingOrder.totalAmount,
       createdAt: awaitingOrder.createdAt,
       updatedAt: awaitingOrder.updatedAt,
-      paymentConfirmedAt: awaitingOrder.status === "paid" ? awaitingOrder.updatedAt : undefined
+      serverNow: new Date().toISOString(),
+      paymentConfirmedAt: awaitingOrder.paymentConfirmedAt,
+      refundStatus: awaitingOrder.refundStatus,
+      refundUpdatedAt: awaitingOrder.refundUpdatedAt
     };
   }
 
@@ -339,6 +348,8 @@ export class StorefrontService {
       throw error;
     }
 
+    await attachPaymentTxnRef(orderId, payment.txnRef);
+
     this.logger.log(`[order] created orderId=${orderId} customer=${email} status=awaiting_payment itemCount=${created.items.length}`);
     return {
       success: true,
@@ -368,6 +379,80 @@ export class StorefrontService {
       status: outcome.order.status,
       released: outcome.changed
     };
+  }
+
+  async refundOrder(email: string, orderId: string) {
+    const order = await getAwaitingPaymentOrder(orderId);
+    if (!order || order.customerEmail !== email) throw new NotFoundException("Order not found.");
+    if (order.refundRequestId) {
+      return { orderId, status: order.status, refundStatus: order.refundStatus };
+    }
+    const paidAt = order.paymentConfirmedAt ? Date.parse(order.paymentConfirmedAt) : NaN;
+    if (order.status !== "paid" || !order.paymentTxnRef || !Number.isFinite(paidAt)
+      || Date.now() >= paidAt + 5 * 60 * 1000) {
+      throw new ConflictException("Refund is available for 5 minutes after confirmed payment.");
+    }
+    const session = await getPaymentSessionByTxnRef(order.paymentTxnRef);
+    if (!session || session.status !== "success" || session.amount !== order.totalAmount) {
+      throw new ConflictException("Payment details are not ready for refund.");
+    }
+    const requestId = crypto.randomBytes(16).toString("hex");
+    const config = this.vnpayService.getPaymentConfig();
+    if (new URL(config.vnpayPaymentUrl).hostname !== "sandbox.vnpayment.vn"
+      && (!config.vnpayTransactionUrl || !config.vnpayMerchantIp)) {
+      throw new ConflictException("VNPAY refund endpoint is not configured.");
+    }
+    try {
+      await beginOrderRefund(orderId, order.paymentConfirmedAt!, requestId);
+    } catch (error) {
+      if (isDynamoConditionalConflict(error)) throw new ConflictException("Refund already requested or order changed.");
+      throw error;
+    }
+    try {
+      const result = await sendVnpayRefund({
+        session, requestId, orderId, secret: config.vnpayHashSecret,
+        tmnCode: config.vnpayTmnCode, paymentUrl: config.vnpayPaymentUrl,
+        transactionUrl: config.vnpayTransactionUrl, merchantIp: config.vnpayMerchantIp
+      });
+      const status = result.responseCode === "00" && result.transactionStatus === "06"
+        ? "refund_sent"
+        : result.transactionStatus === "09" || ["91", "95"].includes(result.responseCode)
+          ? "refund_rejected" : "refund_pending";
+      await updateOrderRefund({ orderId, requestId, status, gatewayStatus: result.transactionStatus,
+        transactionNo: result.transactionNo });
+      return { orderId, status, refundStatus: result.transactionStatus };
+    } catch (error) {
+      this.logger.error(`[refund] status_unknown orderId=${orderId} requestId=${requestId} error=${error instanceof Error ? error.message : "unknown"}`);
+      const current = await getAwaitingPaymentOrder(orderId);
+      return { orderId, status: current?.status ?? "refund_pending", refundStatus: current?.refundStatus ?? "unknown" };
+    }
+  }
+
+  async refreshRefundStatus(email: string, orderId: string) {
+    const order = await getAwaitingPaymentOrder(orderId);
+    if (!order || order.customerEmail !== email) throw new NotFoundException("Order not found.");
+    if (!order.refundRequestId || !order.paymentTxnRef) throw new ConflictException("No refund request for this order.");
+    if (order.status === "refund_sent" || order.status === "refund_rejected") {
+      return { orderId, status: order.status, refundStatus: order.refundStatus };
+    }
+    const session = await getPaymentSessionByTxnRef(order.paymentTxnRef);
+    if (!session || session.status !== "success") throw new ConflictException("Payment session not found.");
+    try {
+      const config = this.vnpayService.getPaymentConfig();
+      const result = await queryVnpayRefund({ session, refundTransactionNo: order.refundTransactionNo,
+        secret: config.vnpayHashSecret,
+        tmnCode: config.vnpayTmnCode, paymentUrl: config.vnpayPaymentUrl,
+        transactionUrl: config.vnpayTransactionUrl, merchantIp: config.vnpayMerchantIp });
+      if (result?.transactionStatus === "06" || result?.transactionStatus === "09") {
+        const status = result.transactionStatus === "06" ? "refund_sent" : "refund_rejected";
+        await updateOrderRefund({ orderId, requestId: order.refundRequestId, status,
+          gatewayStatus: result.transactionStatus, transactionNo: result.transactionNo });
+        return { orderId, status, refundStatus: result.transactionStatus };
+      }
+    } catch (error) {
+      this.logger.warn(`[refund] query_failed orderId=${orderId} error=${error instanceof Error ? error.message : "unknown"}`);
+    }
+    return { orderId, status: "refund_pending", refundStatus: order.refundStatus };
   }
 
   async processQueueRecords(
