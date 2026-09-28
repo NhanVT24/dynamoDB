@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { authenticatedFetch } from "../../lib/cognito-auth";
+import { apiUrl, authenticatedFetch } from "../../lib/cognito-auth";
 import { useStorefront } from "../store-client";
 import { buildProductDetailHref, fetchMyOrders, fetchMyProducts, toStoreProduct } from "../store-api";
 import type { ManagedProduct, StoreOrder } from "../store-types";
@@ -141,8 +141,8 @@ function makeInitials(name: string, email: string) {
 }
 
 const avatarStoragePrefix = "web-storefront-avatar-";
-const avatarUploadEndpoint = "/api/lambda-proxy/api/uploads/avatar/presign";
-const defaultAvatarsEndpoint = "/api/lambda-proxy/api/uploads/default-avatars";
+const avatarUploadEndpoint = apiUrl("/api/uploads/avatar/presign");
+const defaultAvatarsEndpoint = apiUrl("/api/uploads/default-avatars");
 
 // Count only orders that still represent a paid purchase. Expired, cancelled,
 // failed and refund-in-progress orders are excluded from these metrics.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { authenticatedFetch, type ProductPermission } from "../../auth/lib/cognito-auth";
+import { apiUrl, authenticatedFetch, type ProductPermission } from "../../auth/lib/cognito-auth";
 
 type ManagedUser = {
   subject: string;
@@ -53,7 +53,7 @@ export default function UserPermissionManager() {
   async function loadUsers() {
     setLoading(true);
     try {
-      const response = await authenticatedFetch("/api/lambda-proxy/api/admin/authorizations/users", { cache: "no-store" });
+      const response = await authenticatedFetch(apiUrl("/api/admin/authorizations/users"), { cache: "no-store" });
       if (!response.ok) throw new Error("Could not load user permissions.");
       setUsers(await response.json() as ManagedUser[]);
     } catch (error) {
@@ -71,7 +71,7 @@ export default function UserPermissionManager() {
     setMessage("");
     try {
       const response = await authenticatedFetch(
-        `/api/lambda-proxy/api/admin/authorizations/users/${encodeURIComponent(user.subject)}/permissions/${encodeURIComponent(permission)}`,
+        apiUrl(`/api/admin/authorizations/users/${encodeURIComponent(user.subject)}/permissions/${encodeURIComponent(permission)}`),
         { method: enabled ? "PUT" : "DELETE" }
       );
       if (!response.ok) {
@@ -96,7 +96,7 @@ export default function UserPermissionManager() {
     setMessage("");
     try {
       const response = await authenticatedFetch(
-        `/api/lambda-proxy/api/admin/authorizations/users/${encodeURIComponent(user.subject)}/status`,
+        apiUrl(`/api/admin/authorizations/users/${encodeURIComponent(user.subject)}/status`),
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },

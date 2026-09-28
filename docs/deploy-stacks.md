@@ -22,6 +22,13 @@ build Next.js với Cognito config của API stack rồi upload file lên S3 và
 invalidate CloudFront. Nếu chỉ thay đổi code frontend, có thể chạy riêng
 `npm run deploy:frontend:static -- -AwsProfile nhandev`.
 
+Frontend production được build với `NEXT_PUBLIC_API_URL=https://api.truyenmasinhvien.com`.
+Browser gọi API Gateway custom domain trực tiếp; backend cho phép CORS từ
+`StorefrontPublicUrl` và biến thể `www` của domain đó. Nếu deploy domain khác,
+`deploy-all-aws.ps1` tự truyền `https://api.<DomainName>` khi build frontend.
+Khi chuyển từ bản frontend proxy cũ, deploy API stack trước khi upload frontend
+để CORS production đã có hiệu lực.
+
 | Nhu cầu | Xem mục |
 | --- | --- |
 | Deploy toàn bộ ba stack ứng dụng | Lệnh **Deploy chính** ngay trên |

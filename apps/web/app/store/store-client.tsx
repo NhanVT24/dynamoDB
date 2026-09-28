@@ -15,6 +15,7 @@ import {
   authSessionChangedEvent,
   authSessionEndedEvent,
   authenticatedFetch,
+  apiUrl,
   readAuthSession,
   rememberPostLoginRedirect,
   resendConfirmationCode,
@@ -1189,7 +1190,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       const localItems = readLocalNotifications();
 
       try {
-        const response = await authenticatedFetch("/api/lambda-proxy/api/notifications/me", {
+        const response = await authenticatedFetch(apiUrl("/api/notifications/me"), {
           headers: {
             Authorization: `Bearer ${session.idToken}`
           },
@@ -1278,7 +1279,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       return;
     }
     try {
-      const response = await authenticatedFetch(`/api/lambda-proxy/api/notifications/${item.id}/read`, {
+      const response = await authenticatedFetch(apiUrl(`/api/notifications/${item.id}/read`), {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${session.idToken}`
@@ -1310,7 +1311,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
     }
 
     try {
-      const response = await authenticatedFetch(`/api/lambda-proxy/api/notifications/${item.id}`, {
+      const response = await authenticatedFetch(apiUrl(`/api/notifications/${item.id}`), {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${session.idToken}`
@@ -1339,7 +1340,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
     const serverItems = notifications.filter((item) => item.source !== "local");
     if (session?.idToken && serverItems.length > 0) {
       try {
-        const response = await authenticatedFetch("/api/lambda-proxy/api/notifications", {
+        const response = await authenticatedFetch(apiUrl("/api/notifications"), {
           method: "DELETE",
           headers: {
             Authorization: `Bearer ${session.idToken}`
@@ -1379,7 +1380,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
     if (session?.idToken && serverUnread.length > 0) {
       try {
         await Promise.all(serverUnread.map(async (item) => {
-          const response = await authenticatedFetch(`/api/lambda-proxy/api/notifications/${item.id}/read`, {
+          const response = await authenticatedFetch(apiUrl(`/api/notifications/${item.id}/read`), {
             method: "PATCH",
             headers: {
               Authorization: `Bearer ${session.idToken}`

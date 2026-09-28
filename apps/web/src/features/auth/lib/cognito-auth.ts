@@ -423,6 +423,14 @@ export async function authenticatedFetch(input: RequestInfo | URL, init: Request
   return fetch(input, { ...init, headers });
 }
 
+/** Builds an API URL for browser requests, including calls that do not need auth. */
+export function apiUrl(path: string): string {
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "");
+  if (!baseUrl) throw new Error("NEXT_PUBLIC_API_URL is missing.");
+  if (!path.startsWith("/") || path.startsWith("//")) throw new Error("API path must start with a single slash.");
+  return `${baseUrl}${path}`;
+}
+
 export function rememberPostLoginRedirect(path: string) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(postLoginRedirectStorageKey, path);

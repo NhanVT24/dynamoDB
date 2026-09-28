@@ -2,7 +2,7 @@
 param(
   [string]$AwsProfile = "nhandev",
   [string]$StackName = "SupermarketFrontendCloudFrontStack",
-  [string]$ApiBaseUrl = "/api/lambda-proxy",
+  [string]$ApiBaseUrl = "https://api.truyenmasinhvien.com",
   [string]$AwsRegion = "ap-southeast-1",
   [string]$CognitoUserPoolId,
   [string]$CognitoClientId,

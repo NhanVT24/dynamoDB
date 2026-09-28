@@ -1,6 +1,8 @@
 (async () => {
   const apiBaseUrl = (window.__STORE_API_BASE_URL__
-    || `${location.origin}/api/lambda-proxy`).replace(/\/+$/, "");
+    || (location.hostname === "localhost" || location.hostname === "127.0.0.1"
+      ? `${location.origin}/api/lambda-proxy`
+      : "https://api.truyenmasinhvien.com")).replace(/\/+$/, "");
   const authStorageCandidates = [
     "cognito-auth-session",
     "web-auth-session",

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { authenticatedFetch } from "../../auth/lib/cognito-auth";
+import { apiUrl, authenticatedFetch } from "../../auth/lib/cognito-auth";
 
 type Props = { authToken: string };
 type RecipientMode = "customers" | "manual";
@@ -61,7 +61,7 @@ export default function EmailCenter({ authToken }: Props) {
   }
 
   async function request<T>(path: string, init?: RequestInit) {
-    const response = await authenticatedFetch(`/api/lambda-proxy${path}`, {
+    const response = await authenticatedFetch(apiUrl(path), {
       ...init,
       headers: { Authorization: `Bearer ${authToken}`, ...(init?.headers ?? {}) },
       cache: "no-store"

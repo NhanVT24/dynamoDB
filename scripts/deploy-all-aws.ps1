@@ -122,7 +122,7 @@ $cognitoDomain = "https://${cognitoDomainPrefix}.auth.ap-southeast-1.amazoncogni
 Write-Host "Building and uploading frontend static files."
 & powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-frontend-static.ps1 `
   -AwsProfile $AwsProfile `
-  -ApiBaseUrl "/api/lambda-proxy" `
+  -ApiBaseUrl "https://api.$DomainName" `
   -CognitoUserPoolId $userPoolId `
   -CognitoClientId $userPoolClientId `
   -CognitoDomain $cognitoDomain

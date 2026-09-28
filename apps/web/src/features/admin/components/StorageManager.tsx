@@ -2,7 +2,7 @@
 
 import type { ChangeEvent } from "react";
 import { useEffect, useRef, useState } from "react";
-import { authenticatedFetch } from "../../auth/lib/cognito-auth";
+import { apiUrl, authenticatedFetch } from "../../auth/lib/cognito-auth";
 
 type PublicAvatarItem = {
   key: string;
@@ -31,11 +31,11 @@ type PresignedDownloadResponse = {
   message?: string;
 };
 
-const defaultAvatarEndpoint = "/api/lambda-proxy/api/uploads/default-avatars";
-const defaultAvatarPresignEndpoint = "/api/lambda-proxy/api/uploads/default-avatars/presign";
-const reportEndpoint = "/api/lambda-proxy/api/uploads/reports";
-const reportPresignEndpoint = "/api/lambda-proxy/api/uploads/reports/presign";
-const reportOpenEndpoint = "/api/lambda-proxy/api/uploads/reports/open";
+const defaultAvatarEndpoint = apiUrl("/api/uploads/default-avatars");
+const defaultAvatarPresignEndpoint = apiUrl("/api/uploads/default-avatars/presign");
+const reportEndpoint = apiUrl("/api/uploads/reports");
+const reportPresignEndpoint = apiUrl("/api/uploads/reports/presign");
+const reportOpenEndpoint = apiUrl("/api/uploads/reports/open");
 
 function formatBytes(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "0 B";

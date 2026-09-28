@@ -23,6 +23,17 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
   app.useLogger(createNestLogger());
   app.flushLogs();
 
+  const storefrontOrigin = env.STOREFRONT_PUBLIC_URL ? new URL(env.STOREFRONT_PUBLIC_URL).origin : undefined;
+  const allowedProductionOrigins = new Set<string>();
+  if (storefrontOrigin) {
+    const storefrontUrl = new URL(storefrontOrigin);
+    allowedProductionOrigins.add(storefrontOrigin);
+    const alternateHost = storefrontUrl.hostname.startsWith("www.")
+      ? storefrontUrl.hostname.slice(4)
+      : `www.${storefrontUrl.hostname}`;
+    allowedProductionOrigins.add(`${storefrontUrl.protocol}//${alternateHost}`);
+  }
+
   app.enableCors({
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Correlation-Id", "X-Request-Id"],
@@ -33,7 +44,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
         /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin) ||
         /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin);
 
-      callback(null, allowedDevOrigin);
+      callback(null, allowedDevOrigin || allowedProductionOrigins.has(origin));
     }
   });
 

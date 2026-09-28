@@ -12,6 +12,7 @@ import {
   rememberPostLoginRedirect,
   authSessionChangedEvent,
   authenticatedFetch,
+  apiUrl,
   type AuthSession,
   readAuthSession,
   signOutFromCognitoHostedUi
@@ -54,7 +55,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
 
     async function loadNotifications() {
       try {
-        const response = await authenticatedFetch("/api/lambda-proxy/api/notifications/me", {
+        const response = await authenticatedFetch(apiUrl("/api/notifications/me"), {
           headers: {
             Authorization: `Bearer ${authToken}`
           },
@@ -153,7 +154,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
 
   async function markAsRead(id: string) {
     try {
-      const response = await authenticatedFetch(`/api/lambda-proxy/api/notifications/${id}/read`, {
+      const response = await authenticatedFetch(apiUrl(`/api/notifications/${id}/read`), {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${authToken}`
@@ -171,7 +172,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
 
   async function removeNotification(id: string, isRead: boolean) {
     try {
-      const response = await authenticatedFetch(`/api/lambda-proxy/api/notifications/${id}`, {
+      const response = await authenticatedFetch(apiUrl(`/api/notifications/${id}`), {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${authToken}`
@@ -196,7 +197,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
 
     setBusy(true);
     try {
-      const response = await authenticatedFetch("/api/lambda-proxy/api/notifications", {
+      const response = await authenticatedFetch(apiUrl("/api/notifications"), {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${authToken}`
@@ -224,7 +225,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
     setBusy(true);
     try {
       await Promise.all(unreadItems.map(async (item) => {
-        await authenticatedFetch(`/api/lambda-proxy/api/notifications/${item.id}/read`, {
+        await authenticatedFetch(apiUrl(`/api/notifications/${item.id}/read`), {
           method: "PATCH",
           headers: {
             Authorization: `Bearer ${authToken}`
