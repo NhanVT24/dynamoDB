@@ -8,6 +8,7 @@ import { AppExceptionFilter } from "../../common/filters/app-exception.filter.js
 import { createNestLogger } from "../../common/logging/nest-logger.js";
 import { env } from "../../config/env.js";
 import { AppModule } from "./app.module.js";
+import { isCustomerOrderMutation } from "./storefront-request-policy.js";
 
 export async function createNestApp(): Promise<NestFastifyApplication> {
   const adapter = new FastifyAdapter({ logger: {
@@ -93,9 +94,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const isNotificationReadMutation = method === "PATCH" && /^\/api\/notifications\/[^/]+\/read(?:\?|$)/.test(url);
     const isNotificationDeleteMutation = method === "DELETE" && /^\/api\/notifications\/[^/]+(?:\?|$)/.test(url);
     const isNotificationDeleteAllMutation = method === "DELETE" && /^\/api\/notifications(?:\?|$)/.test(url);
-    const isStorefrontOrderMutation = method === "POST" && (
-      url === "/api/storefront/orders" || /^\/api\/storefront\/orders\/[^/]+\/cancel(?:\?|$)/.test(url)
-    );
+    const isStorefrontOrderMutation = isCustomerOrderMutation(method, url);
     const isStorefrontCheckoutPrepareMutation = method === "POST" && url === "/api/storefront/checkout/prepare";
     const isStorefrontCheckoutPaymentSessionMutation = method === "POST" && url === "/api/storefront/checkout/payment-session";
     const isStorefrontCheckoutCancelMutation = method === "POST" && url === "/api/storefront/checkout/cancel";

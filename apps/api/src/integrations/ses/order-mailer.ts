@@ -61,7 +61,7 @@ function assertSesConfigured() {
 }
 
 async function sendTrackedOrderEmail(input: {
-  emailType: Extract<EmailType, "order_confirmation" | "payment_failure" | "order_failure">;
+  emailType: Extract<EmailType, "order_confirmation" | "payment_failure" | "order_failure" | "refund_status">;
   toEmail: string;
   subject: string;
   html: string;
@@ -223,6 +223,43 @@ export async function sendOrderConfirmationEmail(input: OrderConfirmationInput) 
     subject: content.subject,
     html: content.html,
     text: content.text,
+    relatedId: input.orderId
+  });
+}
+
+export type RefundEmailStatus = "refund_pending" | "refund_sent" | "refund_rejected";
+
+export async function sendRefundStatusEmail(input: {
+  toEmail: string;
+  orderId: string;
+  totalAmount: number;
+  status: RefundEmailStatus;
+}) {
+  const messages: Record<RefundEmailStatus, { subject: string; detail: string }> = {
+    refund_pending: {
+      subject: `Yêu cầu hoàn tiền đang được xử lý - đơn ${input.orderId}`,
+      detail: "Yêu cầu hoàn tiền đã được ghi nhận và đang chờ kết quả từ VNPAY."
+    },
+    refund_sent: {
+      subject: `Đã gửi hoàn tiền - đơn ${input.orderId}`,
+      detail: "Lệnh hoàn tiền đã được VNPAY chấp nhận. Thời gian tiền về tài khoản phụ thuộc vào ngân hàng."
+    },
+    refund_rejected: {
+      subject: `Yêu cầu hoàn tiền bị từ chối - đơn ${input.orderId}`,
+      detail: "VNPAY đã từ chối yêu cầu hoàn tiền. Vui lòng liên hệ bộ phận hỗ trợ để được kiểm tra."
+    }
+  };
+  const message = messages[input.status];
+  const orderUrl = env.STOREFRONT_PUBLIC_URL
+    ? new URL(`/store/orders/detail?orderId=${encodeURIComponent(input.orderId)}`, env.STOREFRONT_PUBLIC_URL).toString()
+    : undefined;
+  const detail = `${message.detail} Số tiền yêu cầu hoàn: ${formatCurrency(input.totalAmount)}.`;
+  return sendTrackedOrderEmail({
+    emailType: "refund_status",
+    toEmail: input.toEmail,
+    subject: message.subject,
+    html: `<p>Xin chào,</p><p>${escapeHtml(detail)}</p><p>Mã đơn hàng: <strong>${escapeHtml(input.orderId)}</strong></p>${orderUrl ? `<p><a href="${escapeHtml(orderUrl)}">Xem đơn hàng</a></p>` : ""}`,
+    text: `${detail}\nMã đơn hàng: ${input.orderId}${orderUrl ? `\nXem đơn hàng: ${orderUrl}` : ""}`,
     relatedId: input.orderId
   });
 }

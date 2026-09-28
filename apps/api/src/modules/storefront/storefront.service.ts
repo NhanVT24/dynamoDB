@@ -9,7 +9,7 @@ import {
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { sqsClient } from "../../integrations/sqs/client.js";
-import { sendOrderConfirmationEmail, sendOrderFailureEmail } from "../../integrations/ses/order-mailer.js";
+import { sendOrderConfirmationEmail, sendOrderFailureEmail, sendRefundStatusEmail, type RefundEmailStatus } from "../../integrations/ses/order-mailer.js";
 import { ordersSenderEmail } from "../../integrations/ses/sender-config.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { resolveSalePrice } from "../sales/sale-pricing.js";
@@ -229,6 +229,24 @@ export class StorefrontService {
     private readonly vnpayService: VnpayService
   ) {}
 
+  private async notifyRefundStatus(input: { email: string; orderId: string; totalAmount: number; status: RefundEmailStatus }) {
+    if (!ordersSenderEmail()) {
+      this.logger.warn(`[refund-email] skipped orderId=${input.orderId} status=${input.status} reason=ses_not_configured`);
+      return;
+    }
+    try {
+      await sendRefundStatusEmail({
+        toEmail: input.email,
+        orderId: input.orderId,
+        totalAmount: input.totalAmount,
+        status: input.status
+      });
+      this.logger.log(`[refund-email] sent orderId=${input.orderId} status=${input.status}`);
+    } catch (error) {
+      this.logger.warn(`[refund-email] failed orderId=${input.orderId} status=${input.status} error=${error instanceof Error ? error.message : "unknown"}`);
+    }
+  }
+
   async listProducts(rawQuery: Record<string, unknown>) {
     const query = shoppingListQuerySchema.parse(rawQuery);
     const result = await listStorefrontProducts(query);
@@ -420,10 +438,14 @@ export class StorefrontService {
           ? "refund_rejected" : "refund_pending";
       await updateOrderRefund({ orderId, requestId, status, gatewayStatus: result.transactionStatus,
         transactionNo: result.transactionNo });
+      await this.notifyRefundStatus({ email, orderId, totalAmount: order.totalAmount, status });
       return { orderId, status, refundStatus: result.transactionStatus };
     } catch (error) {
       this.logger.error(`[refund] status_unknown orderId=${orderId} requestId=${requestId} error=${error instanceof Error ? error.message : "unknown"}`);
       const current = await getAwaitingPaymentOrder(orderId);
+      if (current?.status === "refund_pending") {
+        await this.notifyRefundStatus({ email, orderId, totalAmount: order.totalAmount, status: "refund_pending" });
+      }
       return { orderId, status: current?.status ?? "refund_pending", refundStatus: current?.refundStatus ?? "unknown" };
     }
   }
@@ -447,12 +469,14 @@ export class StorefrontService {
         const status = result.transactionStatus === "06" ? "refund_sent" : "refund_rejected";
         await updateOrderRefund({ orderId, requestId: order.refundRequestId, status,
           gatewayStatus: result.transactionStatus, transactionNo: result.transactionNo });
+        await this.notifyRefundStatus({ email, orderId, totalAmount: order.totalAmount, status });
         return { orderId, status, refundStatus: result.transactionStatus };
       }
     } catch (error) {
       this.logger.warn(`[refund] query_failed orderId=${orderId} error=${error instanceof Error ? error.message : "unknown"}`);
     }
-    return { orderId, status: "refund_pending", refundStatus: order.refundStatus };
+    const current = await getAwaitingPaymentOrder(orderId);
+    return { orderId, status: current?.status ?? "refund_pending", refundStatus: current?.refundStatus ?? order.refundStatus };
   }
 
   async processQueueRecords(

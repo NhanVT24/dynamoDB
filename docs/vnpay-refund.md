@@ -8,3 +8,16 @@
 - Đơn cũ thiếu `paymentTxnRef` hoặc timestamp gốc không tự động đủ điều kiện hoàn tiền. Cần đối soát thủ công nếu muốn hỗ trợ chúng.
 
 Tham khảo: https://sandbox.vnpayment.vn/apis/docs/truy-van-hoan-tien/querydr%26refund.html
+
+## Quyền truy cập và email
+
+`POST /api/storefront/orders/:orderId/refund` và `/refund/status` cho phép
+customer hoặc admin đã đăng nhập. Service chỉ xử lý order có `customerEmail`
+trùng email trong token, kể cả khi caller là admin.
+
+Khi trạng thái refund được ghi nhận, backend gửi email SES đến chủ order bằng
+sender `SES_ORDERS_FROM_EMAIL`. Email `refund_pending` báo đang xử lý;
+`refund_sent` nói rõ VNPAY đã gửi yêu cầu sang ngân hàng, chưa khẳng định tiền
+đã về; `refund_rejected` báo yêu cầu bị từ chối. Chỉ lần chuyển trạng thái
+được ghi thành công mới gửi email kết quả. Lỗi SES được ghi vào email delivery
+history và log, không làm đảo ngược trạng thái refund đã ghi trong DynamoDB.
