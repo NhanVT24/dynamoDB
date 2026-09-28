@@ -114,3 +114,18 @@ Write-Host "Deploying S3 storage stack."
 if ($LASTEXITCODE -ne 0) {
   throw "S3 storage stack deployment failed."
 }
+
+$userPoolId = Get-StackOutput -StackName "SupermarketAwsStack" -Region "ap-southeast-1" -OutputKey "UserPoolId"
+$userPoolClientId = Get-StackOutput -StackName "SupermarketAwsStack" -Region "ap-southeast-1" -OutputKey "UserPoolClientId"
+$cognitoDomain = "https://${cognitoDomainPrefix}.auth.ap-southeast-1.amazoncognito.com"
+
+Write-Host "Building and uploading frontend static files."
+& powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deploy-frontend-static.ps1 `
+  -AwsProfile $AwsProfile `
+  -ApiBaseUrl "/api/lambda-proxy" `
+  -CognitoUserPoolId $userPoolId `
+  -CognitoClientId $userPoolClientId `
+  -CognitoDomain $cognitoDomain
+if ($LASTEXITCODE -ne 0) {
+  throw "Frontend static deployment failed."
+}

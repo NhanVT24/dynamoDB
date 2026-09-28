@@ -1,9 +1,9 @@
 # Lệnh deploy các AWS stack
 
-## Deploy chính — dùng khi cập nhật hạ tầng đang chạy
+## Deploy chính — dùng khi cập nhật hạ tầng và ứng dụng đang chạy
 
 Chạy tại thư mục gốc repo bằng PowerShell. Lệnh này deploy theo thứ tự
-**API/backend → frontend CloudFront → S3 storage**, tự đọc lại certificate,
+**API/backend → frontend CloudFront → S3 storage → build/upload frontend static → CloudFront invalidation**, tự đọc lại certificate,
 domain và các URL đang dùng từ CloudFormation. Nó dừng trước khi deploy nếu
 thiếu dữ liệu bắt buộc.
 
@@ -17,8 +17,9 @@ Kiểm tra đầu vào mà **không deploy**:
 npm run cdk:aws:deploy:all -- -AwsProfile nhandev -DomainName truyenmasinhvien.com -CheckOnly
 ```
 
-Lệnh chính cần hosted zone, certificate và API stack đã tồn tại. Nó không
-upload file frontend; khi code Next.js thay đổi, chạy thêm
+Lệnh chính cần hosted zone, certificate và API stack đã tồn tại. Bước cuối
+build Next.js với Cognito config của API stack rồi upload file lên S3 và
+invalidate CloudFront. Nếu chỉ thay đổi code frontend, có thể chạy riêng
 `npm run deploy:frontend:static -- -AwsProfile nhandev`.
 
 | Nhu cầu | Xem mục |

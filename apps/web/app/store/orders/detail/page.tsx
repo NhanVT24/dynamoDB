@@ -7,6 +7,7 @@ import { useStorefront } from "../../store-client";
 import { fetchOrderDetails, refreshOrderRefundStatus, requestOrderRefund } from "../../store-api";
 import type { StoreOrder } from "../../store-types";
 import { formatCurrency } from "../../store-utils";
+import { getOrderStatusColor, getOrderStatusPanelColor } from "../../order-status";
 
 const statusLabels: Record<string, string> = {
   awaiting_payment: "Chờ thanh toán",
@@ -125,33 +126,34 @@ function OrderDetailContent() {
 
           {order ? (
             <>
-              <div className={`mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl p-4 ${isDark ? "bg-white/5" : "bg-orange-50"}`}>
+              <div className={`mt-6 flex flex-wrap items-start justify-between gap-4 rounded-2xl border p-4 ${getOrderStatusPanelColor(order.status, isDark)}`}>
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-orange-500">Trạng thái</p>
-                  <p className="mt-1 font-bold">{statusLabels[order.status] ?? order.status}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider">Trạng thái</p>
+                  <p className={`mt-1 inline-flex rounded-full px-3 py-1 text-sm font-bold ${getOrderStatusColor(order.status, isDark)}`}>{statusLabels[order.status] ?? order.status}</p>
+                  {order.status === "paid" ? (
+                    <div className="mt-4">
+                      <button type="button" onClick={() => void handleRefund()} disabled={!canRefund || refundBusy}
+                        className="rounded-full bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-400 disabled:shadow-none">
+                        {refundBusy ? "Đang gửi yêu cầu…" : "Yêu cầu hoàn tiền"}
+                      </button>
+                      <p className="mt-2 text-xs">
+                        {!order.paymentConfirmedAt ? "Đơn này chưa có đủ dữ liệu thanh toán để yêu cầu hoàn tiền."
+                          : refundRemainingSeconds > 0
+                            ? `Còn ${Math.floor(refundRemainingSeconds / 60)}:${String(refundRemainingSeconds % 60).padStart(2, "0")} để yêu cầu hoàn tiền`
+                            : "Đã hết hạn yêu cầu hoàn tiền (5 phút sau thanh toán)."}
+                      </p>
+                      {refundError ? <p role="alert" className="mt-2 text-sm text-rose-600">{refundError}</p> : null}
+                    </div>
+                  ) : null}
+                  {order.status.startsWith("refund_") ? (
+                    <p className="mt-3 max-w-sm text-sm">{statusLabels[order.status]}. Tiền về tài khoản phụ thuộc ngân hàng.</p>
+                  ) : null}
                 </div>
                 <div className="text-sm">
                   <p>Đặt hàng: <strong>{formatDateTime(order.createdAt)}</strong></p>
                   {order.paymentConfirmedAt ? <p className="mt-1">Xác nhận thanh toán: <strong>{formatDateTime(order.paymentConfirmedAt)}</strong></p> : null}
                 </div>
               </div>
-
-              {order.paymentConfirmedAt || order.status.startsWith("refund_") ? (
-                <div className={`mt-5 rounded-2xl border p-4 ${panelClass}`}>
-                  <p className="text-sm font-semibold">Hoàn tiền qua VNPAY</p>
-                  {order.status === "paid" ? (
-                    <p className="mt-1 text-sm">{refundRemainingSeconds > 0
-                      ? `Có thể yêu cầu trong ${Math.floor(refundRemainingSeconds / 60)}:${String(refundRemainingSeconds % 60).padStart(2, "0")}`
-                      : "Đã hết hạn yêu cầu hoàn tiền (5 phút sau thanh toán)."}</p>
-                  ) : null}
-                  {order.status.startsWith("refund_") ? <p className="mt-1 text-sm">{statusLabels[order.status]}. Tiền về tài khoản phụ thuộc ngân hàng.</p> : null}
-                  <button type="button" onClick={() => void handleRefund()} disabled={!canRefund || refundBusy}
-                    className="mt-3 rounded-full bg-orange-600 px-5 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
-                    {refundBusy ? "Đang gửi yêu cầu…" : "Yêu cầu hoàn tiền"}
-                  </button>
-                  {refundError ? <p role="alert" className="mt-2 text-sm text-rose-600">{refundError}</p> : null}
-                </div>
-              ) : null}
 
               <div className="mt-7 space-y-4">
                 <h2 className="text-lg font-bold">Sản phẩm đã đặt</h2>

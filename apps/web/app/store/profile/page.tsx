@@ -144,7 +144,9 @@ const avatarStoragePrefix = "web-storefront-avatar-";
 const avatarUploadEndpoint = "/api/lambda-proxy/api/uploads/avatar/presign";
 const defaultAvatarsEndpoint = "/api/lambda-proxy/api/uploads/default-avatars";
 
-const purchaseOrderStatuses = new Set(["paid", "completed", "done", "delivered", "fulfilled", "succeeded", "success"]);
+// Count only orders that still represent a paid purchase. Expired, cancelled,
+// failed and refund-in-progress orders are excluded from these metrics.
+const purchaseOrderStatuses = new Set(["paid", "completed", "done", "delivered", "fulfilled", "succeeded", "success", "refund_rejected"]);
 
 function isPurchaseOrder(order: StoreOrder) {
   return purchaseOrderStatuses.has(String(order.status ?? "").trim().toLowerCase());
@@ -462,7 +464,7 @@ export default function StoreProfilePage() {
         </section>
 
         <section className="mt-8 grid gap-4 md:grid-cols-3">
-          <ProfileMetricCard label="Total Orders" value={String(stats.totalOrders)} tone="warm" isDark={isDark} />
+          <ProfileMetricCard label="Paid Orders" value={String(stats.totalOrders)} tone="warm" isDark={isDark} />
           <ProfileMetricCard label="Total Spent" value={formatCurrency(stats.totalSpend)} tone="cool" isDark={isDark} />
           <ProfileMetricCard label="Total Products Purchased" value={String(stats.totalItems)} tone="neutral" isDark={isDark} />
         </section>

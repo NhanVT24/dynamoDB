@@ -6,32 +6,19 @@ import { useStorefront } from "../store-client";
 import { fetchMyOrders } from "../store-api";
 import type { StoreOrder } from "../store-types";
 import { formatCurrency, formatDateTime } from "../store-utils";
+import { getOrderStatusColor } from "../order-status";
 
 type PaginationToken = number | "ellipsis";
 
 function StatusBadge({ status, isDark }: { status: string; isDark: boolean }) {
   const normalizedStatus = String(status).toLowerCase();
-  const isPending = normalizedStatus === "pending" || normalizedStatus === "refund_pending";
-  const isFailed = normalizedStatus === "failed" || normalizedStatus === "refund_rejected";
   const label = normalizedStatus === "refund_pending" ? "Đang hoàn tiền"
     : normalizedStatus === "refund_sent" ? "Đã gửi hoàn tiền"
     : normalizedStatus === "refund_rejected" ? "Hoàn tiền bị từ chối" : status;
 
   return (
     <span
-      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${
-        isPending
-          ? isDark
-            ? "bg-amber-500/15 text-amber-300"
-            : "bg-amber-100 text-amber-700"
-          : isFailed
-            ? isDark
-              ? "bg-rose-500/15 text-rose-300"
-              : "bg-rose-100 text-rose-700"
-            : isDark
-              ? "bg-emerald-500/15 text-emerald-300"
-              : "bg-emerald-100 text-emerald-700"
-      }`}
+      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${getOrderStatusColor(status, isDark)}`}
     >
       {label}
     </span>
