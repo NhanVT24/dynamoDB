@@ -10,6 +10,7 @@ import { rawDb } from "../database/dynamodb/client.js";
 const tableDefinition: CreateTableCommandInput = {
   TableName: env.DYNAMODB_TABLE_NAME,
   BillingMode: "PAY_PER_REQUEST" as const,
+  StreamSpecification: { StreamEnabled: true, StreamViewType: "NEW_AND_OLD_IMAGES" },
   AttributeDefinitions: [
     { AttributeName: "PK", AttributeType: "S" },
     { AttributeName: "SK", AttributeType: "S" },

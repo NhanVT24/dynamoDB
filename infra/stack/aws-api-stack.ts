@@ -766,6 +766,55 @@ export class AwsApiStack extends Stack {
       25,
       256
     );
+    const orderAuditFunction = new lambda.Function(this, "OrderAuditStreamFunction", {
+      functionName: "supermarket-order-audit-stream",
+      runtime: lambda.Runtime.NODEJS_24_X,
+      architecture: lambda.Architecture.X86_64,
+      handler: "src/entrypoints/lambda/streams/order-audit.handler",
+      timeout: Duration.seconds(30),
+      memorySize: 256,
+      code: sharedLambdaCode,
+      environment: { DYNAMODB_TABLE_NAME: dynamoTableName.valueAsString }
+    });
+    orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["dynamodb:PutItem"],
+      resources: [table.attrArn],
+      conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["AUDIT_LOG_ORDER#*"] } }
+    }));
+    orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["dynamodb:DescribeStream", "dynamodb:GetRecords", "dynamodb:GetShardIterator"],
+      resources: [table.attrStreamArn]
+    }));
+    orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["dynamodb:ListStreams"],
+      resources: ["*"]
+    }));
+    const orderAuditStreamDlq = new sqs.Queue(this, "OrderAuditStreamDlq", {
+      queueName: "supermarket-order-audit-stream-dlq",
+      retentionPeriod: Duration.days(14),
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true
+    });
+    orderAuditStreamDlq.grantSendMessages(orderAuditFunction);
+    const orderAuditStreamMapping = new lambda.CfnEventSourceMapping(this, "OrderAuditStreamMapping", {
+      eventSourceArn: table.attrStreamArn,
+      functionName: orderAuditFunction.functionName,
+      startingPosition: "TRIM_HORIZON",
+      batchSize: 10,
+      bisectBatchOnFunctionError: true,
+      functionResponseTypes: ["ReportBatchItemFailures"],
+      maximumRetryAttempts: 5,
+      destinationConfig: { onFailure: { destination: orderAuditStreamDlq.queueArn } },
+      filterCriteria: {
+        filters: [{
+          pattern: JSON.stringify({
+            dynamodb: { Keys: { PK: { S: [{ prefix: "ORDER#" }] }, SK: { S: ["ORDER", "DETAIL"] } } }
+          })
+        }]
+      }
+    });
+    const orderAuditRolePolicy = orderAuditFunction.role?.node.tryFindChild("DefaultPolicy");
+    if (orderAuditRolePolicy) orderAuditStreamMapping.node.addDependency(orderAuditRolePolicy);
     httpApiFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["cognito-idp:ListUsers"],
       resources: [userPool.userPoolArn]
@@ -1793,6 +1842,7 @@ export class AwsApiStack extends Stack {
     createDlqAlarm("EmailRoutingWatchdogDlqAlarm", emailRoutingWatchdogDlq, "supermarket-email-routing-watchdog-dlq");
     createDlqAlarm("EmailPublishRecoveryDlqAlarm", emailPublishRecoveryDlq, "supermarket-email-publish-recovery-dlq");
     createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
+    createDlqAlarm("OrderAuditStreamDlqAlarm", orderAuditStreamDlq, "supermarket-order-audit-stream-dlq");
     createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");
     createDlqAlarm("EventBridgeTargetDlqAlarm", eventBridgeTargetDlq, "supermarket-eventbridge-target-dlq");

@@ -14,6 +14,7 @@ const TableName = env.DYNAMODB_TABLE_NAME;
 const tableDefinition: CreateTableCommandInput = {
   TableName,
   BillingMode: "PAY_PER_REQUEST" as const,
+  StreamSpecification: { StreamEnabled: true, StreamViewType: "NEW_AND_OLD_IMAGES" },
   AttributeDefinitions: [
     { AttributeName: "PK", AttributeType: "S" },
     { AttributeName: "SK", AttributeType: "S" },

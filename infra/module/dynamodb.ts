@@ -6,6 +6,8 @@ export function createMarketplaceTable(scope: Stack, tableName: string, includeS
   const table = new dynamodb.CfnTable(scope, "MarketplaceProductsTable", {
     tableName,
     billingMode: "PAY_PER_REQUEST",
+    // Streams are table-wide; consumers must filter order records by PK/SK.
+    streamSpecification: { streamViewType: "NEW_AND_OLD_IMAGES" },
     attributeDefinitions: [
       { attributeName: "PK", attributeType: "S" },
       { attributeName: "SK", attributeType: "S" },
