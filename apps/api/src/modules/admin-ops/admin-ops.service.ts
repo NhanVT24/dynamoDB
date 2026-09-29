@@ -51,10 +51,10 @@ const queueConfig = {
     dlqUrl: env.SQS_EMAIL_EVENTBRIDGE_DELIVERY_DLQ_URL,
     replayType: "eventbridge"
   },
-  orderAuditWorker: {
-    dlqUrl: env.SQS_ORDER_AUDIT_WORKER_DLQ_URL,
+  auditLogWorker: {
+    dlqUrl: env.SQS_AUDIT_LOG_WORKER_DLQ_URL,
     replayType: "sqs",
-    targetQueueUrl: env.SQS_ORDER_AUDIT_QUEUE_URL
+    targetQueueUrl: env.SQS_AUDIT_LOG_QUEUE_URL
   }
 } as const;
 
@@ -304,33 +304,33 @@ export class AdminOpsService {
     return response;
   }
 
-  async injectOrderAuditWorkerFailure(input: { testId?: string; requestedBy: string }) {
-    const queueUrl = env.SQS_ORDER_AUDIT_QUEUE_URL?.trim();
+  async injectAuditLogWorkerFailure(input: { testId?: string; requestedBy: string }) {
+    const queueUrl = env.SQS_AUDIT_LOG_QUEUE_URL?.trim();
     if (!queueUrl) {
-      throw new Error("SQS_ORDER_AUDIT_QUEUE_URL is not configured.");
+      throw new Error("SQS_AUDIT_LOG_QUEUE_URL is not configured.");
     }
 
     const testId = input.testId?.trim() || crypto.randomUUID();
     const payload = {
       testId,
-      kind: "ORDER_AUDIT_WORKER_FAILURE_TEST",
-      reason: "Intentional invalid order audit message. The worker parser must reject this body.",
+      kind: "AUDIT_LOG_WORKER_FAILURE_TEST",
+      reason: "Intentional invalid audit log message. The worker parser must reject this body.",
       requestedBy: input.requestedBy,
       createdAt: new Date().toISOString()
     };
     const deduplicationId = crypto.createHash("sha256")
-      .update(`order-audit-worker-failure-test:${testId}`)
+      .update(`audit-log-worker-failure-test:${testId}`)
       .digest("hex");
 
     const response = await sqsClient.send(new SendMessageCommand({
       QueueUrl: queueUrl,
       MessageBody: JSON.stringify(payload),
-      MessageGroupId: `order-audit-worker-failure-test-${testId}`,
+      MessageGroupId: `audit-log-worker-failure-test-${testId}`,
       MessageDeduplicationId: deduplicationId
     }));
 
     this.logger.warn(JSON.stringify({
-      flow: "order_audit_worker_failure_test",
+      flow: "audit_log_worker_failure_test",
       stage: "injected",
       testId,
       requestedBy: input.requestedBy,
@@ -340,10 +340,10 @@ export class AdminOpsService {
     return {
       testId,
       messageId: response.MessageId ?? "",
-      queueKey: "orderAuditWorker",
+      queueKey: "auditLogWorker",
       targetQueueUrl: queueUrl,
-      expected: "The worker will reject this invalid message, SQS will retry it, then move it to the orderAuditWorker DLQ after maxReceiveCount.",
-      inspectDlq: "/api/admin/ops/dlq?queue=orderAuditWorker&maxMessages=10",
+      expected: "The worker will reject this invalid message, SQS will retry it, then move it to the auditLogWorker DLQ after maxReceiveCount.",
+      inspectDlq: "/api/admin/ops/dlq?queue=auditLogWorker&maxMessages=10",
       note: "Redriving this same invalid message without changing the body will fail again. This test is for retry/DLQ observation, not successful recovery."
     };
   }

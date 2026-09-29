@@ -1,4 +1,4 @@
-import * as path from "node:path";
+﻿import * as path from "node:path";
 import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -9,7 +9,7 @@ import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 
 /** Isolated integration test: a real Stream event exhausts publisher retries and is archived to S3. */
-export class OrderAuditFailureTestStack extends Stack {
+export class AuditLogFailureTestStack extends Stack {
   constructor(scope: Construct, id: string, props: StackProps = {}) {
     super(scope, id, props);
 
@@ -43,21 +43,21 @@ export class OrderAuditFailureTestStack extends Stack {
       autoDeleteObjects: true
     });
     const code = lambda.Code.fromAsset(path.resolve(__dirname, "../../apps/api/dist/lambda.zip"));
-    const missingQueueName = `order-audit-missing-${this.node.addr.slice(0, 8)}.fifo`;
+    const missingQueueName = `audit-log-missing-${this.node.addr.slice(0, 8)}.fifo`;
     const missingQueueUrl = `https://sqs.${this.region}.amazonaws.com/${this.account}/${missingQueueName}`;
     const publisher = new lambda.Function(this, "FailingPublisher", {
       runtime: lambda.Runtime.NODEJS_24_X,
-      handler: "src/entrypoints/lambda/streams/order-audit.handler",
+      handler: "src/entrypoints/lambda/streams/audit-log.handler",
       code,
       timeout: Duration.seconds(30),
-      environment: { SQS_ORDER_AUDIT_QUEUE_URL: missingQueueUrl }
+      environment: { SQS_AUDIT_LOG_QUEUE_URL: missingQueueUrl }
     });
     const replayPublisher = new lambda.Function(this, "ReplayPublisher", {
       runtime: lambda.Runtime.NODEJS_24_X,
-      handler: "src/entrypoints/lambda/streams/order-audit.handler",
+      handler: "src/entrypoints/lambda/streams/audit-log.handler",
       code,
       timeout: Duration.seconds(30),
-      environment: { SQS_ORDER_AUDIT_QUEUE_URL: mainQueue.queueUrl }
+      environment: { SQS_AUDIT_LOG_QUEUE_URL: mainQueue.queueUrl }
     });
     publisher.addToRolePolicy(new iam.PolicyStatement({
       actions: ["sqs:SendMessage"],
@@ -67,10 +67,10 @@ export class OrderAuditFailureTestStack extends Stack {
 
     const worker = new lambda.Function(this, "AuditWorker", {
       runtime: lambda.Runtime.NODEJS_24_X,
-      handler: "src/entrypoints/lambda/queue/order-audit-worker.handler",
+      handler: "src/entrypoints/lambda/queue/audit-log-worker.handler",
       code,
       timeout: Duration.seconds(30),
-      environment: { DYNAMODB_TABLE_NAME: table.tableName }
+      environment: { AUDIT_LOG_TABLE_NAME: table.tableName }
     });
     table.grantWriteData(worker);
     worker.addEventSource(new lambdaEventSources.SqsEventSource(mainQueue, {
@@ -107,10 +107,11 @@ export class OrderAuditFailureTestStack extends Stack {
     if (publisherPolicy) mapping.node.addDependency(publisherPolicy);
 
     new CfnOutput(this, "TableName", { value: table.tableName });
-    new CfnOutput(this, "OrderAuditStreamFailureBucketName", { value: failureBucket.bucketName });
-    new CfnOutput(this, "OrderAuditPublisherFunctionName", { value: replayPublisher.functionName });
-    new CfnOutput(this, "OrderAuditFailingPublisherFunctionName", { value: publisher.functionName });
-    new CfnOutput(this, "OrderAuditMainQueueUrl", { value: mainQueue.queueUrl });
-    new CfnOutput(this, "OrderAuditWorkerDlqUrl", { value: workerDlq.queueUrl });
+    new CfnOutput(this, "AuditLogStreamFailureBucketName", { value: failureBucket.bucketName });
+    new CfnOutput(this, "AuditLogPublisherFunctionName", { value: replayPublisher.functionName });
+    new CfnOutput(this, "AuditLogFailingPublisherFunctionName", { value: publisher.functionName });
+    new CfnOutput(this, "AuditLogMainQueueUrl", { value: mainQueue.queueUrl });
+    new CfnOutput(this, "AuditLogWorkerDlqUrl", { value: workerDlq.queueUrl });
   }
 }
+

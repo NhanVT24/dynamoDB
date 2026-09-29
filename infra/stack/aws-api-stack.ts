@@ -17,6 +17,7 @@ import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventsTargets from "aws-cdk-lib/aws-events-targets";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -222,6 +223,31 @@ export class AwsApiStack extends Stack {
     });
 
     const table = createMarketplaceTable(this, dynamoTableName.valueAsString, includeSaleCampaignTimelineIndex);
+    const auditLogTable = new dynamodb.CfnTable(this, "AuditLogTable", {
+      tableName: "supermarket-audit-log",
+      billingMode: "PAY_PER_REQUEST",
+      attributeDefinitions: [
+        { attributeName: "PK", attributeType: "S" },
+        { attributeName: "SK", attributeType: "S" },
+        { attributeName: "resourceType", attributeType: "S" },
+        { attributeName: "occurredAt", attributeType: "S" }
+      ],
+      keySchema: [
+        { attributeName: "PK", keyType: "HASH" },
+        { attributeName: "SK", keyType: "RANGE" }
+      ],
+      globalSecondaryIndexes: [
+        {
+          indexName: "ResourceTimelineIndex",
+          keySchema: [
+            { attributeName: "resourceType", keyType: "HASH" },
+            { attributeName: "occurredAt", keyType: "RANGE" }
+          ],
+          projection: { projectionType: "ALL" }
+        }
+      ]
+    });
+    auditLogTable.applyRemovalPolicy(RemovalPolicy.RETAIN);
 
     const productImagesBucket = createProductImagesBucket(this);
     const {
@@ -586,6 +612,7 @@ export class AwsApiStack extends Stack {
 
     const sharedEnvironment = {
       DYNAMODB_TABLE_NAME: table.tableName ?? dynamoTableName.valueAsString,
+      AUDIT_LOG_TABLE_NAME: auditLogTable.tableName ?? "supermarket-audit-log",
       COGNITO_USER_POOL_ID: userPool.userPoolId,
       COGNITO_CLIENT_ID: userPoolClient.userPoolClientId,
       S3_BUCKET_NAME: productImagesBucket.bucketName,
@@ -768,71 +795,70 @@ export class AwsApiStack extends Stack {
       25,
       256
     );
-    const orderAuditWorkerDlq = new sqs.Queue(this, "OrderAuditWorkerDlq", {
-      queueName: "supermarket-order-audit-worker-dlq.fifo",
+    const auditLogWorkerDlq = new sqs.Queue(this, "AuditLogWorkerDlq", {
+      queueName: "supermarket-audit-log-worker-dlq.fifo",
       fifo: true,
       retentionPeriod: Duration.days(14),
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       enforceSSL: true
     });
-    const orderAuditMainQueue = new sqs.Queue(this, "OrderAuditMainQueue", {
-      queueName: "supermarket-order-audit-main.fifo",
+    const auditLogMainQueue = new sqs.Queue(this, "AuditLogMainQueue", {
+      queueName: "supermarket-audit-log-main.fifo",
       fifo: true,
       visibilityTimeout: Duration.minutes(3),
       retentionPeriod: Duration.days(14),
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       enforceSSL: true,
-      deadLetterQueue: { queue: orderAuditWorkerDlq, maxReceiveCount: 5 }
+      deadLetterQueue: { queue: auditLogWorkerDlq, maxReceiveCount: 5 }
     });
-    httpApiFunction.addEnvironment("SQS_ORDER_AUDIT_QUEUE_URL", orderAuditMainQueue.queueUrl);
-    httpApiFunction.addEnvironment("SQS_ORDER_AUDIT_WORKER_DLQ_URL", orderAuditWorkerDlq.queueUrl);
-    orderAuditMainQueue.grantSendMessages(httpApiFunction);
-    orderAuditWorkerDlq.grantConsumeMessages(httpApiFunction);
-    const orderAuditFunction = new lambda.Function(this, "OrderAuditStreamFunction", {
-      functionName: "supermarket-order-audit-stream",
+    httpApiFunction.addEnvironment("SQS_AUDIT_LOG_QUEUE_URL", auditLogMainQueue.queueUrl);
+    httpApiFunction.addEnvironment("SQS_AUDIT_LOG_WORKER_DLQ_URL", auditLogWorkerDlq.queueUrl);
+    auditLogMainQueue.grantSendMessages(httpApiFunction);
+    auditLogWorkerDlq.grantConsumeMessages(httpApiFunction);
+    const auditLogStreamFunction = new lambda.Function(this, "AuditLogStreamFunction", {
+      functionName: "supermarket-audit-log-stream",
       runtime: lambda.Runtime.NODEJS_24_X,
       architecture: lambda.Architecture.X86_64,
-      handler: "src/entrypoints/lambda/streams/order-audit.handler",
+      handler: "src/entrypoints/lambda/streams/audit-log.handler",
       timeout: Duration.seconds(30),
       memorySize: 256,
       code: sharedLambdaCode,
-      environment: { SQS_ORDER_AUDIT_QUEUE_URL: orderAuditMainQueue.queueUrl }
+      environment: { SQS_AUDIT_LOG_QUEUE_URL: auditLogMainQueue.queueUrl }
     });
-    orderAuditMainQueue.grantSendMessages(orderAuditFunction);
-    const orderAuditWorkerFunction = new lambda.Function(this, "OrderAuditWorkerFunction", {
-      functionName: "supermarket-order-audit-worker",
+    auditLogMainQueue.grantSendMessages(auditLogStreamFunction);
+    const auditLogWorkerFunction = new lambda.Function(this, "AuditLogWorkerFunction", {
+      functionName: "supermarket-audit-log-worker",
       runtime: lambda.Runtime.NODEJS_24_X,
       architecture: lambda.Architecture.X86_64,
-      handler: "src/entrypoints/lambda/queue/order-audit-worker.handler",
+      handler: "src/entrypoints/lambda/queue/audit-log-worker.handler",
       timeout: Duration.seconds(30),
       memorySize: 256,
       code: sharedLambdaCode,
-      environment: { DYNAMODB_TABLE_NAME: dynamoTableName.valueAsString }
+      environment: { AUDIT_LOG_TABLE_NAME: auditLogTable.tableName ?? "supermarket-audit-log" }
     });
-    orderAuditWorkerFunction.addToRolePolicy(new iam.PolicyStatement({
+    auditLogWorkerFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["dynamodb:PutItem"],
-      resources: [table.attrArn],
-      conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["AUDIT_LOG_ORDER#*"] } }
+      resources: [auditLogTable.attrArn]
     }));
-    orderAuditWorkerFunction.addEventSource(new lambdaEventSources.SqsEventSource(orderAuditMainQueue, {
+    auditLogWorkerFunction.addEventSource(new lambdaEventSources.SqsEventSource(auditLogMainQueue, {
       batchSize: 1,
       reportBatchItemFailures: true
     }));
-    orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
+    auditLogStreamFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["dynamodb:DescribeStream", "dynamodb:GetRecords", "dynamodb:GetShardIterator"],
       resources: [table.attrStreamArn]
     }));
-    orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
+    auditLogStreamFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["dynamodb:ListStreams"],
       resources: ["*"]
     }));
-    const orderAuditStreamDlq = new sqs.Queue(this, "OrderAuditStreamDlq", {
-      queueName: "supermarket-order-audit-stream-dlq",
+    const auditLogStreamDlq = new sqs.Queue(this, "AuditLogStreamDlq", {
+      queueName: "supermarket-audit-log-stream-dlq",
       retentionPeriod: Duration.days(14),
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       enforceSSL: true
     });
-    const orderAuditFailureBucket = new s3.Bucket(this, "OrderAuditStreamFailureBucket", {
+    const auditLogFailureBucket = new s3.Bucket(this, "AuditLogStreamFailureBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
@@ -840,40 +866,39 @@ export class AwsApiStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
       lifecycleRules: [{ expiration: Duration.days(90) }]
     });
-    // Route only real Lambda failure objects; direct S3 notifications also emit s3:TestEvent.
-    new events.Rule(this, "OrderAuditStreamFailureObjectRule", {
+    new events.Rule(this, "AuditLogStreamFailureObjectRule", {
       eventPattern: {
         source: ["aws.s3"],
         detailType: ["Object Created"],
         detail: {
-          bucket: { name: [orderAuditFailureBucket.bucketName] },
+          bucket: { name: [auditLogFailureBucket.bucketName] },
           object: { key: [{ prefix: "aws/lambda/" }] }
         }
       },
-      targets: [new eventsTargets.SqsQueue(orderAuditStreamDlq, {
+      targets: [new eventsTargets.SqsQueue(auditLogStreamDlq, {
         deadLetterQueue: eventBridgeTargetDlq,
         retryAttempts: 2
       })]
     });
-    orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
+    auditLogStreamFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["s3:PutObject"],
-      resources: [orderAuditFailureBucket.arnForObjects("*")],
+      resources: [auditLogFailureBucket.arnForObjects("*")],
       conditions: { StringEquals: { "s3:ResourceAccount": this.account } }
     }));
-    orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
+    auditLogStreamFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["s3:ListBucket"],
-      resources: [orderAuditFailureBucket.bucketArn],
+      resources: [auditLogFailureBucket.bucketArn],
       conditions: { StringEquals: { "s3:ResourceAccount": this.account } }
     }));
-    const orderAuditStreamMapping = new lambda.CfnEventSourceMapping(this, "OrderAuditStreamMapping", {
+    const auditLogStreamMapping = new lambda.CfnEventSourceMapping(this, "AuditLogStreamMapping", {
       eventSourceArn: table.attrStreamArn,
-      functionName: orderAuditFunction.functionName,
+      functionName: auditLogStreamFunction.functionName,
       startingPosition: "TRIM_HORIZON",
       batchSize: 10,
       bisectBatchOnFunctionError: true,
       functionResponseTypes: ["ReportBatchItemFailures"],
       maximumRetryAttempts: 5,
-      destinationConfig: { onFailure: { destination: orderAuditFailureBucket.bucketArn } },
+      destinationConfig: { onFailure: { destination: auditLogFailureBucket.bucketArn } },
       filterCriteria: {
         filters: [{
           pattern: JSON.stringify({
@@ -886,8 +911,8 @@ export class AwsApiStack extends Stack {
         }]
       }
     });
-    const orderAuditRolePolicy = orderAuditFunction.role?.node.tryFindChild("DefaultPolicy");
-    if (orderAuditRolePolicy) orderAuditStreamMapping.node.addDependency(orderAuditRolePolicy);
+    const auditLogRolePolicy = auditLogStreamFunction.role?.node.tryFindChild("DefaultPolicy");
+    if (auditLogRolePolicy) auditLogStreamMapping.node.addDependency(auditLogRolePolicy);
     httpApiFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["cognito-idp:ListUsers"],
       resources: [userPool.userPoolArn]
@@ -1915,25 +1940,25 @@ export class AwsApiStack extends Stack {
     createDlqAlarm("EmailRoutingWatchdogDlqAlarm", emailRoutingWatchdogDlq, "supermarket-email-routing-watchdog-dlq");
     createDlqAlarm("EmailPublishRecoveryDlqAlarm", emailPublishRecoveryDlq, "supermarket-email-publish-recovery-dlq");
     createDlqAlarm("StorefrontOrdersDlqAlarm", storefrontOrdersDlq, "supermarket-storefront-orders-dlq");
-    createDlqAlarm("OrderAuditStreamDlqAlarm", orderAuditStreamDlq, "supermarket-order-audit-stream-dlq")
+    createDlqAlarm("AuditLogStreamDlqAlarm", auditLogStreamDlq, "supermarket-audit-log-stream-dlq")
       .addAlarmAction(new cloudwatchActions.SnsAction(adminAlertsTopic));
-    createDlqAlarm("OrderAuditWorkerDlqAlarm", orderAuditWorkerDlq, "supermarket-order-audit-worker-dlq.fifo")
+    createDlqAlarm("AuditLogWorkerDlqAlarm", auditLogWorkerDlq, "supermarket-audit-log-worker-dlq.fifo")
       .addAlarmAction(new cloudwatchActions.SnsAction(adminAlertsTopic));
-    new cloudwatch.Alarm(this, "OrderAuditMainQueueAgeAlarm", {
-      alarmName: "supermarket-order-audit-main-age",
-      metric: orderAuditMainQueue.metricApproximateAgeOfOldestMessage({ period: Duration.minutes(5) }),
+    new cloudwatch.Alarm(this, "AuditLogMainQueueAgeAlarm", {
+      alarmName: "supermarket-audit-log-main-age",
+      metric: auditLogMainQueue.metricApproximateAgeOfOldestMessage({ period: Duration.minutes(5) }),
       threshold: Duration.hours(1).toSeconds(),
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
       alarmDescription: "Audit worker backlog older than one hour"
     }).addAlarmAction(new cloudwatchActions.SnsAction(adminAlertsTopic));
-    new cloudwatch.Alarm(this, "OrderAuditStreamLagAlarm", {
-      alarmName: "supermarket-order-audit-stream-lag",
+    new cloudwatch.Alarm(this, "AuditLogStreamLagAlarm", {
+      alarmName: "supermarket-audit-log-stream-lag",
       metric: new cloudwatch.Metric({
         namespace: "AWS/Lambda",
         metricName: "IteratorAge",
-        dimensionsMap: { FunctionName: orderAuditFunction.functionName },
+        dimensionsMap: { FunctionName: auditLogStreamFunction.functionName },
         statistic: "Maximum",
         period: Duration.minutes(5)
       }),
@@ -1941,14 +1966,14 @@ export class AwsApiStack extends Stack {
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      alarmDescription: "Order audit Stream publisher is at least one hour behind"
+      alarmDescription: "Audit log Stream publisher is at least one hour behind"
     }).addAlarmAction(new cloudwatchActions.SnsAction(adminAlertsTopic));
-    new cloudwatch.Alarm(this, "OrderAuditStreamDestinationFailureAlarm", {
-      alarmName: "supermarket-order-audit-stream-destination-failures",
+    new cloudwatch.Alarm(this, "AuditLogStreamDestinationFailureAlarm", {
+      alarmName: "supermarket-audit-log-stream-destination-failures",
       metric: new cloudwatch.Metric({
         namespace: "AWS/Lambda",
         metricName: "DestinationDeliveryFailures",
-        dimensionsMap: { FunctionName: orderAuditFunction.functionName },
+        dimensionsMap: { FunctionName: auditLogStreamFunction.functionName },
         statistic: "Sum",
         period: Duration.minutes(5)
       }),
@@ -1956,7 +1981,7 @@ export class AwsApiStack extends Stack {
       evaluationPeriods: 1,
       comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      alarmDescription: "Order audit Stream failed to deliver discarded records to its DLQ"
+      alarmDescription: "Audit log Stream failed to deliver discarded records to its DLQ"
     }).addAlarmAction(new cloudwatchActions.SnsAction(adminAlertsTopic));
     createDlqAlarm("PaymentEventsDlqAlarm", paymentEventsDlq, "supermarket-payment-events-dlq");
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");
@@ -2174,22 +2199,28 @@ export class AwsApiStack extends Stack {
       value: auditQueue.queueUrl
     });
 
-    new CfnOutput(this, "OrderAuditMainQueueUrl", {
-      value: orderAuditMainQueue.queueUrl
+    new CfnOutput(this, "AuditLogTableName", {
+      value: auditLogTable.tableName ?? "supermarket-audit-log"
     });
 
-    new CfnOutput(this, "OrderAuditWorkerDlqUrl", {
-      value: orderAuditWorkerDlq.queueUrl
+    new CfnOutput(this, "AuditLogMainQueueUrl", {
+      value: auditLogMainQueue.queueUrl
     });
 
-    new CfnOutput(this, "OrderAuditStreamDlqUrl", {
-      value: orderAuditStreamDlq.queueUrl
+    new CfnOutput(this, "AuditLogWorkerDlqUrl", {
+      value: auditLogWorkerDlq.queueUrl
     });
-    new CfnOutput(this, "OrderAuditStreamFailureBucketName", {
-      value: orderAuditFailureBucket.bucketName
+
+    new CfnOutput(this, "AuditLogStreamDlqUrl", {
+      value: auditLogStreamDlq.queueUrl
     });
-    new CfnOutput(this, "OrderAuditPublisherFunctionName", {
-      value: orderAuditFunction.functionName
+
+    new CfnOutput(this, "AuditLogStreamFailureBucketName", {
+      value: auditLogFailureBucket.bucketName
+    });
+
+    new CfnOutput(this, "AuditLogPublisherFunctionName", {
+      value: auditLogStreamFunction.functionName
     });
 
     new CfnOutput(this, "StorefrontOrdersQueueUrl", {

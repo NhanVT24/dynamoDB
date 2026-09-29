@@ -1,29 +1,33 @@
-import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
+﻿import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall } from "@aws-sdk/util-dynamodb";
-import { parseOrderAuditMessage, type OrderAuditRecord } from "../../../modules/storefront/order-audit.js";
+import { parseAuditLogMessage, type AuditLogRecord } from "../../../modules/audit-log/audit-log.js";
 
 type SqsRecord = { body?: string; messageId?: string };
 type SqsEvent = { Records?: SqsRecord[] };
 const db = new DynamoDBClient({});
 
-export async function processOrderAuditMessages(
+export async function processAuditLogMessages(
   event: SqsEvent,
-  write: (audit: OrderAuditRecord) => Promise<void>
+  write: (audit: AuditLogRecord) => Promise<void>
 ) {
   const records = event.Records ?? [];
   for (let index = 0; index < records.length; index++) {
     const record = records[index];
     try {
-      const audit = parseOrderAuditMessage(record.body);
+      const audit = parseAuditLogMessage(record.body);
       await write(audit);
-      console.info("[order-audit] recorded", { orderId: audit.orderId, changeType: audit.changeType, before: audit.before, after: audit.after });
+      console.info("[audit-log] recorded", {
+        resourceType: audit.resourceType,
+        resourceId: audit.resourceId,
+        action: audit.action,
+        changes: Object.keys(audit.changes)
+      });
     } catch (error) {
       if ((error as { name?: string }).name === "ConditionalCheckFailedException") continue;
-      console.error("[order-audit] write_failed", {
+      console.error("[audit-log] write_failed", {
         messageId: record.messageId,
         error: error instanceof Error ? error.message : String(error)
       });
-      // FIFO: retry the failed message and every later message in this batch.
       if (records.slice(index).some((item) => !item.messageId)) throw error;
       return {
         batchItemFailures: records.slice(index).map((item) => ({ itemIdentifier: item.messageId! }))
@@ -34,10 +38,10 @@ export async function processOrderAuditMessages(
 }
 
 export async function handler(event: SqsEvent) {
-  const tableName = process.env.DYNAMODB_TABLE_NAME;
-  if (!tableName) throw new Error("DYNAMODB_TABLE_NAME is required for order audit.");
+  const tableName = process.env.AUDIT_LOG_TABLE_NAME;
+  if (!tableName) throw new Error("AUDIT_LOG_TABLE_NAME is required for audit log.");
 
-  return processOrderAuditMessages(event, async (audit) => {
+  return processAuditLogMessages(event, async (audit) => {
     await db.send(new PutItemCommand({
       TableName: tableName,
       Item: marshall(audit, { removeUndefinedValues: true }),
@@ -45,3 +49,4 @@ export async function handler(event: SqsEvent) {
     }));
   });
 }
+

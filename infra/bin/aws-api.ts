@@ -5,7 +5,7 @@ import { DomainHostedZoneStack } from "../stack/domain-hosted-zone-stack";
 import { FrontendCertificateStack } from "../stack/frontend-certificate-stack";
 import { FrontendCloudFrontStack } from "../stack/frontend-cloudfront-stack";
 import { S3StorageStack } from "../stack/s3-storage-stack";
-import { OrderAuditFailureTestStack } from "../stack/order-audit-failure-test-stack";
+import { AuditLogFailureTestStack } from "../stack/audit-log-failure-test-stack";
 
 const app = new cdk.App();
 const defaultFrontendApiOriginDomainName = "b5j3895qth.execute-api.ap-southeast-1.amazonaws.com";
@@ -119,8 +119,8 @@ new AwsApiStack(app, "SupermarketAwsStack", {
   }
 });
 
-if (String(app.node.tryGetContext("orderAuditFailureTest")) === "true") {
-  new OrderAuditFailureTestStack(app, "OrderAuditFailureTestStack", {
+if (String(app.node.tryGetContext("auditLogFailureTest")) === "true") {
+  new AuditLogFailureTestStack(app, "AuditLogFailureTestStack", {
     env: {
       account: process.env.CDK_DEFAULT_ACCOUNT,
       region: process.env.CDK_DEFAULT_REGION ?? "ap-southeast-1"
