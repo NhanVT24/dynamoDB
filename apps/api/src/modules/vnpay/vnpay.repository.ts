@@ -16,6 +16,7 @@ export type PaymentSessionRecord = {
   SK: string;
   entityType: "PAYMENT_SESSION";
   txnRef: string;
+  orderId?: string;
   email?: string;
   orderInfo: string;
   amount: number;
@@ -32,10 +33,17 @@ export type PaymentSessionRecord = {
   transactionNo?: string;
   bankCode?: string;
   payDate?: string;
+  auditActorType?: string;
+  auditActorId?: string;
+  auditActorRole?: string;
+  auditSource?: string;
+  auditReason?: string;
+  auditRequestId?: string;
 };
 
 export async function createPaymentSession(input: {
   txnRef: string;
+  orderId?: string;
   email?: string;
   orderInfo: string;
   amount: number;
@@ -48,6 +56,7 @@ export async function createPaymentSession(input: {
     SK: "DETAIL",
     entityType: "PAYMENT_SESSION",
     txnRef: input.txnRef,
+    orderId: input.orderId,
     email: input.email?.trim().toLowerCase() || undefined,
     orderInfo: input.orderInfo,
     amount: input.amount,
@@ -55,7 +64,13 @@ export async function createPaymentSession(input: {
     createdAt: now,
     updatedAt: now,
     expiresAt: input.expiresAt,
-    transactionDate: input.transactionDate
+    transactionDate: input.transactionDate,
+    auditActorType: "SERVICE",
+    auditActorId: "service:checkout-api",
+    auditActorRole: "SYSTEM",
+    auditSource: "CHECKOUT_API",
+    auditReason: "payment_session_created",
+    auditRequestId: input.orderId ?? input.txnRef
   };
 
   await rawDb.send(new PutItemCommand({
@@ -98,7 +113,13 @@ export async function updatePaymentSessionStatus(input: {
     "responseCode = :responseCode",
     "transactionNo = :transactionNo",
     "bankCode = :bankCode",
-    "payDate = :payDate"
+    "payDate = :payDate",
+    "auditActorType = :auditActorType",
+    "auditActorId = :auditActorId",
+    "auditActorRole = :auditActorRole",
+    "auditSource = :auditSource",
+    "auditReason = :auditReason",
+    "auditRequestId = :auditRequestId"
   ];
 
   if (shouldSetPaidAt) {
@@ -116,7 +137,13 @@ export async function updatePaymentSessionStatus(input: {
     ":responseCode": input.responseCode,
     ":transactionNo": input.transactionNo,
     ":bankCode": input.bankCode,
-    ":payDate": input.payDate
+    ":payDate": input.payDate,
+    ":auditActorType": "SERVICE",
+    ":auditActorId": "lambda:vnpay-ipn",
+    ":auditActorRole": "SYSTEM",
+    ":auditSource": "VNPAY_IPN",
+    ":auditReason": input.status === "success" ? "payment_success" : input.status === "expired" ? "payment_timeout" : "payment_failed",
+    ":auditRequestId": input.txnRef
   };
 
   if (shouldSetPaidAt) {

@@ -12,6 +12,7 @@ import {
   SendMessageCommand
 } from "@aws-sdk/client-sqs";
 import { Injectable, Logger } from "@nestjs/common";
+import crypto from "node:crypto";
 import { env } from "../../config/env.js";
 import { eventBridgeClient } from "../../integrations/eventbridge/client.js";
 import { sqsClient } from "../../integrations/sqs/client.js";
@@ -49,6 +50,11 @@ const queueConfig = {
   emailEventbridgeDelivery: {
     dlqUrl: env.SQS_EMAIL_EVENTBRIDGE_DELIVERY_DLQ_URL,
     replayType: "eventbridge"
+  },
+  orderAuditWorker: {
+    dlqUrl: env.SQS_ORDER_AUDIT_WORKER_DLQ_URL,
+    replayType: "sqs",
+    targetQueueUrl: env.SQS_ORDER_AUDIT_QUEUE_URL
   }
 } as const;
 
@@ -296,6 +302,50 @@ export class AdminOpsService {
     };
     this.logger.log(JSON.stringify({ flow: "dlq_replay", stage: "completed", ...response.summary, dryRun: input.dryRun }));
     return response;
+  }
+
+  async injectOrderAuditWorkerFailure(input: { testId?: string; requestedBy: string }) {
+    const queueUrl = env.SQS_ORDER_AUDIT_QUEUE_URL?.trim();
+    if (!queueUrl) {
+      throw new Error("SQS_ORDER_AUDIT_QUEUE_URL is not configured.");
+    }
+
+    const testId = input.testId?.trim() || crypto.randomUUID();
+    const payload = {
+      testId,
+      kind: "ORDER_AUDIT_WORKER_FAILURE_TEST",
+      reason: "Intentional invalid order audit message. The worker parser must reject this body.",
+      requestedBy: input.requestedBy,
+      createdAt: new Date().toISOString()
+    };
+    const deduplicationId = crypto.createHash("sha256")
+      .update(`order-audit-worker-failure-test:${testId}`)
+      .digest("hex");
+
+    const response = await sqsClient.send(new SendMessageCommand({
+      QueueUrl: queueUrl,
+      MessageBody: JSON.stringify(payload),
+      MessageGroupId: `order-audit-worker-failure-test-${testId}`,
+      MessageDeduplicationId: deduplicationId
+    }));
+
+    this.logger.warn(JSON.stringify({
+      flow: "order_audit_worker_failure_test",
+      stage: "injected",
+      testId,
+      requestedBy: input.requestedBy,
+      messageId: response.MessageId ?? ""
+    }));
+
+    return {
+      testId,
+      messageId: response.MessageId ?? "",
+      queueKey: "orderAuditWorker",
+      targetQueueUrl: queueUrl,
+      expected: "The worker will reject this invalid message, SQS will retry it, then move it to the orderAuditWorker DLQ after maxReceiveCount.",
+      inspectDlq: "/api/admin/ops/dlq?queue=orderAuditWorker&maxMessages=10",
+      note: "Redriving this same invalid message without changing the body will fail again. This test is for retry/DLQ observation, not successful recovery."
+    };
   }
 
   private async inspectQueue(queueKey: DlqKey, maxMessages: number) {

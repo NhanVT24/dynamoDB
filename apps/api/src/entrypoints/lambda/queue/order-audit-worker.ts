@@ -16,7 +16,7 @@ export async function processOrderAuditMessages(
     try {
       const audit = parseOrderAuditMessage(record.body);
       await write(audit);
-      console.info("[order-audit] recorded", { orderId: audit.orderId, eventName: audit.eventName, status: audit.status });
+      console.info("[order-audit] recorded", { orderId: audit.orderId, changeType: audit.changeType, before: audit.before, after: audit.after });
     } catch (error) {
       if ((error as { name?: string }).name === "ConditionalCheckFailedException") continue;
       console.error("[order-audit] write_failed", {

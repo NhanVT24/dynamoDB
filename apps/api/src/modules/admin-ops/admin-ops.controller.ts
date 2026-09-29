@@ -1,8 +1,10 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req } from "@nestjs/common";
+import type { FastifyRequest } from "fastify";
 import { z } from "zod";
+import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
 import { AdminOpsService } from "./admin-ops.service.js";
 
-const dlqQueueSchema = z.enum(["notifications", "storefrontOrders", "paymentEvents", "emailJobs", "imageUploads", "eventbridgeTargets", "emailEventbridgeDelivery"]);
+const dlqQueueSchema = z.enum(["notifications", "storefrontOrders", "paymentEvents", "emailJobs", "imageUploads", "eventbridgeTargets", "emailEventbridgeDelivery", "orderAuditWorker"]);
 const archiveKeySchema = z.enum(["commerce", "payment", "platform"]);
 
 const listDlqQuerySchema = z.object({
@@ -27,6 +29,10 @@ const startArchiveReplayBodySchema = z.object({
 
 const replayNameParamSchema = z.object({
   replayName: z.string().min(1)
+});
+
+const orderAuditWorkerFailureTestBodySchema = z.object({
+  testId: z.string().min(1).max(80).optional()
 });
 
 @Controller("api/admin/ops")
@@ -72,6 +78,20 @@ export class AdminOpsController {
       maxMessages: body.maxMessages ?? 5,
       dryRun: body.dryRun ?? false,
       messageIds: body.messageIds
+    });
+  }
+
+  @Post("order-audit/worker-failure-test")
+  async injectOrderAuditWorkerFailure(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
+    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!principal || principal.role !== "admin") {
+      throw new ForbiddenException("Only admin accounts can run order audit failure tests.");
+    }
+
+    const body = orderAuditWorkerFailureTestBodySchema.parse(rawBody ?? {});
+    return this.adminOpsService.injectOrderAuditWorkerFailure({
+      testId: body.testId,
+      requestedBy: principal.email
     });
   }
 }

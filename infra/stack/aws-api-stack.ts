@@ -784,6 +784,10 @@ export class AwsApiStack extends Stack {
       enforceSSL: true,
       deadLetterQueue: { queue: orderAuditWorkerDlq, maxReceiveCount: 5 }
     });
+    httpApiFunction.addEnvironment("SQS_ORDER_AUDIT_QUEUE_URL", orderAuditMainQueue.queueUrl);
+    httpApiFunction.addEnvironment("SQS_ORDER_AUDIT_WORKER_DLQ_URL", orderAuditWorkerDlq.queueUrl);
+    orderAuditMainQueue.grantSendMessages(httpApiFunction);
+    orderAuditWorkerDlq.grantConsumeMessages(httpApiFunction);
     const orderAuditFunction = new lambda.Function(this, "OrderAuditStreamFunction", {
       functionName: "supermarket-order-audit-stream",
       runtime: lambda.Runtime.NODEJS_24_X,
@@ -828,7 +832,39 @@ export class AwsApiStack extends Stack {
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       enforceSSL: true
     });
-    orderAuditStreamDlq.grantSendMessages(orderAuditFunction);
+    const orderAuditFailureBucket = new s3.Bucket(this, "OrderAuditStreamFailureBucket", {
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      eventBridgeEnabled: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+      lifecycleRules: [{ expiration: Duration.days(90) }]
+    });
+    // Route only real Lambda failure objects; direct S3 notifications also emit s3:TestEvent.
+    new events.Rule(this, "OrderAuditStreamFailureObjectRule", {
+      eventPattern: {
+        source: ["aws.s3"],
+        detailType: ["Object Created"],
+        detail: {
+          bucket: { name: [orderAuditFailureBucket.bucketName] },
+          object: { key: [{ prefix: "aws/lambda/" }] }
+        }
+      },
+      targets: [new eventsTargets.SqsQueue(orderAuditStreamDlq, {
+        deadLetterQueue: eventBridgeTargetDlq,
+        retryAttempts: 2
+      })]
+    });
+    orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["s3:PutObject"],
+      resources: [orderAuditFailureBucket.arnForObjects("*")],
+      conditions: { StringEquals: { "s3:ResourceAccount": this.account } }
+    }));
+    orderAuditFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ["s3:ListBucket"],
+      resources: [orderAuditFailureBucket.bucketArn],
+      conditions: { StringEquals: { "s3:ResourceAccount": this.account } }
+    }));
     const orderAuditStreamMapping = new lambda.CfnEventSourceMapping(this, "OrderAuditStreamMapping", {
       eventSourceArn: table.attrStreamArn,
       functionName: orderAuditFunction.functionName,
@@ -837,11 +873,15 @@ export class AwsApiStack extends Stack {
       bisectBatchOnFunctionError: true,
       functionResponseTypes: ["ReportBatchItemFailures"],
       maximumRetryAttempts: 5,
-      destinationConfig: { onFailure: { destination: orderAuditStreamDlq.queueArn } },
+      destinationConfig: { onFailure: { destination: orderAuditFailureBucket.bucketArn } },
       filterCriteria: {
         filters: [{
           pattern: JSON.stringify({
             dynamodb: { Keys: { PK: { S: [{ prefix: "ORDER#" }] }, SK: { S: ["ORDER", "DETAIL"] } } }
+          })
+        }, {
+          pattern: JSON.stringify({
+            dynamodb: { Keys: { PK: { S: [{ prefix: "PAYMENT#" }] }, SK: { S: ["DETAIL"] } } }
           })
         }]
       }
@@ -2144,6 +2184,12 @@ export class AwsApiStack extends Stack {
 
     new CfnOutput(this, "OrderAuditStreamDlqUrl", {
       value: orderAuditStreamDlq.queueUrl
+    });
+    new CfnOutput(this, "OrderAuditStreamFailureBucketName", {
+      value: orderAuditFailureBucket.bucketName
+    });
+    new CfnOutput(this, "OrderAuditPublisherFunctionName", {
+      value: orderAuditFunction.functionName
     });
 
     new CfnOutput(this, "StorefrontOrdersQueueUrl", {

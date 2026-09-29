@@ -24,6 +24,15 @@ type CreateOrderPayload = {
   items: Array<{ productId: string; quantity: number }>;
 };
 
+type AuditSourceMetadata = {
+  auditActorType: "USER" | "ADMIN" | "SERVICE" | "SYSTEM";
+  auditActorId: string;
+  auditActorRole: string;
+  auditSource: string;
+  auditReason: string;
+  auditRequestId?: string;
+};
+
 export type AwaitingPaymentOrderStatus = "awaiting_payment" | "paid" | "cancelled" | "expired" | "payment_failed" | "refund_pending" | "refund_sent" | "refund_rejected";
 
 export type StorefrontAwaitingPaymentOrderRecord = {
@@ -44,6 +53,12 @@ export type StorefrontAwaitingPaymentOrderRecord = {
   refundStatus?: string;
   refundTransactionNo?: string;
   refundUpdatedAt?: string;
+  auditActorType?: string;
+  auditActorId?: string;
+  auditActorRole?: string;
+  auditSource?: string;
+  auditReason?: string;
+  auditRequestId?: string;
 };
 
 export type StorefrontOrderItemRecord = {
@@ -188,6 +203,22 @@ function buildCheckoutReservationKey(requestId: string, productId: string) {
   return {
     PK: `CHECKOUT_RESERVATION#${requestId}`,
     SK: `PRODUCT#${productId}`
+  };
+}
+
+function serviceAuditMetadata(input: {
+  actorId: string;
+  source: string;
+  reason: string;
+  requestId?: string;
+}): AuditSourceMetadata {
+  return {
+    auditActorType: "SERVICE",
+    auditActorId: input.actorId,
+    auditActorRole: "SYSTEM",
+    auditSource: input.source,
+    auditReason: input.reason,
+    auditRequestId: input.requestId
   };
 }
 
@@ -1215,7 +1246,13 @@ export async function createAwaitingPaymentOrder(input: {
     itemCount: lines.length,
     lockedUntil,
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    ...serviceAuditMetadata({
+      actorId: "service:checkout-api",
+      source: "CHECKOUT_API",
+      reason: "order_created",
+      requestId: input.orderId
+    })
   };
 
   await rawDb.send(new TransactWriteItemsCommand({
@@ -1294,18 +1331,20 @@ export async function beginOrderRefund(orderId: string, paymentConfirmedAt: stri
     TableName,
     Key: toDynamoItem(buildOrderMetaKey(orderId)),
     ConditionExpression: "#status = :paid AND paymentConfirmedAt = :paidAt AND paymentConfirmedAt > :cutoff AND attribute_exists(paymentTxnRef) AND attribute_not_exists(refundRequestId)",
-    UpdateExpression: "SET #status = :pending, refundRequestId = :requestId, refundStatus = :refundStatus, refundUpdatedAt = :now, updatedAt = :now",
+    UpdateExpression: "SET #status = :pending, refundRequestId = :requestId, refundStatus = :refundStatus, refundUpdatedAt = :now, updatedAt = :now, auditActorType = :auditActorType, auditActorId = :auditActorId, auditActorRole = :auditActorRole, auditSource = :auditSource, auditReason = :auditReason, auditRequestId = :auditRequestId",
     ExpressionAttributeNames: { "#status": "status" },
     ExpressionAttributeValues: toDynamoItem({ ":paid": "paid", ":paidAt": paymentConfirmedAt, ":cutoff": cutoff,
-      ":pending": "refund_pending", ":requestId": requestId, ":refundStatus": "pending", ":now": now })
+      ":pending": "refund_pending", ":requestId": requestId, ":refundStatus": "pending", ":now": now,
+      ":auditActorType": "SERVICE", ":auditActorId": "service:refund-api", ":auditActorRole": "SYSTEM",
+      ":auditSource": "REFUND_API", ":auditReason": "refund_requested", ":auditRequestId": requestId })
   }));
 }
 
 export async function updateOrderRefund(input: { orderId: string; requestId: string; status: "refund_pending" | "refund_sent" | "refund_rejected"; gatewayStatus: string; transactionNo?: string }) {
   const now = new Date().toISOString();
   const update = input.transactionNo
-    ? "SET #status = :status, refundStatus = :gatewayStatus, refundTransactionNo = :transactionNo, refundUpdatedAt = :now, updatedAt = :now"
-    : "SET #status = :status, refundStatus = :gatewayStatus, refundUpdatedAt = :now, updatedAt = :now";
+    ? "SET #status = :status, refundStatus = :gatewayStatus, refundTransactionNo = :transactionNo, refundUpdatedAt = :now, updatedAt = :now, auditActorType = :auditActorType, auditActorId = :auditActorId, auditActorRole = :auditActorRole, auditSource = :auditSource, auditReason = :auditReason, auditRequestId = :auditRequestId"
+    : "SET #status = :status, refundStatus = :gatewayStatus, refundUpdatedAt = :now, updatedAt = :now, auditActorType = :auditActorType, auditActorId = :auditActorId, auditActorRole = :auditActorRole, auditSource = :auditSource, auditReason = :auditReason, auditRequestId = :auditRequestId";
   const orderUpdate = {
     TableName,
     Key: toDynamoItem(buildOrderMetaKey(input.orderId)),
@@ -1315,7 +1354,9 @@ export async function updateOrderRefund(input: { orderId: string; requestId: str
     ExpressionAttributeValues: toDynamoItem({
       ":requestId": input.requestId, ":status": input.status, ":gatewayStatus": input.gatewayStatus,
       ":transactionNo": input.transactionNo, ":now": now,
-      ":pending": "refund_pending"
+      ":pending": "refund_pending",
+      ":auditActorType": "SERVICE", ":auditActorId": "service:vnpay-refund", ":auditActorRole": "SYSTEM",
+      ":auditSource": "VNPAY_REFUND", ":auditReason": input.status, ":auditRequestId": input.requestId
     })
   };
   if (input.status !== "refund_sent") {
@@ -1362,6 +1403,11 @@ export async function transitionAwaitingPaymentOrder(input: {
   const now = new Date().toISOString();
   const isPaymentSuccess = input.status === "paid";
   const paymentConfirmedAt = isPaymentSuccess && input.paymentConfirmedAt ? input.paymentConfirmedAt : now;
+  const auditMetadata = input.status === "expired"
+    ? serviceAuditMetadata({ actorId: "lambda:release-expired-orders", source: "ORDER_EXPIRY_WORKER", reason: "payment_timeout", requestId: input.orderId })
+    : input.status === "paid"
+      ? serviceAuditMetadata({ actorId: "lambda:vnpay-ipn", source: "VNPAY_IPN", reason: "payment_success", requestId: input.orderId })
+      : serviceAuditMetadata({ actorId: "service:payment-workflow", source: "PAYMENT_WORKFLOW", reason: input.status, requestId: input.orderId });
 
   await rawDb.send(new TransactWriteItemsCommand({
     TransactItems: [
@@ -1371,11 +1417,17 @@ export async function transitionAwaitingPaymentOrder(input: {
           Key: toDynamoItem(buildOrderMetaKey(input.orderId)),
           ConditionExpression: "#status = :awaitingPayment",
           UpdateExpression: isPaymentSuccess
-            ? "SET #status = :status, updatedAt = :updatedAt, finalizedAt = :updatedAt, paymentConfirmedAt = :paymentConfirmedAt"
-            : "SET #status = :status, updatedAt = :updatedAt, finalizedAt = :updatedAt",
+            ? "SET #status = :status, updatedAt = :updatedAt, finalizedAt = :updatedAt, paymentConfirmedAt = :paymentConfirmedAt, auditActorType = :auditActorType, auditActorId = :auditActorId, auditActorRole = :auditActorRole, auditSource = :auditSource, auditReason = :auditReason, auditRequestId = :auditRequestId"
+            : "SET #status = :status, updatedAt = :updatedAt, finalizedAt = :updatedAt, auditActorType = :auditActorType, auditActorId = :auditActorId, auditActorRole = :auditActorRole, auditSource = :auditSource, auditReason = :auditReason, auditRequestId = :auditRequestId",
           ExpressionAttributeNames: { "#status": "status" },
           ExpressionAttributeValues: toDynamoItem({ ":awaitingPayment": "awaiting_payment", ":status": input.status, ":updatedAt": now,
-            ":paymentConfirmedAt": isPaymentSuccess ? paymentConfirmedAt : undefined })
+            ":paymentConfirmedAt": isPaymentSuccess ? paymentConfirmedAt : undefined,
+            ":auditActorType": auditMetadata.auditActorType,
+            ":auditActorId": auditMetadata.auditActorId,
+            ":auditActorRole": auditMetadata.auditActorRole,
+            ":auditSource": auditMetadata.auditSource,
+            ":auditReason": auditMetadata.auditReason,
+            ":auditRequestId": auditMetadata.auditRequestId })
         }
       },
       ...items.map((item) => ({

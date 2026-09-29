@@ -90,7 +90,7 @@ export class VnpayService {
   async createPaymentUrl(
     input: CreateVnpayPaymentInput,
     ipAddress: string,
-    options?: { skipStockValidation?: boolean; expiresAt?: string; amount?: number }
+    options?: { skipStockValidation?: boolean; expiresAt?: string; amount?: number; orderId?: string }
   ) {
     const paymentConfig = this.runtimeConfigService.getPaymentConfig();
     let totalAmount = 0;
@@ -150,6 +150,7 @@ export class VnpayService {
 
     await createPaymentSession({
       txnRef,
+      orderId: options?.orderId,
       email: input.email?.trim().toLowerCase(),
       orderInfo,
       amount,
@@ -322,7 +323,7 @@ export class VnpayService {
 
   private async dispatchPaymentEvent(session: PaymentSessionRecord, source: "return" | "ipn") {
     if (session.paymentEventEnqueuedAt) return;
-    const requestId = extractOrderId(session.orderInfo);
+    const requestId = session.orderId ?? extractOrderId(session.orderInfo);
     const input = {
       email: session.email, txnRef: session.txnRef, amount: session.amount,
       orderInfo: session.orderInfo, requestId,
@@ -403,7 +404,8 @@ export class VnpayService {
     }, input.ipAddress?.trim() || "127.0.0.1", {
       skipStockValidation: input.skipStockValidation,
       expiresAt: input.expiresAt,
-      amount: input.amount
+      amount: input.amount,
+      orderId: input.orderId
     });
   }
 

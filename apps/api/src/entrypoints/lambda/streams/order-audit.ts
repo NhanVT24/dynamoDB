@@ -16,7 +16,7 @@ export async function publishOrderAuditRecords(
       if (!audit) continue;
 
       await publish(audit);
-      console.info("[order-audit] queued", { orderId: audit.orderId, eventName: audit.eventName, status: audit.status });
+      console.info("[order-audit] queued", { orderId: audit.orderId, changeType: audit.changeType, before: audit.before, after: audit.after });
     } catch (error) {
       console.error("[order-audit] publish_failed", {
         eventId: record.eventID,
@@ -39,7 +39,7 @@ export async function handler(event: OrderStreamEvent) {
       QueueUrl: queueUrl,
       MessageBody: JSON.stringify(audit),
       MessageGroupId: crypto.createHash("sha256").update(audit.orderId).digest("hex"),
-      MessageDeduplicationId: crypto.createHash("sha256").update(audit.sourceEventId).digest("hex")
+      MessageDeduplicationId: crypto.createHash("sha256").update(audit.SK).digest("hex")
     }));
   });
 }
