@@ -567,10 +567,8 @@ export class AwsApiStack extends Stack {
         detailType: ["CloudWatch Alarm State Change"],
         detail: {
           alarmName: [
-            "supermarket-audit-log-stream-dlq-messages-visible",
-            "supermarket-audit-log-stream-rule-target-dlq-messages-visible",
-            "supermarket-audit-log-stream-lag",
-            "supermarket-audit-log-stream-destination-failures"
+            "supermarket-audit-log-pipe-dlq-messages-visible",
+            "supermarket-audit-log-pipe-execution-failures"
           ],
           state: { value: ["ALARM"] }
         }
@@ -835,6 +833,9 @@ export class AwsApiStack extends Stack {
       deadLetterQueue: { queue: auditLogWorkerDlq, maxReceiveCount: 5 }
     });
     this.auditLogMainQueue = auditLogMainQueue;
+    // Keep the URL export until the old Stream publisher stack is replaced by the Pipe.
+    // The deployed publisher still imports this value during the API-first deployment.
+    this.exportValue(auditLogMainQueue.queueUrl);
     httpApiFunction.addEnvironment("SQS_AUDIT_LOG_QUEUE_URL", auditLogMainQueue.queueUrl);
     httpApiFunction.addEnvironment("SQS_AUDIT_LOG_WORKER_DLQ_URL", auditLogWorkerDlq.queueUrl);
     auditLogMainQueue.grantSendMessages(httpApiFunction);

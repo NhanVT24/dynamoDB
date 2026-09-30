@@ -1,6 +1,6 @@
 ﻿import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall } from "@aws-sdk/util-dynamodb";
-import { parseAuditLogMessage, type AuditLogRecord } from "../../../modules/audit-log/audit-log.js";
+import { buildAuditLogRecord, parseAuditLogMessage, parseAuditStreamMessage, type AuditLogRecord } from "../../../modules/audit-log/audit-log.js";
 
 type SqsRecord = { body?: string; messageId?: string };
 type SqsEvent = { Records?: SqsRecord[] };
@@ -14,7 +14,12 @@ export async function processAuditLogMessages(
   for (let index = 0; index < records.length; index++) {
     const record = records[index];
     try {
-      const audit = parseAuditLogMessage(record.body);
+      if (!record.body) throw new Error("Audit log queue message is empty.");
+      const message: unknown = JSON.parse(record.body);
+      const audit = typeof message === "object" && message !== null && "entityType" in message && message.entityType === "AUDIT_LOG"
+        ? parseAuditLogMessage(record.body)
+        : buildAuditLogRecord(parseAuditStreamMessage(message));
+      if (!audit) continue;
       await write(audit);
       console.info("[audit-log] recorded", {
         resourceType: audit.resourceType,

@@ -5,7 +5,6 @@ import { DomainHostedZoneStack } from "../stack/domain-hosted-zone-stack";
 import { FrontendCertificateStack } from "../stack/frontend-certificate-stack";
 import { FrontendCloudFrontStack } from "../stack/frontend-cloudfront-stack";
 import { S3StorageStack } from "../stack/s3-storage-stack";
-import { AuditLogFailureTestStack } from "../stack/audit-log-failure-test-stack";
 import { AuditLogStreamStack } from "../stack/audit-log-stream-stack";
 
 const app = new cdk.App();
@@ -128,15 +127,6 @@ new AuditLogStreamStack(app, "SupermarketAuditLogStreamStack", {
     region: process.env.CDK_DEFAULT_REGION ?? "ap-southeast-1"
   }
 });
-
-if (String(app.node.tryGetContext("auditLogFailureTest")) === "true") {
-  new AuditLogFailureTestStack(app, "AuditLogFailureTestStack", {
-    env: {
-      account: process.env.CDK_DEFAULT_ACCOUNT,
-      region: process.env.CDK_DEFAULT_REGION ?? "ap-southeast-1"
-    }
-  });
-}
 
 new FrontendCloudFrontStack(app, "SupermarketFrontendCloudFrontStack", {
   certificateArn: readContextString("frontendCertificateArn"),

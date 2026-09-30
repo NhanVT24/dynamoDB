@@ -46,5 +46,5 @@ Never store these fields directly in audit `changes`:
 - raw `customerEmail`, `email`, `phone`, `address` unless masked
 - large blobs or full third-party gateway payloads
 
-The Stream consumer should compare only whitelisted fields. DynamoDB Stream gives `OldImage` and `NewImage`; the audit code computes the diff itself.
+The audit worker compares only whitelisted fields after EventBridge Pipe sends the DynamoDB Stream record to SQS. The Stream record contains `OldImage` and `NewImage`; the worker computes the diff before writing the audit table.
 

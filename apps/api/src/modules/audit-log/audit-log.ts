@@ -3,7 +3,7 @@ import { z } from "zod";
 type StringAttribute = { S?: string; SS?: string[] };
 type AttributeImage = Record<string, StringAttribute>;
 
-const auditWriter = "lambda:supermarket-audit-log-stream";
+const auditWriter = "lambda:supermarket-audit-log-worker";
 
 export type AuditStreamRecord = {
   eventID?: string;
@@ -125,6 +125,26 @@ const auditLogSchema = z.object({
   paymentTxnRef: z.string().min(1).optional()
 }).strict();
 
+const streamAttributeSchema = z.object({
+  S: z.string().optional(),
+  SS: z.array(z.string()).optional()
+}).passthrough();
+
+const auditStreamSchema = z.object({
+  eventID: z.string().min(1),
+  eventName: z.enum(["INSERT", "MODIFY", "REMOVE"]),
+  dynamodb: z.object({
+    Keys: z.object({
+      PK: z.object({ S: z.string().min(1) }),
+      SK: z.object({ S: z.string().min(1) })
+    }).passthrough(),
+    NewImage: z.record(z.string(), streamAttributeSchema).optional(),
+    OldImage: z.record(z.string(), streamAttributeSchema).optional(),
+    SequenceNumber: z.string().min(1),
+    ApproximateCreationDateTime: z.number().finite()
+  }).passthrough()
+}).passthrough();
+
 function imageString(image: AttributeImage | undefined, key: string): string | undefined {
   const value = image?.[key]?.S?.trim();
   return value || undefined;
@@ -199,6 +219,10 @@ export function parseAuditLogMessage(body: string | undefined): AuditLogRecord {
   const audit = auditLogSchema.parse(JSON.parse(body)) as AuditLogRecord;
   assertAuditIdentity(audit);
   return audit;
+}
+
+export function parseAuditStreamMessage(message: unknown): AuditStreamRecord {
+  return auditStreamSchema.parse(message) as AuditStreamRecord;
 }
 
 export function buildAuditLogRecord(record: AuditStreamRecord): AuditLogRecord | null {
