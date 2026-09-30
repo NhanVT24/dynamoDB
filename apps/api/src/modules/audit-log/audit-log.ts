@@ -1,7 +1,16 @@
 import { z } from "zod";
 
-type StringAttribute = { S?: string; SS?: string[] };
-type AttributeImage = Record<string, StringAttribute>;
+export type DynamoAttribute = {
+  S?: string;
+  N?: string;
+  BOOL?: boolean;
+  NULL?: boolean;
+  M?: Record<string, DynamoAttribute>;
+  L?: DynamoAttribute[];
+  SS?: string[];
+  NS?: string[];
+};
+type AttributeImage = Record<string, DynamoAttribute>;
 
 const auditWriter = "lambda:supermarket-audit-log-worker";
 
@@ -127,7 +136,10 @@ const auditLogSchema = z.object({
 
 const streamAttributeSchema = z.object({
   S: z.string().optional(),
-  SS: z.array(z.string()).optional()
+  SS: z.array(z.string()).optional(),
+  N: z.string().optional(),
+  BOOL: z.boolean().optional(),
+  NULL: z.boolean().optional()
 }).passthrough();
 
 const auditStreamSchema = z.object({
@@ -185,17 +197,127 @@ function buildChanges(
   fields: readonly string[]
 ): Record<string, AuditChange> {
   return Object.fromEntries(fields.flatMap((field) => {
-    const before = auditAttributeValue(oldImage?.[field]);
-    const after = auditAttributeValue(newImage?.[field]);
-    if (before === after) return [];
+    const oldValue = classifyDynamoAttribute(oldImage?.[field]);
+    const newValue = classifyDynamoAttribute(newImage?.[field]);
+    if (areAuditValuesEqual(oldValue, newValue)) return [];
+    const before = auditAttributeValue(oldValue);
+    const after = auditAttributeValue(newValue);
     return [[field, { before, after }]];
   }));
 }
 
-function auditAttributeValue(attribute: StringAttribute | undefined): string | null {
-  if (attribute?.S !== undefined) return attribute.S;
-  if (attribute?.SS) return JSON.stringify([...attribute.SS].sort());
-  return null;
+type AuditValue =
+  | { kind: "MISSING" }
+  | { kind: "S" | "N"; value: string }
+  | { kind: "BOOL"; value: boolean }
+  | { kind: "NULL" }
+  | { kind: "SS" | "NS"; value: Set<string> }
+  | { kind: "L"; value: AuditValue[] }
+  | { kind: "M"; value: Record<string, AuditValue> };
+
+function areAuditValuesEqual(before: AuditValue, after: AuditValue): boolean {
+  if (before.kind !== after.kind) return false;
+
+  switch (before.kind) {
+    case "MISSING":
+    case "NULL":
+      return true;
+    case "S":
+    case "N":
+      return after.kind === before.kind && before.value === after.value;
+    case "BOOL":
+      return after.kind === "BOOL" && before.value === after.value;
+    case "SS":
+    case "NS":
+      return after.kind === before.kind && areStringSetsEqual(before.value, after.value);
+    case "L":
+      return after.kind === "L"
+        && before.value.length === after.value.length
+        && before.value.every((value, index) => areAuditValuesEqual(value, after.value[index]));
+    case "M": {
+      if (after.kind !== "M") return false;
+      const beforeKeys = Object.keys(before.value);
+      const afterKeys = Object.keys(after.value);
+      return beforeKeys.length === afterKeys.length
+        && beforeKeys.every((key) => Object.hasOwn(after.value, key)
+          && areAuditValuesEqual(before.value[key], after.value[key]));
+    }
+  }
+}
+
+function areStringSetsEqual(before: Set<string>, after: Set<string>): boolean {
+  return before.size === after.size && [...before].every((value) => after.has(value));
+}
+
+function classifyDynamoAttribute(attribute: DynamoAttribute | undefined, depth = 0): AuditValue {
+  if (attribute === undefined) return { kind: "MISSING" };
+  if (depth > 32 || typeof attribute !== "object" || attribute === null || Array.isArray(attribute)) {
+    throw new Error("Audit attribute has an invalid structure or exceeds maximum depth.");
+  }
+  const keys = Object.keys(attribute);
+  if (keys.length !== 1) throw new Error("Audit attribute must contain exactly one DynamoDB type.");
+  const type = keys[0];
+  switch (type) {
+    case "S":
+    case "N": {
+      const value = attribute[type];
+      if (typeof value !== "string") throw new Error(`Audit ${type} value must be a string.`);
+      return { kind: type, value };
+    }
+    case "BOOL":
+      if (typeof attribute.BOOL !== "boolean") throw new Error("Audit BOOL value must be boolean.");
+      return { kind: "BOOL", value: attribute.BOOL };
+    case "NULL":
+      if (attribute.NULL !== true) throw new Error("Audit NULL value must be true.");
+      return { kind: "NULL" };
+    case "SS":
+    case "NS": {
+      const values = attribute[type];
+      if (!Array.isArray(values) || values.some((value) => typeof value !== "string")) {
+        throw new Error(`Audit ${type} value must be a string set.`);
+      }
+      return { kind: type, value: new Set(values) };
+    }
+    case "L": {
+      if (!Array.isArray(attribute.L)) throw new Error("Audit L value must be a list.");
+      return { kind: "L", value: attribute.L.map((value) => classifyDynamoAttribute(value, depth + 1)) };
+    }
+    case "M": {
+      if (typeof attribute.M !== "object" || attribute.M === null || Array.isArray(attribute.M)) {
+        throw new Error("Audit M value must be a map.");
+      }
+      return { kind: "M", value: Object.fromEntries(Object.entries(attribute.M).map(([key, value]) => [
+        key, classifyDynamoAttribute(value, depth + 1)
+      ])) };
+    }
+    default:
+      throw new Error(`Unsupported DynamoDB audit attribute type: ${type}.`);
+  }
+}
+
+type CanonicalAuditValue = string | boolean | CanonicalAuditValue[];
+
+function auditAttributeValue(value: AuditValue): string | null {
+  if (value.kind === "MISSING") return null;
+  if (value.kind === "S") return value.value;
+  if (value.kind === "SS") return JSON.stringify([...value.value].sort());
+  return JSON.stringify(toCanonicalAuditValue(value));
+}
+
+function toCanonicalAuditValue(value: AuditValue): CanonicalAuditValue {
+  switch (value.kind) {
+    case "MISSING": return ["MISSING"];
+    case "S":
+    case "N":
+    case "BOOL": return [value.kind, value.value];
+    case "NULL": return ["NULL", true];
+    case "SS":
+    case "NS": return [value.kind, [...value.value].sort()];
+    case "L": return ["L", value.value.map(toCanonicalAuditValue)];
+    case "M": return ["M", Object.keys(value.value).sort().map((key) => [
+      key, toCanonicalAuditValue(value.value[key])
+    ])];
+  }
 }
 
 function assertAuditIdentity(audit: AuditLogRecord) {
