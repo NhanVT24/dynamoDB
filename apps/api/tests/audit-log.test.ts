@@ -120,35 +120,82 @@ test("payment session changes use flat before/after fields in the same order his
   assert.throws(() => parseAuditLogMessage(JSON.stringify({ ...paid, changes: { status: { before: "success", after: "success" } } })));
 });
 
-test("legacy linked payment sessions are audited, standalone sessions are skipped", () => {
-  const legacy = buildAuditLogRecord(paymentEvent("MODIFY", "pending", "failed"));
-  assert.equal(legacy?.parentResourceId, "45d73815-a88c-4ad8-a649-3736b6d822d8");
-  assert.ok(legacy);
-  const oldQueueMessage = {
-    PK: `AUDIT_LOG_ORDER#${legacy.parentResourceId}`, SK: legacy.SK, entityType: "AUDIT_LOG_ORDER",
-    orderId: legacy.parentResourceId, sourcePK: "PAYMENT#txn-1", sourceSK: "DETAIL",
-    paymentTxnRef: "txn-1", changeType: "PAYMENT_STATUS",
-    changes: { paymentStatus: { before: "pending", after: "failed" } },
-    eventName: "MODIFY", previousStatus: "pending", status: "failed",
-    occurredAt: legacy.occurredAt,
-    sourceEventId: "payment:MODIFY:pending:failed", sourceSequenceNumber: "99"
-  };
-  assert.deepEqual(parseAuditLogMessage(JSON.stringify(oldQueueMessage)), legacy);
+test("payment sessions without a structured orderId are skipped", () => {
+  assert.equal(buildAuditLogRecord(paymentEvent("MODIFY", "pending", "failed")), null);
   const standalone = paymentEvent("INSERT", undefined, "pending");
   standalone.dynamodb!.NewImage!.orderInfo = { S: "Standalone payment" };
   assert.equal(buildAuditLogRecord(standalone), null);
+});
+
+test("user profile INSERT and MODIFY audit only allowed fields", () => {
+  const event: AuditStreamRecord = {
+    eventID: "user:1", eventName: "INSERT",
+    dynamodb: {
+      Keys: { PK: { S: "USER#subject-1" }, SK: { S: "PROFILE" } },
+      NewImage: {
+        entityType: { S: "USER_PROFILE" }, displayName: { S: "An" },
+        email: { S: "private@example.com" }, status: { S: "CONFIRMED" },
+        passwordHash: { S: "never-log-this" }
+      },
+      SequenceNumber: "101", ApproximateCreationDateTime: 1720000001
+    }
+  };
+  const created = buildAuditLogRecord(event)!;
+  assert.equal(created.resourceType, "USER");
+  assert.deepEqual(created.changes, {
+    displayName: { before: null, after: "An" },
+    status: { before: null, after: "CONFIRMED" }
+  });
+  assert.equal(JSON.stringify(created).includes("private@example.com"), false);
+  assert.deepEqual(parseAuditLogMessage(JSON.stringify(created)), created);
+  assert.throws(() => parseAuditLogMessage(JSON.stringify({ ...created, changes: { email: { before: null, after: "private@example.com" } } })));
+
+  event.eventID = "user:2";
+  event.eventName = "MODIFY";
+  event.dynamodb!.OldImage = event.dynamodb!.NewImage;
+  event.dynamodb!.NewImage = {
+    ...event.dynamodb!.NewImage,
+    displayName: { S: "An Nguyen" },
+    avatarKey: { S: "public/avatars/subject-1/avatar.png" }
+  };
+  assert.deepEqual(buildAuditLogRecord(event)?.changes, {
+    displayName: { before: "An", after: "An Nguyen" },
+    avatarKey: { before: null, after: "public/avatars/subject-1/avatar.png" }
+  });
+});
+
+test("user permission String Set changes are audited independent of set order", () => {
+  const event: AuditStreamRecord = {
+    eventID: "user:permissions", eventName: "MODIFY",
+    dynamodb: {
+      Keys: { PK: { S: "USER#subject-1" }, SK: { S: "AUTHORIZATION" } },
+      OldImage: { entityType: { S: "USER_AUTHORIZATION" }, permissions: { SS: ["products:update-own", "products:create"] } },
+      NewImage: { entityType: { S: "USER_AUTHORIZATION" }, permissions: { SS: ["products:create", "products:update-own"] } },
+      SequenceNumber: "102", ApproximateCreationDateTime: 1720000002
+    }
+  };
+  assert.equal(buildAuditLogRecord(event), null);
+  event.dynamodb!.NewImage!.permissions = { SS: ["products:create"] };
+  const audit = buildAuditLogRecord(event)!;
+  assert.deepEqual(audit.changes.permissions, {
+    before: '["products:create","products:update-own"]', after: '["products:create"]'
+  });
+  assert.deepEqual(parseAuditLogMessage(JSON.stringify(audit)), audit);
 });
 
 test("publisher retries failed Stream records and skips non-status changes", async () => {
   const unchanged = orderEvent("MODIFY", "paid", "paid");
   unchanged.dynamodb!.SequenceNumber = "41";
   const changed = orderEvent("MODIFY", "paid", "refund_pending");
+  const later = orderEvent("MODIFY", "refund_pending", "refunded");
+  later.eventID = "shard:43";
+  later.dynamodb!.SequenceNumber = "43";
   const published: string[] = [];
-  const response = await publishAuditLogRecords({ Records: [unchanged, changed] }, async (audit) => {
+  const response = await publishAuditLogRecords({ Records: [unchanged, changed, later] }, async (audit) => {
     published.push(audit.SK);
     throw new Error("SQS unavailable");
   });
-  assert.match(published[0] ?? "", /#shard:42$/);
+  assert.deepEqual(published.map((key) => key.split("#").at(-1)), ["shard:42"]);
   assert.deepEqual(response.batchItemFailures, [{ itemIdentifier: "42" }]);
 });
 
@@ -180,14 +227,7 @@ test("worker accepts idempotent duplicate and rejects a forged queue identity", 
   assert.throws(() => parseAuditLogMessage(JSON.stringify({ ...audit, PK: "ORDER#another-order" })));
   assert.throws(() => parseAuditLogMessage(JSON.stringify({ ...audit, source: { ...audit.source, eventId: "another-event" } })));
   assert.throws(() => parseAuditLogMessage(JSON.stringify({ ...audit, changes: { status: { before: "paid", after: "paid" } } })));
-  const legacyMessage = {
-    PK: "AUDIT_LOG_ORDER#order-1", SK: audit.SK, entityType: "AUDIT_LOG_ORDER",
-    orderId: audit.resourceId, sourceSK: "ORDER", eventName: "INSERT",
-    status: audit.changes.status?.after, occurredAt: audit.occurredAt,
-    sourceEventId: "shard:42", sourceSequenceNumber: "42",
-    changeType: "ORDER_STATUS"
-  };
-  assert.deepEqual(parseAuditLogMessage(JSON.stringify(legacyMessage)), audit);
+  assert.throws(() => parseAuditLogMessage(JSON.stringify({ ...audit, entityType: "AUDIT_LOG_ORDER" })));
 });
 
 

@@ -31,6 +31,7 @@ export class AuthorizationService {
       return {
         ...user,
         ...profile,
+        displayName: profile.displayName || user.displayName,
         permissions
       };
     }));

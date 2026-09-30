@@ -1,6 +1,6 @@
 ﻿# Audit log qua DynamoDB Streams
 
-Flow hiện tại dùng audit log chung cho nhiều entity, trước mắt đang audit `ORDER` và `PAYMENT`.
+Flow hiện tại dùng audit log chung cho `ORDER`, `PAYMENT` và `USER`.
 
 ```text
 Source table item change
@@ -17,6 +17,8 @@ supermarket-audit-log DynamoDB table
 | --- | --- | --- | --- |
 | `ORDER` | `PK = ORDER#...`, `SK = ORDER` hoặc `DETAIL` | `status` | Theo dõi vòng đời đơn hàng. |
 | `PAYMENT` | `PK = PAYMENT#...`, `SK = DETAIL` | `status` | Theo dõi vòng đời thanh toán gắn với order. |
+| `USER` profile | `PK = USER#...`, `SK = PROFILE` | `displayName`, `avatarKey`, `status` | Theo dõi thay đổi profile; không ghi email/password. |
+| `USER` authorization | `PK = USER#...`, `SK = AUTHORIZATION` | `permissions` | Theo dõi thay đổi String Set permission. |
 
 Các field nhạy cảm như password, token, email, phone, address, raw gateway payload không đưa vào audit log. Whitelist chi tiết nằm ở `docs/audit-log-whitelist.md` và `apps/api/src/modules/audit-log/audit-log.ts`.
 
@@ -80,7 +82,7 @@ Ví dụ:
 
 ## Replay
 
-- Worker DLQ có thể replay về `AuditLogMainQueue` nếu payload hợp lệ và lỗi gốc đã được sửa.
+- Worker DLQ có thể replay về `AuditLogMainQueue` nếu payload hợp lệ và lỗi gốc đã được sửa. Worker chỉ nhận format `AUDIT_LOG` hiện tại; message `AUDIT_LOG_ORDER` cũ cần được xử lý riêng trước khi replay.
 - S3 failure object không có managed redrive tự động như SQS. Cần đọc object, kiểm tra payload, sửa lỗi gốc, rồi invoke lại publisher bằng payload đó.
 - Không auto replay object S3 ngay khi được tạo, vì nếu lỗi do data/code chưa sửa thì sẽ lặp lại failure.
 
@@ -114,6 +116,22 @@ Deploy riêng khi cần kiểm thử nhánh S3 failure:
 ```powershell
 npx cdk deploy AuditLogFailureTestStack --app "npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts" -c auditLogFailureTest=true --profile nhandev --require-approval never
 ```
+
+## CDK stacks
+
+- `SupermarketAwsStack` owns the source table, audit table, audit FIFO queue, worker and worker alarms.
+- `SupermarketAuditLogStreamStack` owns the Stream publisher, event source mapping, failure bucket, failure queues and publisher alarms. It imports only the source Stream ARN and audit queue from the API stack.
+- `SupermarketAwsStack` owns the admin SNS topic and an EventBridge rule that routes Stream alarm state changes to that topic. The Stream stack does not create or import the topic.
+
+Deploy toàn bộ bằng một lệnh tại thư mục gốc repo (PowerShell):
+
+```powershell
+npm run cdk:aws:deploy:all -- -AwsProfile nhandev -DomainName truyenmasinhvien.com
+```
+
+Lệnh này deploy API stack trước, rồi Stream stack, sau đó frontend và S3. Dấu `--` chuyển `-AwsProfile` và `-DomainName` từ npm sang script PowerShell.
+
+For an existing deployment, update the API stack before creating the Stream stack to release the old publisher's fixed Lambda and queue names. Complete the migration within the Stream's 24-hour retention window. The new mapping starts at `TRIM_HORIZON`; audit writes are idempotent. The old failure bucket has `RETAIN`, so inspect or migrate any objects it already contains. Editing CDK source does not move live resources.
 
 Stack này độc lập với dữ liệu thật. Publisher cố ý gửi đến SQS URL không tồn tại để tạo failure object thật trong S3.
 

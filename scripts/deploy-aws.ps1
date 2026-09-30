@@ -180,6 +180,16 @@ if (-not $FrontendCloudFrontOnly) {
   if ($LASTEXITCODE -ne 0) {
     throw "AWS API CDK deployment failed."
   }
+
+  Write-Host "Deploying audit log Stream stack."
+  & npx cdk deploy SupermarketAuditLogStreamStack `
+    --app "npx ts-node --project infra/tsconfig.json infra/bin/aws-api.ts" `
+    --output cdk.out `
+    --profile $AwsProfile `
+    --require-approval never
+  if ($LASTEXITCODE -ne 0) {
+    throw "Audit log Stream CDK deployment failed."
+  }
 }
 
 if (-not $SkipFrontendCloudFront) {

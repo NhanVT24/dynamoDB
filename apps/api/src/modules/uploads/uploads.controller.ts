@@ -30,7 +30,7 @@ export class UploadsController {
 
     const input = createUploadPresignSchema.parse(rawBody);
     // User avatars always go to their dedicated S3 prefix, regardless of client input.
-    return this.uploadsService.createPresignedUpload({ ...input, scope: "avatars" });
+    return this.uploadsService.createPresignedUpload({ ...input, scope: `public/avatars/${principal.subject}` });
   }
 
   @Get("default-avatars")

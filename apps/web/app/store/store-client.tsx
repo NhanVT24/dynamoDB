@@ -1644,6 +1644,20 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    authenticatedFetch(apiUrl("/api/profile/me"), { cache: "no-store" })
+      .then((response) => response.ok ? response.json() as Promise<{ displayName?: string }> : null)
+      .then((profile) => {
+        if (!cancelled && profile?.displayName && profile.displayName !== session.name) {
+          setSession({ ...session, name: profile.displayName });
+        }
+      })
+      .catch(() => { /* Keep the token name if profile is temporarily unavailable. */ });
+    return () => { cancelled = true; };
+  }, [session?.accessToken, session?.subject]);
+
+  useEffect(() => {
     if (searchParams.get("auth") !== "login") {
       return;
     }

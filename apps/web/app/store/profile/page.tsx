@@ -140,43 +140,59 @@ function makeInitials(name: string, email: string) {
   return parts.map((part) => part.charAt(0).toUpperCase()).join("") || "NX";
 }
 
-const avatarStoragePrefix = "web-storefront-avatar-";
 const avatarUploadEndpoint = apiUrl("/api/uploads/avatar/presign");
 const defaultAvatarsEndpoint = apiUrl("/api/uploads/default-avatars");
+const profileEndpoint = apiUrl("/api/profile/me");
+type EditableProfile = { displayName: string; avatarKey: string; avatarUrl: string };
 
 // Count only orders that still represent a paid purchase. Expired, cancelled,
 // failed and refund-in-progress orders are excluded from these metrics.
 const purchaseOrderStatuses = new Set(["paid", "completed", "done", "delivered", "fulfilled", "succeeded", "success", "refund_rejected"]);
 
-function isPurchaseOrder(order: StoreOrder) {
-  return purchaseOrderStatuses.has(String(order.status ?? "").trim().toLowerCase());
-}
-
-function avatarStorageKey(email: string) {
-  return `${avatarStoragePrefix}${email.trim().toLowerCase()}`;
-}
-
 export default function StoreProfilePage() {
-  const { session, theme, openAuthModal } = useStorefront();
+  const { session, setSession, theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [myProducts, setMyProducts] = useState<ManagedProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [productsLoading, setProductsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [profileError, setProfileError] = useState("");
   const [productsError, setProductsError] = useState("");
   const [productsPage, setProductsPage] = useState(1);
   const [ordersPage, setOrdersPage] = useState(1);
   const [avatarUrl, setAvatarUrl] = useState("");
+  const [avatarKey, setAvatarKey] = useState("");
+  const [selectedAvatarKey, setSelectedAvatarKey] = useState<string | null>(null);
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [nameDraft, setNameDraft] = useState("");
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileNotice, setProfileNotice] = useState("");
   const [defaultAvatars, setDefaultAvatars] = useState<DefaultAvatarItem[]>([]);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!selectedAvatarFile) {
+      setAvatarPreviewUrl("");
+      return;
+    }
+    const previewUrl = URL.createObjectURL(selectedAvatarFile);
+    setAvatarPreviewUrl(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [selectedAvatarFile]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadOrders() {
-      setAvatarUrl(session ? window.localStorage.getItem(avatarStorageKey(session.email)) ?? "" : "");
+      setAvatarUrl("");
+      setAvatarKey("");
+      setSelectedAvatarKey(null);
+      setSelectedAvatarFile(null);
+      setDisplayName(session?.name ?? "");
+      setNameDraft(session?.name ?? "");
       setIsLoading(true);
       setProductsLoading(true);
 
@@ -200,6 +216,25 @@ export default function StoreProfilePage() {
         }
         return;
       }
+
+      authenticatedFetch(profileEndpoint, { cache: "no-store" })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Could not load account profile.");
+          return response.json() as Promise<EditableProfile>;
+        })
+        .then((profile) => {
+          if (cancelled) return;
+          setDisplayName(profile.displayName || session.name);
+          setNameDraft(profile.displayName || session.name);
+          setAvatarKey(profile.avatarKey);
+          setAvatarUrl(profile.avatarUrl);
+          if (profile.displayName && profile.displayName !== session.name) {
+            setSession({ ...session, name: profile.displayName });
+          }
+        })
+        .catch((loadError) => {
+          if (!cancelled) setProfileError(loadError instanceof Error ? loadError.message : "Could not load account profile.");
+        });
 
       try {
         const data = await fetchMyOrders();
@@ -240,7 +275,9 @@ export default function StoreProfilePage() {
     };
   }, [session?.accessToken, session?.email]);
 
-  const purchaseOrders = useMemo(() => orders.filter(isPurchaseOrder), [orders]);
+  const purchaseOrders = useMemo(() => orders.filter((order) =>
+    purchaseOrderStatuses.has(String(order.status ?? "").trim().toLowerCase())
+  ), [orders]);
 
   const stats = useMemo(() => {
     const totalOrders = purchaseOrders.length;
@@ -269,49 +306,77 @@ export default function StoreProfilePage() {
     setOrdersPage((page) => Math.min(page, orderTotalPages));
   }, [orderTotalPages]);
 
-  async function uploadAvatar(file: File | undefined) {
-    if (!file || !session) return;
+  function selectAvatarFile(file: File | undefined) {
+    if (!file) return;
     if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(file.type) || file.size > 5 * 1024 * 1024) {
-      setError("Please choose a JPG, PNG, or WebP image up to 5 MB.");
+      setProfileError("Please choose a JPG, PNG, or WebP image up to 5 MB.");
       return;
     }
-
-    setIsUploadingAvatar(true);
-    setError("");
-    try {
-      const presignResponse = await authenticatedFetch(avatarUploadEndpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ fileName: file.name, contentType: file.type, scope: "avatars" })
-      });
-      const presign = await presignResponse.json().catch(() => null) as { uploadUrl?: string; fileUrl?: string; message?: string } | null;
-      if (!presignResponse.ok || !presign?.uploadUrl || !presign.fileUrl) {
-        throw new Error(presign?.message || "Could not prepare avatar upload.");
-      }
-
-      const uploadResponse = await fetch(presign.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file
-      });
-      if (!uploadResponse.ok) throw new Error("Could not upload avatar to S3.");
-
-      window.localStorage.setItem(avatarStorageKey(session.email), presign.fileUrl);
-      setAvatarUrl(presign.fileUrl);
-    } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Could not upload avatar.");
-    } finally {
-      setIsUploadingAvatar(false);
-      if (avatarInputRef.current) avatarInputRef.current.value = "";
-    }
+    setSelectedAvatarFile(file);
+    setSelectedAvatarKey(null);
+    setProfileError("");
+    setProfileNotice("");
   }
 
-  function chooseDefaultAvatar(fileUrl: string) {
-    if (!session) return;
-    window.localStorage.setItem(avatarStorageKey(session.email), fileUrl);
-    setAvatarUrl(fileUrl);
+  async function saveProfileChanges() {
+    if (!session || isSavingProfile) return;
+    const nextName = nameDraft.trim();
+    if (!nextName) return;
+    const nameChanged = nextName !== displayName;
+    const avatarChanged = Boolean(selectedAvatarFile) || (selectedAvatarKey !== null && selectedAvatarKey !== avatarKey);
+    if (!nameChanged && !avatarChanged) return;
+
+    setIsSavingProfile(true);
+    setProfileError("");
+    setProfileNotice("");
+    try {
+      let nextAvatarKey = selectedAvatarKey;
+      if (selectedAvatarFile) {
+        const presignResponse = await authenticatedFetch(avatarUploadEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileName: selectedAvatarFile.name, contentType: selectedAvatarFile.type, scope: "avatars" })
+        });
+        const presign = await presignResponse.json().catch(() => null) as { uploadUrl?: string; key?: string; message?: string } | null;
+        if (!presignResponse.ok || !presign?.uploadUrl || !presign.key) {
+          throw new Error(presign?.message || "Could not prepare avatar upload.");
+        }
+        const uploadResponse = await fetch(presign.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": selectedAvatarFile.type },
+          body: selectedAvatarFile
+        });
+        if (!uploadResponse.ok) throw new Error("Could not upload avatar to S3.");
+        nextAvatarKey = presign.key;
+      }
+
+      const patch = {
+        ...(nameChanged ? { displayName: nextName } : {}),
+        ...(avatarChanged && nextAvatarKey !== null ? { avatarKey: nextAvatarKey } : {})
+      };
+      const response = await authenticatedFetch(profileEndpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch)
+      });
+      const result = await response.json().catch(() => null) as (EditableProfile & { message?: string }) | null;
+      if (!response.ok || !result) throw new Error(result?.message || "Could not save profile.");
+      setDisplayName(result.displayName);
+      setNameDraft(result.displayName);
+      setAvatarKey(result.avatarKey);
+      setAvatarUrl(result.avatarUrl);
+      setSelectedAvatarKey(null);
+      setSelectedAvatarFile(null);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+      if (result.displayName && session.name !== result.displayName) {
+        setSession({ ...session, name: result.displayName });
+      }
+      setProfileNotice("Profile saved.");
+    } catch (saveError) {
+      setProfileError(saveError instanceof Error ? saveError.message : "Could not save profile.");
+    } finally {
+      setIsSavingProfile(false);
+    }
   }
 
   if (isLoading) {
@@ -347,7 +412,12 @@ export default function StoreProfilePage() {
     );
   }
 
-  const initials = makeInitials(session.name, session.email);
+  const initials = makeInitials(displayName || session.name, session.email);
+  const selectedDefaultAvatar = defaultAvatars.find((avatar) => avatar.key === selectedAvatarKey);
+  const displayedAvatarUrl = avatarPreviewUrl || selectedDefaultAvatar?.fileUrl || avatarUrl;
+  const hasProfileChanges = nameDraft.trim() !== displayName
+    || selectedAvatarFile !== null
+    || (selectedAvatarKey !== null && selectedAvatarKey !== avatarKey);
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -360,7 +430,7 @@ export default function StoreProfilePage() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Your Profile</p>
               <h1 className={`mt-4 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl ${isDark ? "text-white" : "text-slate-950"}`}>
-                {session.name || "NovaX user"}, welcome back!
+                {displayName || session.name || "NovaX user"}, welcome back!
               </h1>
               <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>
                 This page aggregates login information from Cognito along with actual purchase statistics from the storefront so you can quickly view the status of your account.
@@ -387,18 +457,19 @@ export default function StoreProfilePage() {
                   : "border-slate-200 bg-[linear-gradient(180deg,_rgba(248,250,252,1)_0%,_rgba(255,247,237,0.92)_100%)]"
               }`}
             >
+              <form onSubmit={(event) => { event.preventDefault(); void saveProfileChanges(); }}>
               <div className="flex items-center gap-4">
                 <div className="flex shrink-0 flex-col items-center gap-2">
                   <div className="h-28 w-28 overflow-hidden rounded-[2rem] bg-gradient-to-br from-slate-950 via-orange-500 to-pink-500 text-3xl font-bold tracking-[0.18em] text-white shadow-[0_18px_40px_-22px_rgba(249,115,22,0.85)]">
-                    {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center">{initials}</div>}
+                    {displayedAvatarUrl ? <img src={displayedAvatarUrl} alt="Avatar" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center">{initials}</div>}
                   </div>
-                  <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isUploadingAvatar} className={`rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${isDark ? "bg-white/10 text-white" : "bg-slate-900 text-white"} disabled:opacity-60`}>
-                    {isUploadingAvatar ? "Uploading" : "Change photo"}
+                  <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isSavingProfile} className={`rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${isDark ? "bg-white/10 text-white" : "bg-slate-900 text-white"} disabled:opacity-60`}>
+                    Choose photo
                   </button>
-                  <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => void uploadAvatar(event.target.files?.[0])} />
+                  <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => selectAvatarFile(event.target.files?.[0])} />
                 </div>
                 <div className="min-w-0">
-                  <p className={`truncate text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{session.name}</p>
+                  <p className={`truncate text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{displayName || session.name}</p>
                   <p className={`truncate text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{session.email}</p>
                   <span
                     className={`mt-2 inline-flex rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${
@@ -416,6 +487,16 @@ export default function StoreProfilePage() {
                 </div>
               </div>
 
+              <div className="mt-5 flex flex-wrap items-end gap-2">
+                <label className="min-w-0 flex-1 text-xs font-semibold">
+                  Display name
+                  <input value={nameDraft} onChange={(event) => { setNameDraft(event.target.value); setProfileNotice(""); }} maxLength={80} required disabled={isSavingProfile} className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60" />
+                </label>
+                <button type="submit" disabled={isSavingProfile || !nameDraft.trim() || !hasProfileChanges} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSavingProfile ? "Saving..." : "Save profile"}</button>
+              </div>
+              {profileError ? <p role="alert" className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">{profileError}</p> : null}
+              {profileNotice ? <p role="status" className="mt-3 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{profileNotice}</p> : null}
+
               {defaultAvatars.length > 0 ? (
                 <div className="mt-5">
                   <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Default Avatars</p>
@@ -424,9 +505,10 @@ export default function StoreProfilePage() {
                       <button
                         key={avatar.key}
                         type="button"
-                        onClick={() => chooseDefaultAvatar(avatar.fileUrl)}
+                        onClick={() => { setSelectedAvatarKey(avatar.key); setSelectedAvatarFile(null); setProfileError(""); setProfileNotice(""); }}
+                        disabled={isSavingProfile}
                         className={`h-12 w-12 overflow-hidden rounded-2xl border transition ${
-                          avatarUrl === avatar.fileUrl
+                          (selectedAvatarKey ?? avatarKey) === avatar.key && !selectedAvatarFile
                             ? "border-orange-500 ring-2 ring-orange-300"
                             : isDark
                               ? "border-white/10 hover:border-white/30"
@@ -440,6 +522,7 @@ export default function StoreProfilePage() {
                   </div>
                 </div>
               ) : null}
+              </form>
 
               <div className="mt-6 grid gap-3">
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>

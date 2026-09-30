@@ -9,7 +9,6 @@ export async function publishAuditLogRecords(
   event: AuditStreamEvent,
   publish: (audit: AuditLogRecord) => Promise<void>
 ) {
-  const batchItemFailures: Array<{ itemIdentifier: string }> = [];
   for (const record of event.Records ?? []) {
     try {
       const audit = buildAuditLogRecord(record);
@@ -29,10 +28,12 @@ export async function publishAuditLogRecords(
         error: error instanceof Error ? error.message : String(error)
       });
       if (!record.dynamodb?.SequenceNumber) throw error;
-      batchItemFailures.push({ itemIdentifier: record.dynamodb.SequenceNumber });
+      // Retrying from this sequence also retries later records in the batch.
+      // Stop here so later changes cannot reach the FIFO queue first.
+      return { batchItemFailures: [{ itemIdentifier: record.dynamodb.SequenceNumber }] };
     }
   }
-  return { batchItemFailures };
+  return { batchItemFailures: [] };
 }
 
 export async function handler(event: AuditStreamEvent) {

@@ -99,6 +99,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     const isStorefrontCheckoutPaymentSessionMutation = method === "POST" && url === "/api/storefront/checkout/payment-session";
     const isStorefrontCheckoutCancelMutation = method === "POST" && url === "/api/storefront/checkout/cancel";
     const isAvatarUploadPresignMutation = method === "POST" && url === "/api/uploads/avatar/presign";
+    const isProfileMutation = method === "PATCH" && url === "/api/profile/me";
     const isVnpayFailureTestMutation = method === "POST" && url === "/api/payments/vnpay/test/fail";
     const isShoppingProductMutation = !isReadOnlyMethod && url.startsWith("/api/shopping-items");
     const isPublicVnpayRequest =
@@ -162,7 +163,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       return;
     }
 
-    if (isAvatarUploadPresignMutation) {
+    if (isAvatarUploadPresignMutation || isProfileMutation) {
       const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
       if (principal) {
         return;

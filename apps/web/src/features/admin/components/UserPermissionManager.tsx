@@ -49,14 +49,18 @@ export default function UserPermissionManager() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState("");
   const [message, setMessage] = useState("");
+  const [messageIsError, setMessageIsError] = useState(false);
 
   async function loadUsers() {
     setLoading(true);
+    setMessage("");
+    setMessageIsError(false);
     try {
       const response = await authenticatedFetch(apiUrl("/api/admin/authorizations/users"), { cache: "no-store" });
       if (!response.ok) throw new Error("Could not load user permissions.");
       setUsers(await response.json() as ManagedUser[]);
     } catch (error) {
+      setMessageIsError(true);
       setMessage(error instanceof Error ? error.message : "Could not load data.");
     } finally {
       setLoading(false);
@@ -69,6 +73,7 @@ export default function UserPermissionManager() {
     const operationKey = `${user.subject}:${permission}`;
     setUpdating(operationKey);
     setMessage("");
+    setMessageIsError(false);
     try {
       const response = await authenticatedFetch(
         apiUrl(`/api/admin/authorizations/users/${encodeURIComponent(user.subject)}/permissions/${encodeURIComponent(permission)}`),
@@ -84,6 +89,7 @@ export default function UserPermissionManager() {
         : item));
       setMessage(`Updated permissions for ${user.email}. The next refreshed access token will include the new permissions.`);
     } catch (error) {
+      setMessageIsError(true);
       setMessage(error instanceof Error ? error.message : "Could not update permissions.");
     } finally {
       setUpdating("");
@@ -94,6 +100,7 @@ export default function UserPermissionManager() {
     const operationKey = `${user.subject}:status`;
     setUpdating(operationKey);
     setMessage("");
+    setMessageIsError(false);
     try {
       const response = await authenticatedFetch(
         apiUrl(`/api/admin/authorizations/users/${encodeURIComponent(user.subject)}/status`),
@@ -113,6 +120,7 @@ export default function UserPermissionManager() {
         : item));
       setMessage(`Updated account status for ${user.email} to ${payload.accountStatus}.`);
     } catch (error) {
+      setMessageIsError(true);
       setMessage(error instanceof Error ? error.message : "Could not update account status.");
     } finally {
       setUpdating("");
@@ -130,7 +138,7 @@ export default function UserPermissionManager() {
         <button type="button" onClick={() => void loadUsers()} disabled={loading} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Refresh</button>
       </div>
 
-      {message ? <p className="mt-4 rounded-xl bg-cyan-50 px-4 py-3 text-sm text-cyan-900">{message}</p> : null}
+      {message ? <p role={messageIsError ? "alert" : "status"} className={`mt-4 rounded-xl px-4 py-3 text-sm ${messageIsError ? "bg-rose-50 text-rose-900" : "bg-cyan-50 text-cyan-900"}`}>{message}</p> : null}
       {loading ? <p className="mt-6 text-sm text-slate-500">Loading accounts...</p> : null}
 
       <div className="mt-6 grid gap-4">

@@ -25,12 +25,13 @@ Audit log is a separate DynamoDB table named `supermarket-audit-log`. The generi
 | --- | --- | --- |
 | `ORDER` | `status` | Tracks checkout, payment, refund, expiry lifecycle without copying customer/order PII. |
 | `PAYMENT` | `status` | Tracks payment session lifecycle and can link back to parent order. |
+| `USER` profile | `displayName`, `avatarKey`, `status` | Tracks safe account profile and status changes. |
+| `USER` authorization | `permissions` | Tracks delegated permission set changes. |
 
 ## Future whitelist
 
 | Resource | Recommended fields | Avoid |
 | --- | --- | --- |
-| `USER` | `email` masked, `displayName`, `role`, `status`, `permissions` | password hash, tokens, OTP secret, raw phone/address unless masked. |
 | `PRODUCT` | `name`, `price`, `stock`, `status`, `categoryId` | long descriptions, image blobs, internal computed fields. |
 | `INVENTORY` | `stock`, `reservedStock`, `soldCount`, `status` | full product snapshot. |
 | `REFUND` | `status`, `gatewayStatus`, `transactionNo` masked if needed | gateway secrets, full gateway payload. |

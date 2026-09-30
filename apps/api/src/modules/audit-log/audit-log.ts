@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-type StringAttribute = { S?: string };
+type StringAttribute = { S?: string; SS?: string[] };
 type AttributeImage = Record<string, StringAttribute>;
 
 const auditWriter = "lambda:supermarket-audit-log-stream";
@@ -8,7 +8,6 @@ const auditWriter = "lambda:supermarket-audit-log-stream";
 export type AuditStreamRecord = {
   eventID?: string;
   eventName?: string;
-  eventSourceARN?: string;
   dynamodb?: {
     Keys?: AttributeImage;
     NewImage?: AttributeImage;
@@ -40,7 +39,7 @@ export type AuditLogRecord = {
   PK: string;
   SK: string;
   entityType: "AUDIT_LOG";
-  resourceType: "ORDER" | "PAYMENT";
+  resourceType: "ORDER" | "PAYMENT" | "USER";
   resourceId: string;
   parentResourceType?: "ORDER";
   parentResourceId?: string;
@@ -63,8 +62,10 @@ export type AuditLogRecord = {
 export const auditFieldWhitelist = {
   ORDER: ["status"] as const,
   PAYMENT: ["status"] as const,
-  USER: ["email", "displayName", "role", "status", "permissions"] as const,
-  PRODUCT: ["name", "price", "stock", "status", "categoryId"] as const
+  USER: {
+    PROFILE: ["displayName", "avatarKey", "status"] as const,
+    AUTHORIZATION: ["permissions"] as const
+  }
 };
 
 export const auditFieldDenylist = [
@@ -104,7 +105,7 @@ const auditLogSchema = z.object({
   PK: z.string().min(1),
   SK: z.string().min(1),
   entityType: z.literal("AUDIT_LOG"),
-  resourceType: z.enum(["ORDER", "PAYMENT"]),
+  resourceType: z.enum(["ORDER", "PAYMENT", "USER"]),
   resourceId: z.string().min(1),
   parentResourceType: z.literal("ORDER").optional(),
   parentResourceId: z.string().min(1).optional(),
@@ -123,40 +124,6 @@ const auditLogSchema = z.object({
   }).strict(),
   paymentTxnRef: z.string().min(1).optional()
 }).strict();
-
-// Accept old queue messages while the queue drains during migration.
-const legacyAuditLogSchema = z.object({
-  PK: z.string().min(1),
-  SK: z.string().min(1),
-  entityType: z.literal("AUDIT_LOG_ORDER"),
-  orderId: z.string().min(1),
-  changeType: z.enum(["ORDER_STATUS", "PAYMENT_STATUS"]),
-  eventName: z.enum(["INSERT", "MODIFY", "REMOVE"]),
-  before: z.string().nullable().optional(),
-  after: z.string().nullable().optional(),
-  previousStatus: z.string().optional(),
-  status: z.string().optional(),
-  actor: actorSchema.optional(),
-  context: contextSchema.optional(),
-  occurredAt: z.iso.datetime(),
-  sourceSK: z.enum(["ORDER", "DETAIL"]),
-  sourceEventId: z.string().min(1),
-  sourceSequenceNumber: z.string().min(1),
-  sourcePK: z.string().optional(),
-  changes: z.object({
-    orderStatus: changeSchema.optional(),
-    paymentStatus: changeSchema.optional()
-  }).strict().optional(),
-  paymentTxnRef: z.string().min(1).optional()
-}).strict();
-
-function defaultAuditActor(): AuditActor {
-  return { type: "SERVICE", id: "unknown", role: "SYSTEM" };
-}
-
-function defaultAuditContext(): AuditContext {
-  return { source: "UNKNOWN", auditWriter };
-}
 
 function imageString(image: AttributeImage | undefined, key: string): string | undefined {
   const value = image?.[key]?.S?.trim();
@@ -192,34 +159,35 @@ function buildActorFromImage(
   };
 }
 
-function legacyPaymentOrderId(orderInfo: string | undefined): string | undefined {
-  return orderInfo?.match(/^(?:Payment for order|Thanh toán đơn hàng)\s+([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i)?.[1];
-}
-
-function actionFromEventName(eventName: AuditLogRecord["eventName"]): AuditLogRecord["action"] {
-  if (eventName === "INSERT") return "CREATED";
-  if (eventName === "REMOVE") return "DELETED";
-  return "UPDATED";
-}
-
 function buildChanges(
   oldImage: AttributeImage | undefined,
   newImage: AttributeImage | undefined,
   fields: readonly string[]
 ): Record<string, AuditChange> {
   return Object.fromEntries(fields.flatMap((field) => {
-    const before = oldImage?.[field]?.S ?? null;
-    const after = newImage?.[field]?.S ?? null;
+    const before = auditAttributeValue(oldImage?.[field]);
+    const after = auditAttributeValue(newImage?.[field]);
     if (before === after) return [];
     return [[field, { before, after }]];
   }));
 }
 
+function auditAttributeValue(attribute: StringAttribute | undefined): string | null {
+  if (attribute?.S !== undefined) return attribute.S;
+  if (attribute?.SS) return JSON.stringify([...attribute.SS].sort());
+  return null;
+}
+
 function assertAuditIdentity(audit: AuditLogRecord) {
   const changeKeys = Object.keys(audit.changes);
+  const allowedFields: readonly string[] = audit.resourceType === "USER"
+    ? audit.source.sk === "PROFILE" ? auditFieldWhitelist.USER.PROFILE
+      : audit.source.sk === "AUTHORIZATION" ? auditFieldWhitelist.USER.AUTHORIZATION : []
+    : auditFieldWhitelist[audit.resourceType];
   if (audit.PK !== `AUDIT_LOG#${audit.resourceType}#${audit.resourceId}`
     || audit.SK !== `EVENT#${audit.occurredAt}#${audit.source.eventId}`
     || changeKeys.length === 0
+    || changeKeys.some((field) => !allowedFields.includes(field) || (auditFieldDenylist as readonly string[]).includes(field))
     || changeKeys.some((field) => audit.changes[field]?.before === audit.changes[field]?.after)
     || (audit.resourceType === "PAYMENT" && (!audit.parentResourceId || !audit.paymentTxnRef))) {
     throw new Error("Audit log message has invalid identity or changes.");
@@ -228,43 +196,7 @@ function assertAuditIdentity(audit: AuditLogRecord) {
 
 export function parseAuditLogMessage(body: string | undefined): AuditLogRecord {
   if (!body) throw new Error("Audit log queue message is empty.");
-  const payload: unknown = JSON.parse(body);
-  if (typeof payload !== "object" || payload === null) throw new Error("Audit log queue message must be an object.");
-
-  if ("resourceType" in payload && "changes" in payload) {
-    const audit = auditLogSchema.parse(payload) as AuditLogRecord;
-    assertAuditIdentity(audit);
-    return audit;
-  }
-
-  const legacy = legacyAuditLogSchema.parse(payload);
-  const resourceType = legacy.changeType === "PAYMENT_STATUS" ? "PAYMENT" : "ORDER";
-  const resourceId = legacy.paymentTxnRef ?? legacy.orderId;
-  const legacyChange = resourceType === "PAYMENT" ? legacy.changes?.paymentStatus : legacy.changes?.orderStatus;
-  const before = legacy.before ?? legacy.previousStatus ?? legacyChange?.before ?? null;
-  const after = legacy.after ?? legacy.status ?? legacyChange?.after ?? null;
-  const audit: AuditLogRecord = {
-    PK: `AUDIT_LOG#${resourceType}#${resourceId}`,
-    SK: `EVENT#${legacy.occurredAt}#${legacy.sourceEventId}`,
-    entityType: "AUDIT_LOG",
-    resourceType,
-    resourceId,
-    ...(resourceType === "PAYMENT" ? { parentResourceType: "ORDER", parentResourceId: legacy.orderId } : {}),
-    action: actionFromEventName(legacy.eventName),
-    eventName: legacy.eventName,
-    changes: { status: { before, after } },
-    actor: legacy.actor ?? defaultAuditActor(),
-    context: legacy.context ?? defaultAuditContext(),
-    occurredAt: legacy.occurredAt,
-    source: {
-      type: "DYNAMODB_STREAM",
-      pk: resourceType === "PAYMENT" ? `PAYMENT#${resourceId}` : `ORDER#${legacy.orderId}`,
-      sk: legacy.sourceSK,
-      eventId: legacy.sourceEventId,
-      sequenceNumber: legacy.sourceSequenceNumber
-    },
-    ...(legacy.paymentTxnRef ? { paymentTxnRef: legacy.paymentTxnRef } : {})
-  };
+  const audit = auditLogSchema.parse(JSON.parse(body)) as AuditLogRecord;
   assertAuditIdentity(audit);
   return audit;
 }
@@ -275,7 +207,8 @@ export function buildAuditLogRecord(record: AuditStreamRecord): AuditLogRecord |
   const sk = keys?.SK?.S ?? "";
   const isOrder = pk.startsWith("ORDER#") && (sk === "ORDER" || sk === "DETAIL");
   const isPayment = pk.startsWith("PAYMENT#") && sk === "DETAIL";
-  if (!isOrder && !isPayment) return null;
+  const isUser = pk.startsWith("USER#") && (sk === "PROFILE" || sk === "AUTHORIZATION");
+  if (!isOrder && !isPayment && !isUser) return null;
 
   const eventName = record.eventName;
   if (eventName !== "INSERT" && eventName !== "MODIFY" && eventName !== "REMOVE") return null;
@@ -284,23 +217,26 @@ export function buildAuditLogRecord(record: AuditStreamRecord): AuditLogRecord |
   const oldImage = record.dynamodb.OldImage;
   const newImage = record.dynamodb.NewImage;
   if (isPayment && (newImage?.entityType?.S ?? oldImage?.entityType?.S) !== "PAYMENT_SESSION") return null;
+  if (isUser && (newImage?.entityType?.S ?? oldImage?.entityType?.S) !== (sk === "PROFILE" ? "USER_PROFILE" : "USER_AUTHORIZATION")) return null;
 
   const orderId = isOrder ? pk.slice("ORDER#".length)
-    : newImage?.orderId?.S ?? oldImage?.orderId?.S
-      ?? legacyPaymentOrderId(newImage?.orderInfo?.S ?? oldImage?.orderInfo?.S);
+    : isPayment ? newImage?.orderId?.S ?? oldImage?.orderId?.S : undefined;
   if (!orderId && isPayment) return null;
-  if (!orderId) throw new Error("Order stream record has an empty order ID.");
+  if (!orderId && isOrder) throw new Error("Order stream record has an empty order ID.");
 
-  const resourceType = isPayment ? "PAYMENT" : "ORDER";
-  const resourceId = isPayment ? pk.slice("PAYMENT#".length) : orderId;
-  if (isPayment && (!resourceId || (newImage?.txnRef?.S ?? oldImage?.txnRef?.S) !== resourceId)) {
+  const resourceType = isPayment ? "PAYMENT" : isUser ? "USER" : "ORDER";
+  const resourceId = isPayment ? pk.slice("PAYMENT#".length) : isUser ? pk.slice("USER#".length) : orderId;
+  if (!resourceId) throw new Error("Audit stream record has an empty resource ID.");
+  if (isPayment && (newImage?.txnRef?.S ?? oldImage?.txnRef?.S) !== resourceId) {
     throw new Error("Payment stream record has an invalid transaction reference.");
   }
 
   const changes = buildChanges(
     oldImage,
     newImage,
-    resourceType === "PAYMENT" ? auditFieldWhitelist.PAYMENT : auditFieldWhitelist.ORDER
+    resourceType === "PAYMENT" ? auditFieldWhitelist.PAYMENT
+      : resourceType === "USER" ? (sk === "PROFILE" ? auditFieldWhitelist.USER.PROFILE : auditFieldWhitelist.USER.AUTHORIZATION)
+        : auditFieldWhitelist.ORDER
   );
   if (Object.keys(changes).length === 0) return null;
 
@@ -318,7 +254,7 @@ export function buildAuditLogRecord(record: AuditStreamRecord): AuditLogRecord |
     resourceType,
     resourceId,
     ...(resourceType === "PAYMENT" ? { parentResourceType: "ORDER", parentResourceId: orderId } : {}),
-    action: actionFromEventName(eventName),
+    action: eventName === "INSERT" ? "CREATED" : eventName === "REMOVE" ? "DELETED" : "UPDATED",
     eventName,
     changes,
     actor: metadata.actor,
