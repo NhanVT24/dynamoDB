@@ -31,6 +31,11 @@ import { calculateShipping, calculateSubtotal, formatCurrency, formatShortDate }
 
 type ThemeMode = "light" | "dark";
 type SortMode = "newest" | "oldest" | "price-asc" | "price-desc" | "best-seller";
+type RegisterAddress = {
+  ward: string;
+  city: string;
+  province: string;
+};
 
 type StoreContextValue = {
   session: AuthSession | null;
@@ -637,10 +642,14 @@ function StorefrontAuthModal({
   const [password, setPassword] = useState("");
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
+  const [registerWard, setRegisterWard] = useState("");
+  const [registerCity, setRegisterCity] = useState("");
+  const [registerProvince, setRegisterProvince] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState("");
   const [confirmEmail, setConfirmEmail] = useState("");
   const [confirmCode, setConfirmCode] = useState("");
+  const [confirmAddress, setConfirmAddress] = useState<RegisterAddress | undefined>();
   const [forgotEmail, setForgotEmail] = useState("");
   const [resetCode, setResetCode] = useState("");
   const [resetPassword, setResetPassword] = useState("");
@@ -735,13 +744,25 @@ function StorefrontAuthModal({
         throw new Error("The confirmation password does not match.");
       }
 
+      if (!registerWard.trim() || !registerCity.trim() || !registerProvince.trim()) {
+        throw new Error("Please enter ward, city, and province.");
+      }
+
+      const address = {
+        ward: registerWard.trim(),
+        city: registerCity.trim(),
+        province: registerProvince.trim()
+      };
+
       await signUpWithCognito({
         email: registerEmail,
         password: registerPassword,
-        name: registerName
+        name: registerName,
+        address
       });
 
       setConfirmEmail(registerEmail);
+      setConfirmAddress(address);
       setEmail(registerEmail);
       setPassword(registerPassword);
       setResendCountdown(60);
@@ -761,7 +782,8 @@ function StorefrontAuthModal({
     try {
       await confirmSignUpWithCognito({
         email: confirmEmail,
-        code: confirmCode
+        code: confirmCode,
+        address: confirmAddress
       });
 
       setMode("login");
@@ -976,6 +998,32 @@ function StorefrontAuthModal({
                 required
               />
             </label>
+            <div className="grid gap-3 rounded-2xl border border-slate-200/70 p-3">
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Location</span>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <input
+                  value={registerWard}
+                  onChange={(event) => setRegisterWard(event.target.value)}
+                  placeholder="Ward"
+                  className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                  required
+                />
+                <input
+                  value={registerCity}
+                  onChange={(event) => setRegisterCity(event.target.value)}
+                  placeholder="City"
+                  className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                  required
+                />
+                <input
+                  value={registerProvince}
+                  onChange={(event) => setRegisterProvince(event.target.value)}
+                  placeholder="Province"
+                  className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                  required
+                />
+              </div>
+            </div>
             <PasswordField
               id="storefront-register-password"
               label="Password"

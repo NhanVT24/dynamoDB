@@ -9,8 +9,10 @@ import {
   getUserProfileSummary,
   normalizeUserAccountStatus,
   removeUserPermission,
+  updateUserAddresses,
   updateUserAccountStatus,
-  type UserAccountStatus
+  type UserAccountStatus,
+  type UserAddress
 } from "./authorization.repository.js";
 
 const cognito = new CognitoIdentityProviderClient({ region: env.AWS_REGION });
@@ -71,6 +73,11 @@ export class AuthorizationService {
       throw new BadRequestException("You cannot block your own account.");
     }
     return { subject, accountStatus: await updateUserAccountStatus(subject, normalizedStatus, actorSubject) };
+  }
+
+  async updateAddresses(subject: string, addresses: UserAddress[], actorSubject: string) {
+    await this.assertUserExists(subject);
+    return { subject, addresses: await updateUserAddresses(subject, addresses, actorSubject) };
   }
 
   private async assertUserExists(subject: string) {

@@ -1,10 +1,18 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Put, Req } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
+import { z } from "zod";
 import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
 import { isProductPermission } from "../../common/auth/permissions.js";
 import { AuthorizationService } from "./authorization.service.js";
 
 const accountStatuses = new Set(["ACTIVE", "SUSPENDED", "DISABLED", "BLOCKED"]);
+const addressesSchema = z.object({
+  addresses: z.array(z.object({
+    ward: z.string().trim().min(1).max(120),
+    city: z.string().trim().min(1).max(120),
+    province: z.string().trim().min(1).max(120)
+  }).strict()).max(10)
+}).strict();
 
 @Controller("api/admin/authorizations")
 export class AuthorizationController {
@@ -40,5 +48,14 @@ export class AuthorizationController {
     const actor = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
     if (!actor || actor.role !== "admin") throw new ForbiddenException("Admin principal is required");
     return this.authorizationService.updateAccountStatus(subject, status as "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED", actor.subject);
+  }
+
+  @Put("users/:subject/addresses")
+  async updateAddresses(@Req() request: FastifyRequest, @Param("subject") subject: string, @Body() body: unknown) {
+    const parsed = addressesSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException("Invalid user addresses.");
+    const actor = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    if (!actor || actor.role !== "admin") throw new ForbiddenException("Admin principal is required");
+    return this.authorizationService.updateAddresses(subject, parsed.data.addresses, actor.subject);
   }
 }

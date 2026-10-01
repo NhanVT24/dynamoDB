@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiUrl, authenticatedFetch } from "../../auth/lib/cognito-auth";
 
-import { type AuditResourceType, type AuditLogRecord, formatTime, resourceTone, actionTone, describePart, changedFieldCount, displayValue } from "./audit-log-display";
+import { type AuditResourceType, type AuditLogRecord, formatTime, resourceTone, actionTone, describePart, changedFieldCount, fieldLabel, summarizeChange } from "./audit-log-display";
 
 const resourceTabs: Array<{ value: AuditResourceType; label: string }> = [
   { value: "ALL", label: "All" },
@@ -125,7 +125,7 @@ export default function AuditLogViewer({ authToken, onSelect }: { authToken: str
                     <div className="min-w-0 text-sm text-slate-600">
                       <p className="break-all"><strong>Changed by:</strong> {record.actor?.email ?? record.actor?.id ?? "Not captured"} ({record.actor?.type ?? "UNKNOWN"})</p>
                       <div className="mt-2 space-y-2">{Object.entries(record.changes ?? {}).map(([field, change]) => (
-                        <p key={field} className="break-all"><strong className="text-slate-900">{field === "avatarKey" ? "Avatar" : field === "displayName" ? "Display name" : field}:</strong> {displayValue(change.before, field)} <span className="font-bold" aria-label="changed to">→</span> {displayValue(change.after, field)}</p>
+                        <p key={field} className="whitespace-pre-wrap break-all"><strong className="text-slate-900">{fieldLabel(field)}:</strong> {summarizeChange(change, field)}</p>
                       ))}</div>
                     </div>
                     <button type="button" onClick={() => onSelect(record)} className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-2 text-sm font-bold text-cyan-800 hover:bg-cyan-100">View details &rarr;</button>

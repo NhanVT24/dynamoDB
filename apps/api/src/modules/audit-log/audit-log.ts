@@ -74,7 +74,7 @@ export const auditFieldWhitelist = {
   ORDER: ["status"] as const,
   PAYMENT: ["status"] as const,
   USER: {
-    PROFILE: ["displayName", "avatarKey", "status"] as const,
+    PROFILE: ["displayName", "avatarKey", "status", "addresses"] as const,
     AUTHORIZATION: ["permissions"] as const
   }
 };

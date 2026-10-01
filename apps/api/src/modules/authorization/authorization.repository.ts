@@ -7,6 +7,11 @@ import { normalizePermissions, type ProductPermission } from "../../common/auth/
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 export type UserAccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
+export type UserAddress = {
+  ward: string;
+  city: string;
+  province: string;
+};
 const accountStatuses = new Set<UserAccountStatus>(["ACTIVE", "SUSPENDED", "DISABLED", "BLOCKED"]);
 
 export function normalizeUserAccountStatus(status: unknown): UserAccountStatus {
@@ -42,16 +47,29 @@ export async function getUserAccountStatus(subject: string): Promise<UserAccount
   return normalizeUserAccountStatus(result.Item ? unmarshall(result.Item).status : undefined);
 }
 
-export async function getUserProfileSummary(subject: string): Promise<{ accountStatus: UserAccountStatus; lastLoginAt: string; displayName: string }> {
+function normalizeAddresses(value: unknown): UserAddress[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const address = item as Record<string, unknown>;
+    const ward = String(address.ward || "").trim();
+    const city = String(address.city || "").trim();
+    const province = String(address.province || "").trim();
+    return ward && city && province ? [{ ward, city, province }] : [];
+  });
+}
+
+export async function getUserProfileSummary(subject: string): Promise<{ accountStatus: UserAccountStatus; lastLoginAt: string; displayName: string; addresses: UserAddress[] }> {
   const result = await rawDb.send(new GetItemCommand({
     TableName,
     Key: marshall(keys.userProfile(subject)),
     ConsistentRead: true,
-    ProjectionExpression: "#status, #lastLoginAt, #displayName",
+    ProjectionExpression: "#status, #lastLoginAt, #displayName, #addresses",
     ExpressionAttributeNames: {
       "#status": "status",
       "#lastLoginAt": "lastLoginAt",
-      "#displayName": "displayName"
+      "#displayName": "displayName",
+      "#addresses": "addresses"
     }
   }));
 
@@ -59,7 +77,8 @@ export async function getUserProfileSummary(subject: string): Promise<{ accountS
   return {
     accountStatus: normalizeUserAccountStatus(profile.status),
     lastLoginAt: String(profile.lastLoginAt || ""),
-    displayName: String(profile.displayName || "")
+    displayName: String(profile.displayName || ""),
+    addresses: normalizeAddresses(profile.addresses)
   };
 }
 
@@ -98,6 +117,42 @@ export async function updateUserAccountStatus(subject: string, status: UserAccou
   }));
 
   return getUserAccountStatus(subject);
+}
+
+export async function updateUserAddresses(subject: string, addresses: UserAddress[], updatedBy: string) {
+  const now = new Date().toISOString();
+  await rawDb.send(new UpdateItemCommand({
+    TableName,
+    Key: marshall(keys.userProfile(subject)),
+    UpdateExpression: "SET #entityType = if_not_exists(#entityType, :entityType), #subject = if_not_exists(#subject, :subject), #addresses = :addresses, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #auditActorId = :updatedBy, #auditActorType = :auditActorType, #auditActorRole = :auditActorRole, #auditSource = :auditSource, #auditReason = :auditReason, #auditRequestId = :auditRequestId",
+    ExpressionAttributeNames: {
+      "#entityType": "entityType",
+      "#subject": "subject",
+      "#addresses": "addresses",
+      "#updatedAt": "updatedAt",
+      "#updatedBy": "updatedBy",
+      "#auditActorId": "auditActorId",
+      "#auditActorType": "auditActorType",
+      "#auditActorRole": "auditActorRole",
+      "#auditSource": "auditSource",
+      "#auditReason": "auditReason",
+      "#auditRequestId": "auditRequestId"
+    },
+    ExpressionAttributeValues: marshall({
+      ":entityType": "USER_PROFILE",
+      ":subject": subject,
+      ":addresses": addresses,
+      ":updatedAt": now,
+      ":updatedBy": updatedBy,
+      ":auditActorType": "ADMIN",
+      ":auditActorRole": "admin",
+      ":auditSource": "ADMIN_PROFILE_API",
+      ":auditReason": "addresses_updated",
+      ":auditRequestId": `${subject}:addresses:${now}`
+    })
+  }));
+
+  return normalizeAddresses(addresses);
 }
 
 export async function addUserPermission(subject: string, permission: ProductPermission, updatedBy: string) {

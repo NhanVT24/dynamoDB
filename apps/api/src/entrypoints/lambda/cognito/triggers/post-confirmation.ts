@@ -12,6 +12,25 @@ import { getAttribute, normalizeEmail, resolveAuthProvider } from "../helper/att
 const client = new CognitoIdentityProviderClient({});
 const eventBridge = new EventBridgeClient({});
 
+function addressFromClientMetadata(metadata?: Record<string, string>) {
+  const ward = String(metadata?.addressWard || "").trim();
+  const city = String(metadata?.addressCity || "").trim();
+  const province = String(metadata?.addressProvince || "").trim();
+  return ward && city && province ? [{ ward, city, province }] : [];
+}
+
+function addressAttributeValues(addresses: Array<{ ward: string; city: string; province: string }>) {
+  return {
+    L: addresses.map((address) => ({
+      M: {
+        ward: { S: address.ward },
+        city: { S: address.city },
+        province: { S: address.province }
+      }
+    }))
+  };
+}
+
 async function persistConfirmedUserProfile(dynamo: DynamoDBClient, event: CognitoTriggerEvent) {
   const attributes = Object.entries(event.request.userAttributes ?? {})
     .map(([Name, Value]) => ({ Name, Value }) satisfies AttributeType);
@@ -22,6 +41,7 @@ async function persistConfirmedUserProfile(dynamo: DynamoDBClient, event: Cognit
 
   const email = normalizeEmail(getAttribute(attributes, "email"));
   const displayName = getAttribute(attributes, "name") || email || "Cognito User";
+  const addresses = addressFromClientMetadata(event.request.clientMetadata);
   const now = new Date().toISOString();
 
   try {
@@ -31,14 +51,16 @@ async function persistConfirmedUserProfile(dynamo: DynamoDBClient, event: Cognit
         PK: { S: `USER#${subject}` },
         SK: { S: "PROFILE" }
       },
-      UpdateExpression: "SET #entityType = :entityType, #subject = :subject, #email = :email, #emailVerified = :emailVerified, #displayName = :displayName, #authProvider = :authProvider, #cognitoUsername = :cognitoUsername, #status = :status, #createdAt = if_not_exists(#createdAt, :now), #updatedAt = :now",
-      ConditionExpression: "attribute_not_exists(PK) OR #entityType <> :entityType OR #email <> :email OR #emailVerified <> :emailVerified OR #displayName <> :displayName OR #authProvider <> :authProvider OR #cognitoUsername <> :cognitoUsername OR #status <> :status",
+      UpdateExpression: "SET #entityType = :entityType, #subject = :subject, #email = :email, #emailVerified = :emailVerified, #displayName = :displayName, #avatarKey = if_not_exists(#avatarKey, :avatarKey), #addresses = :addresses, #authProvider = :authProvider, #cognitoUsername = :cognitoUsername, #status = :status, #createdAt = if_not_exists(#createdAt, :now), #updatedAt = :now",
+      ConditionExpression: "attribute_not_exists(PK) OR #entityType <> :entityType OR #email <> :email OR #emailVerified <> :emailVerified OR #displayName <> :displayName OR attribute_not_exists(#avatarKey) OR attribute_not_exists(#addresses) OR #addresses <> :addresses OR #authProvider <> :authProvider OR #cognitoUsername <> :cognitoUsername OR #status <> :status",
       ExpressionAttributeNames: {
         "#entityType": "entityType",
         "#subject": "subject",
         "#email": "email",
         "#emailVerified": "emailVerified",
         "#displayName": "displayName",
+        "#avatarKey": "avatarKey",
+        "#addresses": "addresses",
         "#authProvider": "authProvider",
         "#cognitoUsername": "cognitoUsername",
         "#status": "status",
@@ -51,6 +73,8 @@ async function persistConfirmedUserProfile(dynamo: DynamoDBClient, event: Cognit
         ":email": { S: email },
         ":emailVerified": { BOOL: getAttribute(attributes, "email_verified") === "true" },
         ":displayName": { S: displayName },
+        ":avatarKey": { S: "" },
+        ":addresses": addressAttributeValues(addresses),
         ":authProvider": { S: resolveAuthProvider(attributes) },
         ":cognitoUsername": { S: event.userName || subject },
         ":status": { S: "CONFIRMED" },

@@ -48,6 +48,12 @@ type CognitoErrorLike = {
   message?: string;
 };
 
+type SignupAddress = {
+  ward: string;
+  city: string;
+  province: string;
+};
+
 const sessionStorageKey = "cognito-auth-session";
 const postLoginRedirectStorageKey = "cognito-post-login-redirect";
 const accessTokenRefreshLeewayMs = 10_000;
@@ -69,6 +75,18 @@ function clearPostLoginRedirect() {
 function dispatchAuthSessionChanged() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new Event(authSessionChangedEvent));
+}
+
+function addressClientMetadata(address?: SignupAddress) {
+  const ward = address?.ward.trim();
+  const city = address?.city.trim();
+  const province = address?.province.trim();
+  if (!ward || !city || !province) return undefined;
+  return {
+    addressWard: ward,
+    addressCity: city,
+    addressProvince: province
+  };
 }
 
 if (typeof window !== "undefined") {
@@ -564,6 +582,7 @@ export async function signUpWithCognito(input: {
   email: string;
   password: string;
   name?: string;
+  address?: SignupAddress;
 }) {
   const client = getCognitoClient();
   const command = new SignUpCommand({
@@ -573,7 +592,8 @@ export async function signUpWithCognito(input: {
     UserAttributes: [
       { Name: "email", Value: input.email.trim().toLowerCase() },
       ...(input.name?.trim() ? [{ Name: "name", Value: input.name.trim() }] : [])
-    ]
+    ],
+    ClientMetadata: addressClientMetadata(input.address)
   });
 
   return sendCognitoCommand("SignUp", command, () => client.send(command));
@@ -582,12 +602,14 @@ export async function signUpWithCognito(input: {
 export async function confirmSignUpWithCognito(input: {
   email: string;
   code: string;
+  address?: SignupAddress;
 }) {
   const client = getCognitoClient();
   const command = new ConfirmSignUpCommand({
     ClientId: getCognitoClientId(),
     Username: input.email.trim().toLowerCase(),
-    ConfirmationCode: input.code.trim()
+    ConfirmationCode: input.code.trim(),
+    ClientMetadata: addressClientMetadata(input.address)
   });
 
   return sendCognitoCommand("ConfirmSignUp", command, () => client.send(command));

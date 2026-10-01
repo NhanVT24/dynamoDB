@@ -1,7 +1,16 @@
 "use client";
 
+import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { apiUrl, authenticatedFetch, type ProductPermission } from "../../auth/lib/cognito-auth";
+
+type AccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
+
+type UserAddress = {
+  ward: string;
+  city: string;
+  province: string;
+};
 
 type ManagedUser = {
   subject: string;
@@ -10,10 +19,15 @@ type ManagedUser = {
   displayName: string;
   accountStatus: AccountStatus;
   lastLoginAt: string;
+  addresses: UserAddress[];
   permissions: ProductPermission[];
 };
 
-type AccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
+type DialogState =
+  | { type: "status"; user: ManagedUser }
+  | { type: "permissions"; user: ManagedUser }
+  | { type: "addresses"; user: ManagedUser }
+  | null;
 
 const permissionOptions: Array<{ code: ProductPermission; label: string; description: string }> = [
   { code: "products:create", label: "Create products", description: "Can create new products and become the owner of those products." },
@@ -44,12 +58,28 @@ function formatLastLogin(value: string) {
   }).format(date);
 }
 
+function addressLabel(address: UserAddress) {
+  return [address.ward, address.city, address.province].filter(Boolean).join(", ");
+}
+
+function normalizeAddressDraft(addresses: UserAddress[]) {
+  return addresses.map((address) => ({
+    ward: address.ward.trim(),
+    city: address.city.trim(),
+    province: address.province.trim()
+  })).filter((address) => address.ward || address.city || address.province);
+}
+
 export default function UserPermissionManager() {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState("");
   const [message, setMessage] = useState("");
   const [messageIsError, setMessageIsError] = useState(false);
+  const [dialog, setDialog] = useState<DialogState>(null);
+  const [statusDraft, setStatusDraft] = useState<AccountStatus>("ACTIVE");
+  const [permissionDraft, setPermissionDraft] = useState<ProductPermission[]>([]);
+  const [addressDraft, setAddressDraft] = useState<UserAddress[]>([]);
 
   async function loadUsers() {
     setLoading(true);
@@ -58,7 +88,8 @@ export default function UserPermissionManager() {
     try {
       const response = await authenticatedFetch(apiUrl("/api/admin/authorizations/users"), { cache: "no-store" });
       if (!response.ok) throw new Error("Could not load user permissions.");
-      setUsers(await response.json() as ManagedUser[]);
+      const payload = await response.json() as ManagedUser[];
+      setUsers(payload.map((user) => ({ ...user, addresses: Array.isArray(user.addresses) ? user.addresses : [] })));
     } catch (error) {
       setMessageIsError(true);
       setMessage(error instanceof Error ? error.message : "Could not load data.");
@@ -69,36 +100,28 @@ export default function UserPermissionManager() {
 
   useEffect(() => { void loadUsers(); }, []);
 
-  async function togglePermission(user: ManagedUser, permission: ProductPermission, enabled: boolean) {
-    const operationKey = `${user.subject}:${permission}`;
-    setUpdating(operationKey);
-    setMessage("");
-    setMessageIsError(false);
-    try {
-      const response = await authenticatedFetch(
-        apiUrl(`/api/admin/authorizations/users/${encodeURIComponent(user.subject)}/permissions/${encodeURIComponent(permission)}`),
-        { method: enabled ? "PUT" : "DELETE" }
-      );
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null) as { message?: string } | null;
-        throw new Error(payload?.message || "Could not update permissions.");
-      }
-      const payload = await response.json() as { permissions: ProductPermission[] };
-      setUsers((current) => current.map((item) => item.subject === user.subject
-        ? { ...item, permissions: payload.permissions }
-        : item));
-      setMessage(`Updated permissions for ${user.email}. The next refreshed access token will include the new permissions.`);
-    } catch (error) {
-      setMessageIsError(true);
-      setMessage(error instanceof Error ? error.message : "Could not update permissions.");
-    } finally {
-      setUpdating("");
-    }
+  function openStatusDialog(user: ManagedUser) {
+    setStatusDraft(user.accountStatus);
+    setDialog({ type: "status", user });
+  }
+
+  function openPermissionsDialog(user: ManagedUser) {
+    setPermissionDraft(user.permissions);
+    setDialog({ type: "permissions", user });
+  }
+
+  function openAddressesDialog(user: ManagedUser) {
+    setAddressDraft([user.addresses[0] ?? { ward: "", city: "", province: "" }]);
+    setDialog({ type: "addresses", user });
+  }
+
+  function closeDialog() {
+    if (updating) return;
+    setDialog(null);
   }
 
   async function updateStatus(user: ManagedUser, status: AccountStatus) {
-    const operationKey = `${user.subject}:status`;
-    setUpdating(operationKey);
+    setUpdating(`${user.subject}:status`);
     setMessage("");
     setMessageIsError(false);
     try {
@@ -115,10 +138,9 @@ export default function UserPermissionManager() {
         throw new Error(payload?.message || "Could not update account status.");
       }
       const payload = await response.json() as { accountStatus: AccountStatus };
-      setUsers((current) => current.map((item) => item.subject === user.subject
-        ? { ...item, accountStatus: payload.accountStatus }
-        : item));
+      setUsers((current) => current.map((item) => item.subject === user.subject ? { ...item, accountStatus: payload.accountStatus } : item));
       setMessage(`Updated account status for ${user.email} to ${payload.accountStatus}.`);
+      setDialog(null);
     } catch (error) {
       setMessageIsError(true);
       setMessage(error instanceof Error ? error.message : "Could not update account status.");
@@ -127,15 +149,107 @@ export default function UserPermissionManager() {
     }
   }
 
+  async function requestPermissionChange(user: ManagedUser, permission: ProductPermission, enabled: boolean) {
+    const response = await authenticatedFetch(
+      apiUrl(`/api/admin/authorizations/users/${encodeURIComponent(user.subject)}/permissions/${encodeURIComponent(permission)}`),
+      { method: enabled ? "PUT" : "DELETE" }
+    );
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { message?: string } | null;
+      throw new Error(payload?.message || "Could not update permissions.");
+    }
+    return await response.json() as { permissions: ProductPermission[] };
+  }
+
+  async function updatePermissions(user: ManagedUser, permissions: ProductPermission[]) {
+    const additions = permissions.filter((permission) => !user.permissions.includes(permission));
+    const removals = user.permissions.filter((permission) => !permissions.includes(permission));
+    if (additions.length === 0 && removals.length === 0) {
+      setDialog(null);
+      return;
+    }
+    setUpdating(`${user.subject}:permissions`);
+    setMessage("");
+    setMessageIsError(false);
+    try {
+      let latest = user.permissions;
+      for (const permission of additions) latest = (await requestPermissionChange(user, permission, true)).permissions;
+      for (const permission of removals) latest = (await requestPermissionChange(user, permission, false)).permissions;
+      setUsers((current) => current.map((item) => item.subject === user.subject ? { ...item, permissions: latest } : item));
+      setMessage(`Updated permissions for ${user.email}. The next refreshed access token will include the new permissions.`);
+      setDialog(null);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Could not update permissions.";
+      await loadUsers();
+      setMessageIsError(true);
+      setMessage(errorMessage);
+    } finally {
+      setUpdating("");
+    }
+  }
+
+  async function updateAddresses(user: ManagedUser, addresses: UserAddress[]) {
+    const normalized = normalizeAddressDraft(addresses).slice(0, 1);
+    if (normalized.some((address) => !address.ward || !address.city || !address.province)) {
+      setMessageIsError(true);
+      setMessage("Location must include ward, city, and province.");
+      return;
+    }
+    setUpdating(`${user.subject}:addresses`);
+    setMessage("");
+    setMessageIsError(false);
+    try {
+      const response = await authenticatedFetch(
+        apiUrl(`/api/admin/authorizations/users/${encodeURIComponent(user.subject)}/addresses`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ addresses: normalized })
+        }
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { message?: string } | null;
+        throw new Error(payload?.message || "Could not update addresses.");
+      }
+      const payload = await response.json() as { addresses: UserAddress[] };
+      setUsers((current) => current.map((item) => item.subject === user.subject ? { ...item, addresses: payload.addresses } : item));
+      setMessage(`Updated location information for ${user.email}.`);
+      setDialog(null);
+    } catch (error) {
+      setMessageIsError(true);
+      setMessage(error instanceof Error ? error.message : "Could not update addresses.");
+    } finally {
+      setUpdating("");
+    }
+  }
+
+  function submitDialog(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!dialog) return;
+    if (dialog.type === "status") void updateStatus(dialog.user, statusDraft);
+    if (dialog.type === "permissions") void updatePermissions(dialog.user, permissionDraft);
+    if (dialog.type === "addresses") void updateAddresses(dialog.user, addressDraft);
+  }
+
+  function togglePermissionDraft(permission: ProductPermission, enabled: boolean) {
+    setPermissionDraft((current) => enabled
+      ? [...new Set([...current, permission])]
+      : current.filter((item) => item !== permission));
+  }
+
+  function updateAddressDraft(index: number, field: keyof UserAddress, value: string) {
+    setAddressDraft((current) => current.map((address, itemIndex) => itemIndex === index ? { ...address, [field]: value } : address));
+  }
+
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-700">Authorization</p>
-          <h2 className="mt-1 text-2xl font-bold text-slate-950">Product Permissions</h2>
-          <p className="mt-2 max-w-3xl text-sm text-slate-600">Permissions are stored as a String Set in DynamoDB and added to the access token when Cognito issues a new token.</p>
+          <h2 className="mt-1 text-2xl font-bold text-slate-950">User Access</h2>
+          <p className="mt-2 max-w-3xl text-sm text-slate-600">Review account status, product permissions, and saved location information before opening a focused change form.</p>
         </div>
-        <button type="button" onClick={() => void loadUsers()} disabled={loading} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Refresh</button>
+        <button type="button" onClick={() => void loadUsers()} disabled={loading} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Refresh</button>
       </div>
 
       {message ? <p role={messageIsError ? "alert" : "status"} className={`mt-4 rounded-xl px-4 py-3 text-sm ${messageIsError ? "bg-rose-50 text-rose-900" : "bg-cyan-50 text-cyan-900"}`}>{message}</p> : null}
@@ -143,61 +257,112 @@ export default function UserPermissionManager() {
 
       <div className="mt-6 grid gap-4">
         {users.map((user) => (
-          <article key={user.subject} className="rounded-2xl border border-slate-200 p-4">
+          <article key={user.subject} className="rounded-lg border border-slate-200 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="font-bold text-slate-900">{user.displayName || user.email}</h3>
-                <p className="text-sm text-slate-500">{user.email}</p>
+              <div className="min-w-0">
+                <h3 className="break-all font-bold text-slate-900">{user.displayName || user.email}</h3>
+                <p className="break-all text-sm text-slate-500">{user.email}</p>
                 <p className="mt-2 text-xs font-semibold text-slate-500">Last login: <span className="text-slate-800">{formatLastLogin(user.lastLoginAt)}</span></p>
               </div>
-              <div className="grid gap-2 sm:min-w-56">
-                <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${statusTone(user.accountStatus)}`}>
-                  {user.accountStatus}
-                </span>
-                <label className="grid gap-1 text-xs font-semibold text-slate-600">
-                  Account status
-                  <select
-                    value={user.accountStatus}
-                    disabled={Boolean(updating)}
-                    onChange={(event) => void updateStatus(user, event.target.value as AccountStatus)}
-                    className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100 disabled:opacity-60"
-                  >
-                    {statusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                  <span className="text-[11px] font-normal leading-4 text-slate-500">
-                    {updating === `${user.subject}:status`
-                      ? "Saving account status..."
-                      : statusOptions.find((option) => option.value === user.accountStatus)?.description}
-                  </span>
-                </label>
-              </div>
+              <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${statusTone(user.accountStatus)}`}>{user.accountStatus}</span>
             </div>
-            <div className="mt-4 grid gap-3 lg:grid-cols-3">
-              {permissionOptions.map((option) => {
-                const enabled = user.permissions.includes(option.code);
-                const key = `${user.subject}:${option.code}`;
-                return (
-                  <label key={option.code} className="flex cursor-pointer gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <input
-                      type="checkbox"
-                      checked={enabled}
-                      disabled={Boolean(updating)}
-                      onChange={(event) => void togglePermission(user, option.code, event.target.checked)}
-                      className="mt-1 h-4 w-4"
-                    />
-                    <span>
-                      <span className="block text-sm font-bold text-slate-900">{option.label}</span>
-                      <span className="mt-1 block text-xs leading-5 text-slate-500">{updating === key ? "Saving..." : option.description}</span>
-                    </span>
-                  </label>
-                );
-              })}
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              <section className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-bold text-slate-900">Account</h4>
+                  <button type="button" onClick={() => openStatusDialog(user)} disabled={Boolean(updating)} className="text-sm font-bold text-cyan-700 disabled:opacity-50">Change</button>
+                </div>
+                <p className="mt-2 text-sm text-slate-600">{statusOptions.find((option) => option.value === user.accountStatus)?.description}</p>
+              </section>
+
+              <section className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-bold text-slate-900">Permissions</h4>
+                  <button type="button" onClick={() => openPermissionsDialog(user)} disabled={Boolean(updating)} className="text-sm font-bold text-cyan-700 disabled:opacity-50">Change</button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {user.permissions.length ? user.permissions.map((permission) => <span key={permission} className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-700">{permission}</span>) : <span className="text-sm text-slate-500">No product permissions</span>}
+                </div>
+              </section>
+
+              <section className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-bold text-slate-900">Location</h4>
+                  <button type="button" onClick={() => openAddressesDialog(user)} disabled={Boolean(updating)} className="text-sm font-bold text-cyan-700 disabled:opacity-50">Change</button>
+                </div>
+                <div className="mt-2 space-y-1 text-sm text-slate-600">
+                  {user.addresses.length ? user.addresses.map((address, index) => <p key={`${address.ward}:${address.city}:${address.province}:${index}`} className="break-words">{index + 1}. {addressLabel(address)}</p>) : <p>No saved location</p>}
+                </div>
+              </section>
             </div>
           </article>
         ))}
       </div>
+
+      {dialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <form onSubmit={submitDialog} className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Change {dialog.type}</p>
+                <h3 className="mt-1 break-all text-xl font-bold text-slate-950">{dialog.user.displayName || dialog.user.email}</h3>
+                <p className="break-all text-sm text-slate-500">{dialog.user.email}</p>
+              </div>
+              <button type="button" onClick={closeDialog} disabled={Boolean(updating)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 disabled:opacity-50">Close</button>
+            </div>
+
+            {dialog.type === "status" ? (
+              <div className="mt-5 grid gap-3">
+                {statusOptions.map((option) => (
+                  <label key={option.value} className="flex gap-3 rounded-lg border border-slate-200 p-3">
+                    <input type="radio" name="status" checked={statusDraft === option.value} onChange={() => setStatusDraft(option.value)} className="mt-1 h-4 w-4" />
+                    <span>
+                      <span className="block text-sm font-bold text-slate-900">{option.label}</span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-500">{option.description}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : null}
+
+            {dialog.type === "permissions" ? (
+              <div className="mt-5 grid gap-3">
+                {permissionOptions.map((option) => {
+                  const enabled = permissionDraft.includes(option.code);
+                  return (
+                    <label key={option.code} className="flex gap-3 rounded-lg border border-slate-200 p-3">
+                      <input type="checkbox" checked={enabled} onChange={(event) => togglePermissionDraft(option.code, event.target.checked)} className="mt-1 h-4 w-4" />
+                      <span>
+                        <span className="block text-sm font-bold text-slate-900">{option.label}</span>
+                        <span className="mt-1 block text-xs leading-5 text-slate-500">{option.description}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {dialog.type === "addresses" ? (
+              <div className="mt-5 grid gap-4">
+                <div className="rounded-lg border border-slate-200 p-3">
+                  <p className="mb-3 text-sm font-bold text-slate-900">Location</p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">Ward<input value={addressDraft[0]?.ward ?? ""} onChange={(event) => updateAddressDraft(0, "ward", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">City<input value={addressDraft[0]?.city ?? ""} onChange={(event) => updateAddressDraft(0, "city", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">Province<input value={addressDraft[0]?.province ?? ""} onChange={(event) => updateAddressDraft(0, "province", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4">
+              <button type="button" onClick={closeDialog} disabled={Boolean(updating)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 disabled:opacity-50">Cancel</button>
+              <button type="submit" disabled={Boolean(updating)} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{updating ? "Saving..." : "Save change"}</button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </section>
   );
 }

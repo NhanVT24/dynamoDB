@@ -2,27 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { apiUrl, authenticatedFetch } from "../../auth/lib/cognito-auth";
-import { type AuditLogRecord, type AuditChange, formatTime, describePart, actionTone, resourceTone, displayValue } from "../components/audit-log-display";
+import { type AuditLogRecord, type AuditChange, formatTime, describePart, actionTone, resourceTone, fieldLabel, parseAuditValue, displayNestedValue } from "../components/audit-log-display";
 
 function Metadata({ entries }: { entries: Array<[string, string | undefined]> }) {
   const populated = entries.filter(([, value]) => typeof value === "string" && value.trim().length > 0);
   return <dl className="grid gap-4 sm:grid-cols-2">{populated.map(([label, value]) => <div key={label} className="min-w-0"><dt className="text-xs font-bold uppercase tracking-wide text-slate-700">{label}</dt><dd className="mt-1 whitespace-pre-wrap break-all text-sm text-slate-900">{value}</dd></div>)}</dl>;
-}
-
-function permissionValues(value: string | null): string[] | null {
-  if (value === null) return [];
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) && parsed.every((entry) => typeof entry === "string") ? parsed : null;
-  } catch { return null; }
-}
-
-function PermissionDiff({ change }: { change: AuditChange }) {
-  const before = permissionValues(change.before), after = permissionValues(change.after);
-  if (!before || !after) return null;
-  const added = after.filter((permission) => !before.includes(permission));
-  const removed = before.filter((permission) => !after.includes(permission));
-  return <div className="mt-3 space-y-1 text-sm"><p className="break-all text-emerald-700">Added: {added.join(", ") || "None"}</p><p className="break-all text-rose-700">Removed: {removed.join(", ") || "None"}</p></div>;
 }
 
 type AuditLogDetailProps = {
@@ -32,6 +16,92 @@ type AuditLogDetailProps = {
   initialRecord?: AuditLogRecord;
   onBack: () => void;
 };
+
+function stableString(value: unknown) {
+  if (value && typeof value === "object") {
+    if (Array.isArray(value)) return JSON.stringify(value.map(stableString));
+    return JSON.stringify(Object.keys(value as Record<string, unknown>).sort().map((key) => [key, stableString((value as Record<string, unknown>)[key])]));
+  }
+  return JSON.stringify(value);
+}
+
+function valueChanged(before: unknown, after: unknown) {
+  return stableString(before) !== stableString(after);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function arrayObjectFieldLabel(key: string, index: number, total: number) {
+  return total <= 1 ? key : `Address ${index + 1} ${key}`;
+}
+
+function ChangedValues({ change }: { change: AuditChange }) {
+  const before = parseAuditValue(change.before);
+  const after = parseAuditValue(change.after);
+
+  if (before.kind === "array" || after.kind === "array") {
+    const beforeItems = before.kind === "array" ? before.value : [];
+    const afterItems = after.kind === "array" ? after.value : [];
+    const arrayHasObjects = beforeItems.some(isRecord) || afterItems.some(isRecord);
+    if (arrayHasObjects) {
+      const count = Math.max(beforeItems.length, afterItems.length);
+      const rows = Array.from({ length: count }).flatMap((_, index) => {
+        const previous = beforeItems[index];
+        const next = afterItems[index];
+        if (!valueChanged(previous, next)) return [];
+        if (isRecord(previous) || isRecord(next)) {
+          const previousRecord = isRecord(previous) ? previous : {};
+          const nextRecord = isRecord(next) ? next : {};
+          const keys = [...new Set([...Object.keys(previousRecord), ...Object.keys(nextRecord)])];
+          return keys.flatMap((key) => valueChanged(previousRecord[key], nextRecord[key])
+            ? [{ label: arrayObjectFieldLabel(key, index, count), before: previousRecord[key], after: nextRecord[key] }]
+            : []);
+        }
+        return [{ label: String(index + 1), before: previous, after: next }];
+      });
+      return <ChangedRows rows={rows} />;
+    }
+
+    const previous = beforeItems.map(String);
+    const next = afterItems.map(String);
+    const added = next.filter((item) => !previous.includes(item));
+    const removed = previous.filter((item) => !next.includes(item));
+    return <ChangedRows rows={[
+      ...added.map((item) => ({ label: item, before: undefined, after: item })),
+      ...removed.map((item) => ({ label: item, before: item, after: undefined }))
+    ]} />;
+  }
+
+  if (before.kind === "object" || after.kind === "object") {
+    const previous = before.kind === "object" ? before.value : {};
+    const next = after.kind === "object" ? after.value : {};
+    const rows = [...new Set([...Object.keys(previous), ...Object.keys(next)])]
+      .flatMap((key) => valueChanged(previous[key], next[key]) ? [{ label: key, before: previous[key], after: next[key] }] : []);
+    return <ChangedRows rows={rows} />;
+  }
+
+  return <ChangedRows rows={[{ label: "Value", before: change.before, after: change.after }]} />;
+}
+
+function ChangedRows({ rows }: { rows: Array<{ label: string; before: unknown; after: unknown }> }) {
+  if (!rows.length) return null;
+  return <div className="overflow-hidden rounded-lg border border-slate-200">
+    <div className="hidden grid-cols-[12rem_1fr_1fr] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 md:grid">
+      <span>Property</span>
+      <span>New</span>
+      <span>Old</span>
+    </div>
+    <div className="divide-y divide-slate-100">{rows.map((row) => (
+      <div key={`${row.label}:${displayNestedValue(row.before)}:${displayNestedValue(row.after)}`} className="grid gap-2 bg-white px-3 py-3 text-sm md:grid-cols-[12rem_1fr_1fr] md:gap-3">
+        <strong className="break-all text-slate-900">{row.label}</strong>
+        <span className="break-all rounded-md bg-emerald-50 px-3 py-2 text-emerald-800">{displayNestedValue(row.after)}</span>
+        <span className="break-all rounded-md bg-rose-50 px-3 py-2 text-rose-800">{displayNestedValue(row.before)}</span>
+      </div>
+    ))}</div>
+  </div>;
+}
 
 export default function AuditLogDetail({ authToken, pk, sk, initialRecord, onBack }: AuditLogDetailProps) {
   const [record, setRecord] = useState<AuditLogRecord | null>(initialRecord ?? null);
@@ -93,9 +163,8 @@ export default function AuditLogDetail({ authToken, pk, sk, initialRecord, onBac
         <h2 className="mb-4 text-xl font-bold">Changes</h2>
         <p className="mb-4 text-sm text-slate-500">Historical values of tracked fields for this event.</p>
         <div className="space-y-4">{Object.entries(record.changes ?? {}).map(([field, change]) => <div key={field} className="rounded-lg border border-slate-200 p-4">
-          <h3 className="mb-3 font-bold">{field === "avatarKey" ? "Avatar key" : field === "displayName" ? "Display name" : field}</h3>
-          <div className="grid gap-3 md:grid-cols-2"><div className="min-w-0 rounded-lg bg-rose-50 p-3"><p className="text-xs font-bold uppercase text-rose-700">Before</p><p className="mt-2 whitespace-pre-wrap break-all text-sm">{displayValue(change.before, "")}</p></div><div className="min-w-0 rounded-lg bg-emerald-50 p-3"><p className="text-xs font-bold uppercase text-emerald-700">After</p><p className="mt-2 whitespace-pre-wrap break-all text-sm">{displayValue(change.after, "")}</p></div></div>
-          {field === "permissions" ? <PermissionDiff change={change} /> : null}
+          <h3 className="mb-3 text-base font-bold text-slate-950">{fieldLabel(field)}</h3>
+          <ChangedValues change={change} />
         </div>)}</div>
         {!Object.keys(record.changes ?? {}).length ? <p className="text-sm text-slate-500">No tracked field changes recorded.</p> : null}
       </section>

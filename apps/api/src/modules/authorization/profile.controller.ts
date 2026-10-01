@@ -11,7 +11,12 @@ import { keys } from "../../database/dynamodb/keys.js";
 
 const profilePatchSchema = z.object({
   displayName: z.string().trim().min(1).max(80).optional(),
-  avatarKey: z.string().max(500).optional()
+  avatarKey: z.string().max(500).optional(),
+  addresses: z.array(z.object({
+    ward: z.string().trim().min(1).max(120),
+    city: z.string().trim().min(1).max(120),
+    province: z.string().trim().min(1).max(120)
+  }).strict()).max(10).optional()
 }).strict().refine((value) => Object.keys(value).length > 0);
 
 const s3 = new S3Client({
@@ -32,6 +37,18 @@ function avatarUrl(key: string): string {
   return `${base}/${key}`;
 }
 
+function normalizeAddresses(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const address = item as Record<string, unknown>;
+    const ward = String(address.ward || "").trim();
+    const city = String(address.city || "").trim();
+    const province = String(address.province || "").trim();
+    return ward && city && province ? [{ ward, city, province }] : [];
+  });
+}
+
 @Controller("api/profile")
 export class ProfileController {
   @Get("me")
@@ -48,7 +65,8 @@ export class ProfileController {
     return {
       displayName: typeof profile.displayName === "string" ? profile.displayName : "",
       avatarKey: key,
-      avatarUrl: avatarUrl(key)
+      avatarUrl: avatarUrl(key),
+      addresses: normalizeAddresses(profile.addresses)
     };
   }
 
@@ -58,7 +76,7 @@ export class ProfileController {
     if (!principal) throw new ForbiddenException("A signed-in account is required.");
     const parsed = profilePatchSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException("Invalid profile update.");
-    const { displayName, avatarKey } = parsed.data;
+    const { displayName, avatarKey, addresses } = parsed.data;
     if (avatarKey !== undefined && avatarKey) {
       const ownPrefix = `public/avatars/${principal.subject}/`;
       if (!avatarKey.startsWith(ownPrefix) && !avatarKey.startsWith("public/default-avatars/")) {
@@ -91,6 +109,11 @@ export class ProfileController {
       names["#avatarKey"] = "avatarKey";
       values[":avatarKey"] = avatarKey;
       changes.push("#avatarKey = :avatarKey");
+    }
+    if (addresses !== undefined) {
+      names["#addresses"] = "addresses";
+      values[":addresses"] = addresses;
+      changes.push("#addresses = :addresses");
     }
     try {
       await rawDb.send(new UpdateItemCommand({

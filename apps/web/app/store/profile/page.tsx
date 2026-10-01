@@ -130,6 +130,9 @@ function ProfileSkeleton({ isDark }: { isDark: boolean }) {
   );
 }
 
+type UserAddress = { ward: string; city: string; province: string };
+type EditableProfile = { displayName: string; avatarKey: string; avatarUrl: string; addresses: UserAddress[] };
+
 function makeInitials(name: string, email: string) {
   const parts = String(name || email)
     .trim()
@@ -140,10 +143,21 @@ function makeInitials(name: string, email: string) {
   return parts.map((part) => part.charAt(0).toUpperCase()).join("") || "NX";
 }
 
+function addressLabel(address: UserAddress) {
+  return [address.ward, address.city, address.province].filter(Boolean).join(", ");
+}
+
+function normalizeAddressDraft(addresses: UserAddress[]) {
+  return addresses.map((address) => ({
+    ward: address.ward.trim(),
+    city: address.city.trim(),
+    province: address.province.trim()
+  })).filter((address) => address.ward || address.city || address.province);
+}
+
 const avatarUploadEndpoint = apiUrl("/api/uploads/avatar/presign");
 const defaultAvatarsEndpoint = apiUrl("/api/uploads/default-avatars");
 const profileEndpoint = apiUrl("/api/profile/me");
-type EditableProfile = { displayName: string; avatarKey: string; avatarUrl: string };
 
 // Count only orders that still represent a paid purchase. Expired, cancelled,
 // failed and refund-in-progress orders are excluded from these metrics.
@@ -168,7 +182,10 @@ export default function StoreProfilePage() {
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [nameDraft, setNameDraft] = useState("");
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [addresses, setAddresses] = useState<UserAddress[]>([]);
+  const [addressDraft, setAddressDraft] = useState<UserAddress[]>([]);
+  const [isAddressDialogOpen, setIsAddressDialogOpen] = useState(false);
+  const [isSavingAddresses, setIsSavingAddresses] = useState(false);
   const [profileNotice, setProfileNotice] = useState("");
   const [defaultAvatars, setDefaultAvatars] = useState<DefaultAvatarItem[]>([]);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -193,6 +210,9 @@ export default function StoreProfilePage() {
       setSelectedAvatarFile(null);
       setDisplayName(session?.name ?? "");
       setNameDraft(session?.name ?? "");
+      setAddresses([]);
+      setAddressDraft([]);
+      setIsAddressDialogOpen(false);
       setIsLoading(true);
       setProductsLoading(true);
 
@@ -228,6 +248,7 @@ export default function StoreProfilePage() {
           setNameDraft(profile.displayName || session.name);
           setAvatarKey(profile.avatarKey);
           setAvatarUrl(profile.avatarUrl);
+          setAddresses(Array.isArray(profile.addresses) ? profile.addresses : []);
           if (profile.displayName && profile.displayName !== session.name) {
             setSession({ ...session, name: profile.displayName });
           }
@@ -318,15 +339,34 @@ export default function StoreProfilePage() {
     setProfileNotice("");
   }
 
-  async function saveProfileChanges() {
-    if (!session || isSavingProfile) return;
-    const nextName = nameDraft.trim();
-    if (!nextName) return;
-    const nameChanged = nextName !== displayName;
-    const avatarChanged = Boolean(selectedAvatarFile) || (selectedAvatarKey !== null && selectedAvatarKey !== avatarKey);
-    if (!nameChanged && !avatarChanged) return;
+  function openAddressDialog() {
+    setNameDraft(displayName || session?.name || "");
+    setSelectedAvatarKey(null);
+    setSelectedAvatarFile(null);
+    if (avatarInputRef.current) avatarInputRef.current.value = "";
+    setAddressDraft([addresses[0] ?? { ward: "", city: "", province: "" }]);
+    setProfileError("");
+    setProfileNotice("");
+    setIsAddressDialogOpen(true);
+  }
 
-    setIsSavingProfile(true);
+  function updateAddressDraft(index: number, field: keyof UserAddress, value: string) {
+    setAddressDraft((current) => current.map((address, itemIndex) => itemIndex === index ? { ...address, [field]: value } : address));
+  }
+
+  async function saveAddressChanges() {
+    if (!session || isSavingAddresses) return;
+    const nextName = nameDraft.trim();
+    if (!nextName) {
+      setProfileError("Display name is required.");
+      return;
+    }
+    const normalized = normalizeAddressDraft(addressDraft).slice(0, 1);
+    if (normalized.some((address) => !address.ward || !address.city || !address.province)) {
+      setProfileError("Each location must include ward, city, and province.");
+      return;
+    }
+    setIsSavingAddresses(true);
     setProfileError("");
     setProfileNotice("");
     try {
@@ -349,33 +389,35 @@ export default function StoreProfilePage() {
         if (!uploadResponse.ok) throw new Error("Could not upload avatar to S3.");
         nextAvatarKey = presign.key;
       }
-
-      const patch = {
-        ...(nameChanged ? { displayName: nextName } : {}),
-        ...(avatarChanged && nextAvatarKey !== null ? { avatarKey: nextAvatarKey } : {})
-      };
       const response = await authenticatedFetch(profileEndpoint, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch)
+        body: JSON.stringify({
+          displayName: nextName,
+          ...(nextAvatarKey !== null ? { avatarKey: nextAvatarKey } : {}),
+          addresses: normalized
+        })
       });
       const result = await response.json().catch(() => null) as (EditableProfile & { message?: string }) | null;
-      if (!response.ok || !result) throw new Error(result?.message || "Could not save profile.");
+      if (!response.ok || !result) throw new Error(result?.message || "Could not save profile information.");
       setDisplayName(result.displayName);
       setNameDraft(result.displayName);
       setAvatarKey(result.avatarKey);
       setAvatarUrl(result.avatarUrl);
+      setAddresses(Array.isArray(result.addresses) ? result.addresses : []);
+      setAddressDraft([]);
       setSelectedAvatarKey(null);
       setSelectedAvatarFile(null);
       if (avatarInputRef.current) avatarInputRef.current.value = "";
       if (result.displayName && session.name !== result.displayName) {
         setSession({ ...session, name: result.displayName });
       }
-      setProfileNotice("Profile saved.");
+      setIsAddressDialogOpen(false);
+      setProfileNotice("Profile information saved.");
     } catch (saveError) {
-      setProfileError(saveError instanceof Error ? saveError.message : "Could not save profile.");
+      setProfileError(saveError instanceof Error ? saveError.message : "Could not save profile information.");
     } finally {
-      setIsSavingProfile(false);
+      setIsSavingAddresses(false);
     }
   }
 
@@ -415,9 +457,6 @@ export default function StoreProfilePage() {
   const initials = makeInitials(displayName || session.name, session.email);
   const selectedDefaultAvatar = defaultAvatars.find((avatar) => avatar.key === selectedAvatarKey);
   const displayedAvatarUrl = avatarPreviewUrl || selectedDefaultAvatar?.fileUrl || avatarUrl;
-  const hasProfileChanges = nameDraft.trim() !== displayName
-    || selectedAvatarFile !== null
-    || (selectedAvatarKey !== null && selectedAvatarKey !== avatarKey);
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
@@ -457,18 +496,13 @@ export default function StoreProfilePage() {
                   : "border-slate-200 bg-[linear-gradient(180deg,_rgba(248,250,252,1)_0%,_rgba(255,247,237,0.92)_100%)]"
               }`}
             >
-              <form onSubmit={(event) => { event.preventDefault(); void saveProfileChanges(); }}>
               <div className="flex items-center gap-4">
                 <div className="flex shrink-0 flex-col items-center gap-2">
                   <div className="h-28 w-28 overflow-hidden rounded-[2rem] bg-gradient-to-br from-slate-950 via-orange-500 to-pink-500 text-3xl font-bold tracking-[0.18em] text-white shadow-[0_18px_40px_-22px_rgba(249,115,22,0.85)]">
                     {displayedAvatarUrl ? <img src={displayedAvatarUrl} alt="Avatar" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center">{initials}</div>}
                   </div>
-                  <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isSavingProfile} className={`rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${isDark ? "bg-white/10 text-white" : "bg-slate-900 text-white"} disabled:opacity-60`}>
-                    Choose photo
-                  </button>
-                  <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => selectAvatarFile(event.target.files?.[0])} />
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className={`truncate text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{displayName || session.name}</p>
                   <p className={`truncate text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{session.email}</p>
                   <span
@@ -485,44 +519,12 @@ export default function StoreProfilePage() {
                     {session.role === "admin" ? "Admin" : "Customer"}
                   </span>
                 </div>
-              </div>
-
-              <div className="mt-5 flex flex-wrap items-end gap-2">
-                <label className="min-w-0 flex-1 text-xs font-semibold">
-                  Display name
-                  <input value={nameDraft} onChange={(event) => { setNameDraft(event.target.value); setProfileNotice(""); }} maxLength={80} required disabled={isSavingProfile} className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60" />
-                </label>
-                <button type="submit" disabled={isSavingProfile || !nameDraft.trim() || !hasProfileChanges} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSavingProfile ? "Saving..." : "Save profile"}</button>
+                <button type="button" onClick={openAddressDialog} disabled={isSavingAddresses} className="shrink-0 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                  Change information
+                </button>
               </div>
               {profileError ? <p role="alert" className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">{profileError}</p> : null}
               {profileNotice ? <p role="status" className="mt-3 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{profileNotice}</p> : null}
-
-              {defaultAvatars.length > 0 ? (
-                <div className="mt-5">
-                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Default Avatars</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {defaultAvatars.map((avatar) => (
-                      <button
-                        key={avatar.key}
-                        type="button"
-                        onClick={() => { setSelectedAvatarKey(avatar.key); setSelectedAvatarFile(null); setProfileError(""); setProfileNotice(""); }}
-                        disabled={isSavingProfile}
-                        className={`h-12 w-12 overflow-hidden rounded-2xl border transition ${
-                          (selectedAvatarKey ?? avatarKey) === avatar.key && !selectedAvatarFile
-                            ? "border-orange-500 ring-2 ring-orange-300"
-                            : isDark
-                              ? "border-white/10 hover:border-white/30"
-                              : "border-slate-200 hover:border-orange-300"
-                        }`}
-                        title={avatar.fileName}
-                      >
-                        <img src={avatar.fileUrl} alt={avatar.fileName} className="h-full w-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              </form>
 
               <div className="mt-6 grid gap-3">
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
@@ -541,7 +543,69 @@ export default function StoreProfilePage() {
                   <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Product Permissions</p>
                   <p className={`mt-1 break-words text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>{session.permissions.length > 0 ? session.permissions.join(", ") : "No delegated product permissions"}</p>
                 </div>
+                <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Location</p>
+                  </div>
+                  <div className={`mt-2 space-y-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>
+                    {addresses.length ? addresses.map((address, index) => <p key={`${address.ward}:${address.city}:${address.province}:${index}`} className="break-words">{index + 1}. {addressLabel(address)}</p>) : <p>No saved location</p>}
+                  </div>
+                </div>
               </div>
+              {isAddressDialogOpen ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+                  <form onSubmit={(event) => { event.preventDefault(); void saveAddressChanges(); }} className={`w-full max-w-2xl rounded-2xl p-5 shadow-xl ${isDark ? "bg-slate-950 text-white" : "bg-white text-slate-950"}`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-500">Change Information</p>
+                        <h3 className="mt-1 text-xl font-semibold">Profile information</h3>
+                      </div>
+                      <button type="button" onClick={() => setIsAddressDialogOpen(false)} disabled={isSavingAddresses} className={`rounded-xl px-3 py-2 text-sm font-semibold ${isDark ? "border border-white/10 text-white" : "border border-slate-200 text-slate-700"} disabled:opacity-50`}>Close</button>
+                    </div>
+                    <div className="mt-5 grid gap-4">
+                      <div className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
+                        <p className="mb-3 text-sm font-semibold">Basic information</p>
+                        <div className="grid gap-3 sm:grid-cols-[7rem_1fr]">
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="h-24 w-24 overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-slate-950 via-orange-500 to-pink-500 text-2xl font-bold tracking-[0.18em] text-white">
+                              {avatarPreviewUrl || selectedDefaultAvatar?.fileUrl || avatarUrl ? <img src={avatarPreviewUrl || selectedDefaultAvatar?.fileUrl || avatarUrl} alt="Avatar preview" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center">{initials}</div>}
+                            </div>
+                            <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isSavingAddresses} className={`rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${isDark ? "bg-white/10 text-white" : "bg-slate-900 text-white"} disabled:opacity-60`}>Choose photo</button>
+                            <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => selectAvatarFile(event.target.files?.[0])} />
+                          </div>
+                          <div className="grid gap-3">
+                            <label className="grid gap-1 text-xs font-semibold">Display name<input value={nameDraft} onChange={(event) => { setNameDraft(event.target.value); setProfileNotice(""); }} maxLength={80} required disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                            {defaultAvatars.length > 0 ? (
+                              <div>
+                                <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Default Avatars</p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {defaultAvatars.map((avatar) => (
+                                    <button key={avatar.key} type="button" onClick={() => { setSelectedAvatarKey(avatar.key); setSelectedAvatarFile(null); setProfileError(""); setProfileNotice(""); }} disabled={isSavingAddresses} className={`h-11 w-11 overflow-hidden rounded-2xl border transition ${(selectedAvatarKey ?? avatarKey) === avatar.key && !selectedAvatarFile ? "border-orange-500 ring-2 ring-orange-300" : isDark ? "border-white/10 hover:border-white/30" : "border-slate-200 hover:border-orange-300"}`} title={avatar.fileName}>
+                                      <img src={avatar.fileUrl} alt={avatar.fileName} className="h-full w-full object-cover" />
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                      <div className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
+                        <p className="mb-3 text-sm font-semibold">Location</p>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <label className="grid gap-1 text-xs font-semibold">Ward<input value={addressDraft[0]?.ward ?? ""} onChange={(event) => updateAddressDraft(0, "ward", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                          <label className="grid gap-1 text-xs font-semibold">City<input value={addressDraft[0]?.city ?? ""} onChange={(event) => updateAddressDraft(0, "city", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                          <label className="grid gap-1 text-xs font-semibold">Province<input value={addressDraft[0]?.province ?? ""} onChange={(event) => updateAddressDraft(0, "province", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4">
+                      <button type="button" onClick={() => setIsAddressDialogOpen(false)} disabled={isSavingAddresses} className={`rounded-xl px-4 py-2 text-sm font-semibold ${isDark ? "border border-white/10 text-white" : "border border-slate-200 text-slate-700"} disabled:opacity-50`}>Cancel</button>
+                      <button type="submit" disabled={isSavingAddresses} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSavingAddresses ? "Saving..." : "Save information"}</button>
+                    </div>
+                  </form>
+                </div>
+              ) : null}
             </aside>
           </div>
         </section>
