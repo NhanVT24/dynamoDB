@@ -12,8 +12,9 @@ import { VnpayModule } from "../../modules/vnpay/vnpay.module.js";
 import { CustomersModule } from "../../modules/customers/customers.module.js";
 import { EmailDeliveriesModule } from "../../modules/email-deliveries/email-deliveries.module.js";
 import { AuthorizationModule } from "../../modules/authorization/authorization.module.js";
+import { AuditLogModule } from "../../modules/audit-log/audit-log.module.js";
 
 @Module({
-  imports: [ConfigModule, AdminOpsModule, HealthModule, ShoppingModule, SalesModule, StorefrontModule, LearningModule, NotificationsModule, UploadsModule, VnpayModule, CustomersModule, EmailDeliveriesModule, AuthorizationModule]
+  imports: [ConfigModule, AdminOpsModule, HealthModule, ShoppingModule, SalesModule, StorefrontModule, LearningModule, NotificationsModule, UploadsModule, VnpayModule, CustomersModule, EmailDeliveriesModule, AuthorizationModule, AuditLogModule]
 })
 export class AppModule {}

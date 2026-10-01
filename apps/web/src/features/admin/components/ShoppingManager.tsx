@@ -163,13 +163,13 @@ const panelStyle: CSSProperties = {
 
 const pageGridStyle: CSSProperties = {
   display: "grid",
-  gap: "12px"
+  gap: "20px"
 };
 
 const statsGridStyle: CSSProperties = {
   display: "grid",
   gap: "12px",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))"
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))"
 };
 
 const filterGridStyle: CSSProperties = {
@@ -464,7 +464,7 @@ function ShoppingManagerSkeleton() {
         ))}
       </section>
 
-      <section className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_380px]" style={gridPanelsStyle}>
+      <section className="product-manager-grid grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_380px]" style={gridPanelsStyle}>
         <div className="product-manager-panel flex h-full min-h-full flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/90" style={tablePanelStyle}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #e2e8f0" }}>
             <SkeletonBlock className="h-7 w-36" />
@@ -1160,8 +1160,8 @@ export default function ShoppingManager({
         <p className="mt-1 text-xs text-slate-500">Manage products, inventory, and scheduled sales from one workspace.</p>
       </section>
 
-      <section className="flex flex-wrap items-center gap-3">
-        <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4" style={statsGridStyle}>
+      <section className="flex flex-col gap-5 lg:flex-row lg:items-center">
+        <div className="grid w-full min-w-0 flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4" style={statsGridStyle}>
           <StatCard label="Total Products" value={summary.totalProducts} />
           <StatCard label="Low Stock" value={summary.lowStock} />
           <StatCard label="Out of Stock" value={summary.outOfStock} />
@@ -1172,7 +1172,7 @@ export default function ShoppingManager({
 
       {tabNavigation}
 
-      <div className={workspaceContent ? "hidden" : undefined}>
+      <div className={workspaceContent ? "hidden" : "grid min-w-0 gap-5"}>
 
       {isViewerOnly ? (
         <section className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800" style={panelStyle}>
@@ -1263,7 +1263,7 @@ export default function ShoppingManager({
         </div>
       </section>
 
-      <section className="grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_380px]" style={gridPanelsStyle}>
+      <section className="product-manager-grid grid items-stretch gap-5 xl:grid-cols-[minmax(0,1fr)_380px]" style={gridPanelsStyle}>
         <div className="product-manager-panel flex h-full min-h-full flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/90" style={tablePanelStyle}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #e2e8f0" }}>
             <div>
@@ -1637,6 +1637,9 @@ export default function ShoppingManager({
       {workspaceContent}
       <style jsx>{`
         @media (max-width: 1279px) {
+          section.product-manager-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
           .product-manager-panel {
             height: auto !important;
             min-height: 0 !important;

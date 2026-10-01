@@ -700,7 +700,6 @@ export class AwsApiStack extends Stack {
           `${table.attrArn}/index/*`
         ]
       }));
-
       fn.addToRolePolicy(new iam.PolicyStatement({
         actions: [
           "ses:SendEmail",
@@ -816,6 +815,16 @@ export class AwsApiStack extends Stack {
       25,
       256
     );
+    httpApiFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: [
+        "dynamodb:GetItem",
+        "dynamodb:Query"
+      ],
+      resources: [
+        auditLogTable.attrArn,
+        `${auditLogTable.attrArn}/index/*`
+      ]
+    }));
     const auditLogWorkerDlq = new sqs.Queue(this, "AuditLogWorkerDlq", {
       queueName: "supermarket-audit-log-worker-dlq.fifo",
       fifo: true,
