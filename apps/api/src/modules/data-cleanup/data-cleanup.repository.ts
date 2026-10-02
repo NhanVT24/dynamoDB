@@ -7,6 +7,8 @@ import {
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
+import { auditTarget } from "../audit-log/audit-resources.js";
+import { deleteAuditedItem } from "../audit-log/audit-delete.js";
 import { rawDb } from "../../database/dynamodb/client.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
@@ -22,6 +24,7 @@ export type CleanupCandidate = {
   entityType: string;
   status?: string;
   isRead?: boolean;
+  updatedAt?: string;
 };
 
 function toDynamoItem(item: Record<string, unknown>) {
@@ -132,8 +135,16 @@ export async function listCleanupCandidates(input: {
 export async function deleteCleanupCandidates(candidates: CleanupCandidate[]) {
   let deletedCount = 0;
 
-  for (let index = 0; index < candidates.length; index += 25) {
-    let pending: WriteRequest[] = candidates.slice(index, index + 25).map((candidate) => ({
+  const audited = candidates.filter((candidate) => auditTarget(candidate.PK, candidate.SK));
+  const ordinary = candidates.filter((candidate) => !auditTarget(candidate.PK, candidate.SK));
+  for (let offset = 0; offset < audited.length; offset += 10) {
+    const results = await Promise.all(audited.slice(offset, offset + 10).map((candidate) =>
+      deleteAuditedItem(TableName, toDynamoItem({ PK: candidate.PK, SK: candidate.SK }), candidate.updatedAt)));
+    deletedCount += results.filter(Boolean).length;
+  }
+
+  for (let index = 0; index < ordinary.length; index += 25) {
+    let pending: WriteRequest[] = ordinary.slice(index, index + 25).map((candidate) => ({
       DeleteRequest: { Key: toDynamoItem({ PK: candidate.PK, SK: candidate.SK }) }
     }));
 

@@ -11,6 +11,7 @@ import {
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
+import { deletionAuditPut } from "../audit-log/audit-delete.js";
 import { keys } from "../../database/dynamodb/keys.js";
 import { getMockShoppingItem, listMockShoppingItems } from "./shopping.mock.js";
 import {
@@ -580,14 +581,14 @@ export async function incrementItemValue(id: string, field: string, incrementBy 
             ...(field === "stock" ? ["#inventoryAlertSent = :inventoryAlertSent"] : [])
           ].join(", ") + (field === "stock" ? " REMOVE inventoryAlertSentAt" : ""),
           ConditionExpression: expectedOwnerSub
-            ? "attribute_exists(PK) AND ownerSub = :expectedOwnerSub"
-            : "attribute_exists(PK)",
+            ? "attribute_exists(PK) AND #version = :expectedVersion AND ownerSub = :expectedOwnerSub"
+            : "attribute_exists(PK) AND #version = :expectedVersion",
           ExpressionAttributeNames: {
             "#field": field,
             "#status": "status",
             "#searchName": "searchName",
             "#version": "version",
-            "#inventoryAlertSent": "inventoryAlertSent"
+            ...(field === "stock" ? { "#inventoryAlertSent": "inventoryAlertSent" } : {})
           },
           ExpressionAttributeValues: toDynamoItem({
             ":fieldValue": nextValue,
@@ -595,6 +596,7 @@ export async function incrementItemValue(id: string, field: string, incrementBy 
             ":searchName": nextRecord.searchName,
             ":updatedAt": nextRecord.updatedAt,
             ":one": 1,
+            ":expectedVersion": current.version,
             ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}),
             ...(field === "stock" ? { ":inventoryAlertSent": false } : {})
           })
@@ -927,18 +929,26 @@ export async function deleteShoppingItem(id: string, expectedOwnerSub?: string) 
     throw error;
   }
 
+  const deleteCondition = expectedOwnerSub
+    ? "attribute_exists(PK) AND #version = :deleteVersion AND ownerSub = :expectedOwnerSub"
+    : "attribute_exists(PK) AND #version = :deleteVersion";
+  const deleteValues = toDynamoItem({ ":deleteVersion": current.version, ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}) });
+  // The metadata-only marker suppresses the raw REMOVE; the transaction below
+  // emits the authoritative delete audit with its actor and exact snapshot.
+  await rawDb.send(new UpdateItemCommand({ TableName, Key: toDynamoItem(keys.product(id)),
+    UpdateExpression: "SET auditDeleteOutbox = :auditDeleteOutbox", ConditionExpression: deleteCondition,
+    ExpressionAttributeNames: { "#version": "version" },
+    ExpressionAttributeValues: { ...deleteValues, ":auditDeleteOutbox": { BOOL: true } } }));
   await rawDb.send(new TransactWriteItemsCommand({
     TransactItems: [
+      deletionAuditPut(TableName, toDynamoItem({ ...current, ...keys.product(id) })),
       {
         Delete: {
           TableName,
           Key: toDynamoItem(keys.product(id)),
-          ConditionExpression: expectedOwnerSub
-            ? "attribute_exists(PK) AND ownerSub = :expectedOwnerSub"
-            : "attribute_exists(PK)",
-          ExpressionAttributeValues: expectedOwnerSub
-            ? toDynamoItem({ ":expectedOwnerSub": expectedOwnerSub })
-            : undefined
+          ConditionExpression: deleteCondition,
+          ExpressionAttributeNames: { "#version": "version" },
+          ExpressionAttributeValues: deleteValues
         }
       },
       {

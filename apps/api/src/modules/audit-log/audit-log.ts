@@ -1,6 +1,8 @@
 import type { AttributeValue } from "@aws-sdk/client-dynamodb";
 import { NumberValueImpl, unmarshall, type NativeAttributeValue } from "@aws-sdk/util-dynamodb";
 import { z } from "zod";
+import { auditResourceTypes, auditTarget, type AuditResourceType } from "./audit-resources.js";
+export { auditFieldWhitelist } from "./audit-resources.js";
 
 export type DynamoAttribute = {
   S?: string;
@@ -50,7 +52,7 @@ export type AuditLogRecord = {
   PK: string;
   SK: string;
   entityType: "AUDIT_LOG";
-  resourceType: "ORDER" | "PAYMENT" | "USER";
+  resourceType: AuditResourceType;
   resourceId: string;
   parentResourceType?: "ORDER";
   parentResourceId?: string;
@@ -61,22 +63,13 @@ export type AuditLogRecord = {
   context: AuditContext;
   occurredAt: string;
   source: {
-    type: "DYNAMODB_STREAM";
+    type: "DYNAMODB_STREAM" | "APPLICATION_EVENT";
     pk: string;
     sk: string;
     eventId: string;
-    sequenceNumber: string;
+    sequenceNumber?: string;
   };
   paymentTxnRef?: string;
-};
-
-export const auditFieldWhitelist = {
-  ORDER: ["status"] as const,
-  PAYMENT: ["status"] as const,
-  USER: {
-    PROFILE: ["displayName", "avatarKey", "status", "addresses"] as const,
-    AUTHORIZATION: ["permissions"] as const
-  }
 };
 
 export const auditFieldDenylist = [
@@ -116,7 +109,7 @@ const auditLogSchema = z.object({
   PK: z.string().min(1),
   SK: z.string().min(1),
   entityType: z.literal("AUDIT_LOG"),
-  resourceType: z.enum(["ORDER", "PAYMENT", "USER"]),
+  resourceType: z.enum(auditResourceTypes),
   resourceId: z.string().min(1),
   parentResourceType: z.literal("ORDER").optional(),
   parentResourceId: z.string().min(1).optional(),
@@ -127,11 +120,11 @@ const auditLogSchema = z.object({
   context: contextSchema,
   occurredAt: z.iso.datetime(),
   source: z.object({
-    type: z.literal("DYNAMODB_STREAM"),
+    type: z.enum(["DYNAMODB_STREAM", "APPLICATION_EVENT"]),
     pk: z.string().min(1),
     sk: z.string().min(1),
     eventId: z.string().min(1),
-    sequenceNumber: z.string().min(1)
+    sequenceNumber: z.string().min(1).optional()
   }).strict(),
   paymentTxnRef: z.string().min(1).optional()
 }).strict();
@@ -168,12 +161,12 @@ function buildActorFromImage(
   newImage: AttributeImage | undefined,
   oldImage: AttributeImage | undefined
 ): { actor: AuditActor; context: AuditContext } {
-  const actorType = imageString(newImage, "auditActorType") ?? imageString(oldImage, "auditActorType");
-  const actorId = imageString(newImage, "auditActorId") ?? imageString(oldImage, "auditActorId");
-  const actorRole = imageString(newImage, "auditActorRole") ?? imageString(oldImage, "auditActorRole");
-  const source = imageString(newImage, "auditSource") ?? imageString(oldImage, "auditSource");
-  const reason = imageString(newImage, "auditReason") ?? imageString(oldImage, "auditReason");
-  const requestId = imageString(newImage, "auditRequestId") ?? imageString(oldImage, "auditRequestId");
+  const actorType = imageString(newImage ?? oldImage, "auditActorType");
+  const actorId = imageString(newImage ?? oldImage, "auditActorId");
+  const actorRole = imageString(newImage ?? oldImage, "auditActorRole");
+  const source = imageString(newImage ?? oldImage, "auditSource");
+  const reason = imageString(newImage ?? oldImage, "auditReason");
+  const requestId = imageString(newImage ?? oldImage, "auditRequestId");
   const safeActorType = actorType === "USER" || actorType === "ADMIN" || actorType === "SERVICE" || actorType === "SYSTEM"
     ? actorType
     : "SERVICE";
@@ -285,16 +278,16 @@ function isPlainObject(value: unknown): value is Record<string, NativeAttributeV
 
 function assertAuditIdentity(audit: AuditLogRecord) {
   const changeKeys = Object.keys(audit.changes);
-  const allowedFields: readonly string[] = audit.resourceType === "USER"
-    ? audit.source.sk === "PROFILE" ? auditFieldWhitelist.USER.PROFILE
-      : audit.source.sk === "AUTHORIZATION" ? auditFieldWhitelist.USER.AUTHORIZATION : []
-    : auditFieldWhitelist[audit.resourceType];
-  if (audit.PK !== `AUDIT_LOG#${audit.resourceType}#${audit.resourceId}`
+  const target = auditTarget(audit.source.pk, audit.source.sk);
+  const allowedFields = target?.fields ?? [];
+  if (target?.resourceType !== audit.resourceType || target.resourceId !== audit.resourceId
+    || audit.PK !== `AUDIT_LOG#${audit.resourceType}#${audit.resourceId}`
     || audit.SK !== `EVENT#${audit.occurredAt}#${audit.source.eventId}`
     || changeKeys.length === 0
     || changeKeys.some((field) => !allowedFields.includes(field) || (auditFieldDenylist as readonly string[]).includes(field))
     || changeKeys.some((field) => audit.changes[field]?.before === audit.changes[field]?.after)
-    || (audit.resourceType === "PAYMENT" && (!audit.parentResourceId || !audit.paymentTxnRef))) {
+    || (audit.source.type === "DYNAMODB_STREAM" && !audit.source.sequenceNumber)
+    || (audit.resourceType === "PAYMENT" && !audit.paymentTxnRef)) {
     throw new Error("Audit log message has invalid identity or changes.");
   }
 }
@@ -314,11 +307,16 @@ export function buildAuditLogRecord(record: AuditStreamRecord): AuditLogRecord |
   const keys = record.dynamodb?.Keys;
   const pk = keys?.PK?.S ?? "";
   const sk = keys?.SK?.S ?? "";
-  const isOrder = pk.startsWith("ORDER#") && (sk === "ORDER" || sk === "DETAIL");
-  const isPayment = pk.startsWith("PAYMENT#") && sk === "DETAIL";
-  const isUser = pk.startsWith("USER#") && (sk === "PROFILE" || sk === "AUTHORIZATION");
-  if (!isOrder && !isPayment && !isUser) return null;
-
+  // Delete outboxes carry the deleting actor atomically with the source delete.
+  if (pk.startsWith("AUDIT_EVENT#")) {
+    if (record.eventName !== "INSERT") return null;
+    return parseAuditLogMessage(record.dynamodb?.NewImage?.auditRecord?.S);
+  }
+  const target = auditTarget(pk, sk);
+  if (!target) return null;
+  const isOrder = target.resourceType === "ORDER";
+  const isPayment = target.resourceType === "PAYMENT";
+  const isUser = target.resourceType === "USER";
   const eventName = record.eventName;
   if (eventName !== "INSERT" && eventName !== "MODIFY" && eventName !== "REMOVE") return null;
   if (!record.eventID || !record.dynamodb?.SequenceNumber) throw new Error("Audit stream record is missing its event identity.");
@@ -330,22 +328,21 @@ export function buildAuditLogRecord(record: AuditStreamRecord): AuditLogRecord |
 
   const orderId = isOrder ? pk.slice("ORDER#".length)
     : isPayment ? newImage?.orderId?.S ?? oldImage?.orderId?.S : undefined;
-  if (!orderId && isPayment) return null;
   if (!orderId && isOrder) throw new Error("Order stream record has an empty order ID.");
 
-  const resourceType = isPayment ? "PAYMENT" : isUser ? "USER" : "ORDER";
-  const resourceId = isPayment ? pk.slice("PAYMENT#".length) : isUser ? pk.slice("USER#".length) : orderId;
+  const { resourceType, resourceId } = target;
   if (!resourceId) throw new Error("Audit stream record has an empty resource ID.");
   if (isPayment && (newImage?.txnRef?.S ?? oldImage?.txnRef?.S) !== resourceId) {
     throw new Error("Payment stream record has an invalid transaction reference.");
   }
 
+  if (eventName === "REMOVE" && oldImage?.auditDeleteOutbox?.BOOL === true) return null;
+  if (eventName === "REMOVE" && target.resourceType === "OPERATION") return null;
+
   const changes = buildChanges(
     oldImage,
     newImage,
-    resourceType === "PAYMENT" ? auditFieldWhitelist.PAYMENT
-      : resourceType === "USER" ? (sk === "PROFILE" ? auditFieldWhitelist.USER.PROFILE : auditFieldWhitelist.USER.AUTHORIZATION)
-        : auditFieldWhitelist.ORDER
+    target.fields
   );
   if (Object.keys(changes).length === 0) return null;
 
@@ -355,14 +352,15 @@ export function buildAuditLogRecord(record: AuditStreamRecord): AuditLogRecord |
   }
 
   const occurredAt = new Date(eventTime * 1000).toISOString();
-  const metadata = buildActorFromImage(newImage, oldImage);
+  // A raw REMOVE has no deleting actor. Never attribute it to the last editor.
+  const metadata = buildActorFromImage(newImage, eventName === "REMOVE" ? undefined : oldImage);
   const audit: AuditLogRecord = {
     PK: `AUDIT_LOG#${resourceType}#${resourceId}`,
     SK: `EVENT#${occurredAt}#${record.eventID}`,
     entityType: "AUDIT_LOG",
     resourceType,
     resourceId,
-    ...(resourceType === "PAYMENT" ? { parentResourceType: "ORDER", parentResourceId: orderId } : {}),
+    ...(resourceType === "PAYMENT" && orderId ? { parentResourceType: "ORDER", parentResourceId: orderId } : {}),
     action: eventName === "INSERT" ? "CREATED" : eventName === "REMOVE" ? "DELETED" : "UPDATED",
     eventName,
     changes,

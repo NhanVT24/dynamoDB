@@ -1,120 +1,49 @@
-﻿# Audit log qua DynamoDB Streams
+# DynamoDB Streams audit pipeline
 
-Flow hiện tại dùng audit log chung cho `ORDER`, `PAYMENT` và `USER`.
+The application writes compact change history to the retained `supermarket-audit-log` table.
 
-```text
-Source table item change
-DynamoDB Stream
-EventBridge Pipe (lọc key, chuyển Stream record)
-AuditLog FIFO SQS
-AuditLogWorker Lambda (diff OldImage/NewImage, ghi audit)
-supermarket-audit-log DynamoDB table
-```
+`Source write -> DynamoDB Stream -> EventBridge Pipe -> FIFO SQS -> audit worker -> audit table`
 
-## Source được audit hiện tại
+See [audit-log-whitelist.md](audit-log-whitelist.md) for current resources, fields, deletion consistency, actor attribution, retention and limits. The authoritative key/field registry is `apps/api/src/modules/audit-log/audit-resources.ts`.
 
-| Entity | Stream key được nhận | Field đang lưu | Lý do |
-| --- | --- | --- | --- |
-| `ORDER` | `PK = ORDER#...`, `SK = ORDER` hoặc `DETAIL` | `status` | Theo dõi vòng đời đơn hàng. |
-| `PAYMENT` | `PK = PAYMENT#...`, `SK = DETAIL` | `status` | Theo dõi vòng đời thanh toán gắn với order. |
-| `USER` profile | `PK = USER#...`, `SK = PROFILE` | `displayName`, `avatarKey`, `status` | Theo dõi thay đổi profile; không ghi email/password. |
-| `USER` authorization | `PK = USER#...`, `SK = AUTHORIZATION` | `permissions` | Theo dõi thay đổi String Set permission. |
-
-Các field nhạy cảm như password, token, email, phone, address, raw gateway payload không đưa vào audit log. Whitelist chi tiết nằm ở `docs/audit-log-whitelist.md` và `apps/api/src/modules/audit-log/audit-log.ts`.
-
-## Record ghi xuống table `supermarket-audit-log`
-
-Key chính:
+## Record identity
 
 - `PK = AUDIT_LOG#<resourceType>#<resourceId>`
-- `SK = EVENT#<occurredAt>#<streamEventId>`
+- `SK = EVENT#<occurredAt>#<eventId>`
+- `action`: CREATED, UPDATED or DELETED.
+- `changes`: map of whitelisted fields to before/after strings or null.
+- `actor`: type, ID and optional role.
+- `context`: source, reason, request ID and audit writer.
+- `source`: source PK/SK, event ID and DynamoDB sequence number for Stream events.
 
-Các attribute chính:
+Normal changes use source type DYNAMODB_STREAM. Audited deletion outboxes use APPLICATION_EVENT with a server-generated application event ID; no DynamoDB sequence number is fabricated. The outbox itself is delivered through Streams.
 
-- `entityType = AUDIT_LOG`
-- `resourceType`, `resourceId`
-- `parentResourceType`, `parentResourceId` nếu event payment thuộc một order
-- `action`: `CREATED`, `UPDATED`, `DELETED`
-- `eventName`: `INSERT`, `MODIFY`, `REMOVE`
-- `changes`: map `{ field: { before, after } }`
-- `actor`
-- `context`
-- `occurredAt`
-- `source`: DynamoDB Stream metadata tối thiểu gồm `pk`, `sk`, `eventId`, `sequenceNumber`
+## Failures and replay
 
-Ví dụ:
+The Pipe forwards raw Stream records and retries delivery failures. Its DLQ is `supermarket-audit-log-pipe-dlq`. The worker computes the whitelist diff; unchanged fields and metadata-only writes are ignored. Failed writes retry through SQS and eventually reach `supermarket-audit-log-worker-dlq.fifo`.
 
-```json
-{
-  "PK": "AUDIT_LOG#ORDER#order-123",
-  "SK": "EVENT#2026-09-29T02:20:55.000Z#90800b5cfd20407b06bb312eed9b77ac",
-  "entityType": "AUDIT_LOG",
-  "resourceType": "ORDER",
-  "resourceId": "order-123",
-  "action": "UPDATED",
-  "eventName": "MODIFY",
-  "changes": {
-    "status": { "before": "awaiting_payment", "after": "paid" }
-  },
-  "actor": { "type": "SERVICE", "id": "lambda:vnpay-ipn", "role": "SYSTEM" },
-  "context": {
-    "source": "VNPAY_IPN",
-    "reason": "payment_success",
-    "requestId": "order-123",
-    "auditWriter": "lambda:supermarket-audit-log-worker"
-  },
-  "occurredAt": "2026-09-29T02:20:55.000Z",
-  "source": {
-    "type": "DYNAMODB_STREAM",
-    "pk": "ORDER#order-123",
-    "sk": "ORDER",
-    "eventId": "90800b5cfd20407b06bb312eed9b77ac",
-    "sequenceNumber": "32221500002542073933713924"
-  }
-}
-```
+The worker writes with `attribute_not_exists(PK) AND attribute_not_exists(SK)`. Replaying the same event cannot create a duplicate retained record. On FIFO batch failure, the worker returns the failed message and later messages for retry to preserve order. Distinct successful source writes are distinct events.
 
-## Failure handling
+After fixing the underlying issue, replay valid worker-DLQ messages to AuditLogMainQueue through the Admin Ops UI. During migration, the worker also accepts compact legacy AUDIT_LOG queue messages. Source outboxes/operation ledgers expire after 90 days; retained audit records do not expire.
 
-- Pipe đọc DynamoDB Stream và gửi nguyên Stream record vào FIFO SQS. Pipe retry khi chuyển tiếp lỗi; record không xử lý được được đưa vào `supermarket-audit-log-pipe-dlq`.
-- Worker diff `OldImage`/`NewImage` theo whitelist; nếu không có field cần audit thay đổi thì bỏ qua. Nếu ghi table `supermarket-audit-log` lỗi, SQS sẽ retry theo visibility timeout. Sau `maxReceiveCount`, message vào worker DLQ.
-- Worker dùng conditional write `attribute_not_exists(PK) AND attribute_not_exists(SK)` để replay không tạo duplicate.
+## Local validation
 
-## Replay
+Run from the repository root:
 
-- Worker DLQ có thể replay về `AuditLogMainQueue` nếu payload hợp lệ và lỗi gốc đã được sửa. Trong giai đoạn chuyển tiếp, worker cũng nhận audit record `AUDIT_LOG` cũ đã được publisher đưa vào queue.
-- Pipe DLQ lưu các Stream record chưa chuyển được. Kiểm tra lỗi gốc trước khi replay vào queue chính.
+~~~powershell
+npm run typecheck --workspace apps/api
+npx tsx apps/api/tests/audit-log.test.ts
+npm run typecheck --workspace apps/web
+npx tsc --noEmit -p infra/tsconfig.json
+npm run cdk:aws:synth
+~~~
 
-## Test lỗi bằng browser
+The web typecheck script performs a production build/static export. Windows sandbox spawn EPERM can require running Next/esbuild outside the sandbox.
 
-Script browser hiện tại:
+## Deployment order
 
-```text
-scripts/browser-audit-log-worker-failure.js
-```
+Deploy compatible API/Cognito handlers and the audit worker before updating the Pipe filter. The source table also needs auditExpiresAt TTL configuration. Publish static frontend assets and invalidate CloudFront to expose the new resource filters.
 
-Endpoint test:
+Preserve the existing cross-stack audit queue URL export while deployed consumers still import it. A temporary old-publisher/new-Pipe overlap can enqueue the same Stream event twice; the worker's conditional writes protect retained records. Pipe starts at TRIM_HORIZON, so verify backfill and historical actor availability explicitly.
 
-```text
-POST /api/admin/ops/audit-log/worker-failure-test
-GET  /api/admin/ops/dlq?queue=auditLogWorker&maxMessages=10
-```
-
-Script này gửi một payload cố tình sai vào `AuditLogMainQueue`. Worker sẽ reject, SQS retry, rồi message đi vào `AuditLogWorkerDlq`.
-
-## CDK stacks
-
-- `SupermarketAwsStack` owns the source table, audit table, audit FIFO queue, worker and worker alarms.
-- `SupermarketAuditLogStreamStack` owns the EventBridge Pipe, Pipe DLQ and Pipe alarms. It imports the source Stream ARN and audit queue from the API stack.
-- `SupermarketAwsStack` owns the admin SNS topic and an EventBridge rule that routes Pipe alarm state changes to that topic.
-
-Deploy toàn bộ bằng một lệnh tại thư mục gốc repo (PowerShell):
-
-```powershell
-npm run cdk:aws:deploy:all -- -AwsProfile nhandev -DomainName truyenmasinhvien.com
-```
-
-Lệnh này deploy API stack trước, rồi Stream stack, sau đó frontend và S3. Dấu `--` chuyển `-AwsProfile` và `-DomainName` từ npm sang script PowerShell.
-
-For an existing deployment, update the API stack first, then the Stream stack. The API stack temporarily keeps the audit queue URL export because the deployed publisher imports it. Pipe starts at `TRIM_HORIZON`; during migration, the old publisher and the new Pipe may temporarily enqueue the same Stream event. Conditional audit writes prevent duplicate stored records. Inspect the old retained S3 failure bucket before retiring its replay process. Editing CDK source does not move live resources.
-
+Check live Pipe state, queue delivery, worker execution, audit records, actor attribution and delete/replay behavior after deployment. Local builds and synth establish code/configuration validity; they do not prove live AWS coverage.

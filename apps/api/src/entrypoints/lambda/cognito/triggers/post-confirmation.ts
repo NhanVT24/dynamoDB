@@ -122,6 +122,21 @@ async function publishWelcomeEmailRequested(input: { subject: string; email: str
 }
 
 export async function TriggerPostConfirmation(dynamo: DynamoDBClient, event: CognitoTriggerEvent) {
+  if (event.triggerSource === "PostConfirmation_ConfirmForgotPassword") {
+    const subject = event.request.userAttributes?.sub;
+    if (!subject) throw new Error("Cannot audit password reset without a user subject.");
+    await dynamo.send(new UpdateItemCommand({
+      TableName: process.env.DYNAMODB_TABLE_NAME,
+      Key: { PK: { S: `USER#${subject}` }, SK: { S: "PROFILE" } },
+      UpdateExpression: "SET #entityType = if_not_exists(#entityType, :entityType), #subject = if_not_exists(#subject, :actor), passwordResetAt = :now, auditActorType = :type, auditActorId = :actor, auditActorRole = :role, auditSource = :source, auditReason = :reason",
+      ExpressionAttributeNames: { "#entityType": "entityType", "#subject": "subject" },
+      ExpressionAttributeValues: {
+        ":now": { S: new Date().toISOString() }, ":entityType": { S: "USER_PROFILE" }, ":type": { S: "USER" }, ":actor": { S: subject },
+        ":role": { S: "ACCOUNT_OWNER" }, ":source": { S: "COGNITO_POST_CONFIRMATION" }, ":reason": { S: "password_reset_completed" }
+      }
+    }));
+    return event;
+  }
   if (event.triggerSource !== "PostConfirmation_ConfirmSignUp") {
     return event;
   }

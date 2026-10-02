@@ -50,11 +50,9 @@ export class AuditLogStreamStack extends Stack {
         },
         filterCriteria: {
           filters: [{ pattern: JSON.stringify({
-            dynamodb: { Keys: { PK: { S: [{ prefix: "ORDER#" }] }, SK: { S: ["ORDER", "DETAIL"] } } }
-          }) }, { pattern: JSON.stringify({
-            dynamodb: { Keys: { PK: { S: [{ prefix: "PAYMENT#" }] }, SK: { S: ["DETAIL"] } } }
-          }) }, { pattern: JSON.stringify({
-            dynamodb: { Keys: { PK: { S: [{ prefix: "USER#" }] }, SK: { S: ["PROFILE", "AUTHORIZATION"] } } }
+            dynamodb: { Keys: { PK: { S: [
+              ...["ORDER#", "PAYMENT#", "USER#", "PRODUCT#", "SALE_CAMPAIGN#", "NOTIFICATION#", "CHECKOUT_GATE#", "CHECKOUT_RESERVATION#", "EMAIL#", "EMAIL_ROUTE#", "OPERATION#", "AUDIT_EVENT#"].map((prefix) => ({ prefix }))
+            ] } } }
           }) }]
         }
       },

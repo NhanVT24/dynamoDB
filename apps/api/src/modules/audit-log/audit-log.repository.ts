@@ -4,17 +4,17 @@ import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { z } from "zod";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
+import { auditResourceTypes } from "./audit-resources.js";
 import type { AuditLogRecord } from "./audit-log.js";
 
 export type AuditResourceTypeFilter = AuditLogRecord["resourceType"] | "ALL";
 
-const auditResourceTypes: AuditLogRecord["resourceType"][] = ["ORDER", "PAYMENT", "USER"];
 const defaultAuditLogTableName = "supermarket-audit-log";
 const maxAuditLimit = 100;
 
 export async function getAuditLog(input: { pk?: unknown; sk?: unknown }) {
   const key = z.object({
-    pk: z.string().max(2048).regex(/^AUDIT_LOG#(ORDER|PAYMENT|USER)#[^\s]+$/),
+    pk: z.string().max(2048).regex(/^AUDIT_LOG#(ORDER|PAYMENT|USER|PRODUCT|SALE_CAMPAIGN|NOTIFICATION|CHECKOUT|EMAIL|EMAIL_ROUTE|OPERATION)#[^\s]+$/),
     sk: z.string().max(1024).regex(/^EVENT#[^\s]+$/)
   }).safeParse(input);
   if (!key.success) throw new BadRequestException("Invalid audit event key.");
@@ -35,7 +35,7 @@ function normalizeLimit(limit: unknown) {
 
 function normalizeResourceType(value: unknown): AuditResourceTypeFilter {
   const normalized = String(value || "ALL").trim().toUpperCase();
-  return normalized === "ORDER" || normalized === "PAYMENT" || normalized === "USER" ? normalized : "ALL";
+  return auditResourceTypes.find((type) => type === normalized) ?? "ALL";
 }
 
 async function queryByResourceType(resourceType: AuditLogRecord["resourceType"], limit: number, cursor?: PageKey) {
@@ -57,11 +57,11 @@ async function queryByResourceType(resourceType: AuditLogRecord["resourceType"],
   return { items: (result.Items ?? []).map((item) => unmarshall(item) as AuditLogRecord), hasMore: Boolean(result.LastEvaluatedKey) };
 }
 
-const keySchema = z.object({ PK: z.string(), SK: z.string(), resourceType: z.enum(["ORDER", "PAYMENT", "USER"]), occurredAt: z.string() }).strict();
+const keySchema = z.object({ PK: z.string(), SK: z.string(), resourceType: z.enum(auditResourceTypes), occurredAt: z.string() }).strict();
 type PageKey = z.infer<typeof keySchema>;
 const cursorSchema = z.object({
-  resourceType: z.enum(["ALL", "ORDER", "PAYMENT", "USER"]),
-  keys: z.object({ ORDER: keySchema.optional(), PAYMENT: keySchema.optional(), USER: keySchema.optional() }).strict()
+  resourceType: z.enum(["ALL", ...auditResourceTypes]),
+  keys: z.partialRecord(z.enum(auditResourceTypes), keySchema)
 }).strict();
 
 export async function listAuditLogs(input: { resourceType?: unknown; limit?: unknown; cursor?: unknown }) {
@@ -71,7 +71,7 @@ export async function listAuditLogs(input: { resourceType?: unknown; limit?: unk
   let positions: z.infer<typeof cursorSchema>["keys"] = {};
   if (input.cursor !== undefined) {
     try {
-      if (typeof input.cursor !== "string" || input.cursor.length > 4096) throw new Error("Invalid cursor");
+      if (typeof input.cursor !== "string" || input.cursor.length > 16384) throw new Error("Invalid cursor");
       const decoded = cursorSchema.parse(JSON.parse(Buffer.from(input.cursor, "base64url").toString("utf8")));
       if (decoded.resourceType !== resourceType) throw new Error("Filter mismatch");
       for (const type of auditResourceTypes) {

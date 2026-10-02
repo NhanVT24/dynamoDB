@@ -9,7 +9,14 @@ const resourceTabs: Array<{ value: AuditResourceType; label: string }> = [
   { value: "ALL", label: "All" },
   { value: "ORDER", label: "Orders" },
   { value: "PAYMENT", label: "Payments" },
-  { value: "USER", label: "Users" }
+  { value: "USER", label: "Users" },
+  { value: "PRODUCT", label: "Products" },
+  { value: "SALE_CAMPAIGN", label: "Sales" },
+  { value: "NOTIFICATION", label: "Notifications" },
+  { value: "CHECKOUT", label: "Checkout" },
+  { value: "EMAIL", label: "Emails" },
+  { value: "EMAIL_ROUTE", label: "Email routing" },
+  { value: "OPERATION", label: "Operations" }
 ];
 
 export default function AuditLogViewer({ authToken, onSelect }: { authToken: string; onSelect: (record: AuditLogRecord) => void }) {

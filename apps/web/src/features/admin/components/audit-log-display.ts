@@ -1,4 +1,4 @@
-export type AuditResourceType = "ALL" | "ORDER" | "PAYMENT" | "USER";
+export type AuditResourceType = "ALL" | "ORDER" | "PAYMENT" | "USER" | "PRODUCT" | "SALE_CAMPAIGN" | "NOTIFICATION" | "CHECKOUT" | "EMAIL" | "EMAIL_ROUTE" | "OPERATION";
 
 export type AuditChange = {
   before: string | null;
@@ -65,6 +65,10 @@ export function displayValue(value: string | null, field: string) {
   if (value === "") return "(empty string)";
   if (field === "avatarKey") return value.split("/").at(-1) ?? value;
   if (field === "addresses") return formatAddressValue(value);
+  if (["stock", "price", "originalPrice", "rating", "soldCount", "totalAmount", "amount", "quantity", "unitPrice", "discountPercent", "recipientCount", "publishAttempts", "manualRetryCount", "routeStage", "warrantyMonths", "capacityLiters", "weightGrams"].includes(field)) {
+    const parsed = parseAuditValue(value);
+    if (parsed.kind === "primitive") return parsed.value;
+  }
   return value;
 }
 
@@ -117,6 +121,7 @@ export function fieldLabel(field: string) {
   if (field === "avatarKey") return "Avatar";
   if (field === "displayName") return "Display name";
   if (field === "addresses") return "Addresses";
+  if (field === "passwordResetAt") return "Password reset at";
   return field;
 }
 
@@ -144,7 +149,11 @@ export function describePart(record: AuditLogRecord) {
   if (record.resourceType === "USER" && record.source?.sk === "AUTHORIZATION") return "User permissions";
   if (record.resourceType === "USER" && record.source?.sk === "PROFILE") return "User profile";
   if (record.resourceType === "ORDER") return "Order";
-  return "Payment";
+  const labels: Record<Exclude<AuditResourceType, "ALL">, string> = {
+    ORDER: "Order", PAYMENT: "Payment", USER: "User", PRODUCT: "Product", SALE_CAMPAIGN: "Sale campaign",
+    NOTIFICATION: "Notification", CHECKOUT: "Checkout", EMAIL: "Email", EMAIL_ROUTE: "Email routing", OPERATION: "Operation"
+  };
+  return labels[record.resourceType];
 }
 
 export function changedFieldCount(record: AuditLogRecord) {

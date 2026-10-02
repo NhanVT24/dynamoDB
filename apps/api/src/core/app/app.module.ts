@@ -1,3 +1,5 @@
+import { APP_INTERCEPTOR } from "@nestjs/core";
+import { AuditMutationInterceptor } from "../../modules/audit-log/audit-mutation.interceptor.js";
 import { Module } from "@nestjs/common";
 import { AdminOpsModule } from "../../modules/admin-ops/admin-ops.module.js";
 import { ConfigModule } from "../../config/config.module.js";
@@ -15,6 +17,7 @@ import { AuthorizationModule } from "../../modules/authorization/authorization.m
 import { AuditLogModule } from "../../modules/audit-log/audit-log.module.js";
 
 @Module({
+  providers: [{ provide: APP_INTERCEPTOR, useClass: AuditMutationInterceptor }],
   imports: [ConfigModule, AdminOpsModule, HealthModule, ShoppingModule, SalesModule, StorefrontModule, LearningModule, NotificationsModule, UploadsModule, VnpayModule, CustomersModule, EmailDeliveriesModule, AuthorizationModule, AuditLogModule]
 })
 export class AppModule {}
