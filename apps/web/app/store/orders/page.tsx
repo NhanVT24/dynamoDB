@@ -1,4 +1,6 @@
 "use client";
+import { t, translateLabel } from "../../../src/i18n/language";
+import { useLanguage } from "../../../src/i18n/LanguageProvider";
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -11,21 +13,23 @@ import { getOrderStatusColor } from "../order-status";
 type PaginationToken = number | "ellipsis";
 
 function StatusBadge({ status, isDark }: { status: string; isDark: boolean }) {
+  useLanguage();
   const normalizedStatus = String(status).toLowerCase();
-  const label = normalizedStatus === "refund_pending" ? "Đang hoàn tiền"
-    : normalizedStatus === "refund_sent" ? "Đã gửi hoàn tiền"
-    : normalizedStatus === "refund_rejected" ? "Hoàn tiền bị từ chối" : status;
+  const label = normalizedStatus === "refund_pending" ? "Refund pending"
+    : normalizedStatus === "refund_sent" ? "Refund sent"
+    : normalizedStatus === "refund_rejected" ? "Refund rejected" : status;
 
   return (
     <span
       className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${getOrderStatusColor(status, isDark)}`}
     >
-      {label}
+      {translateLabel(label)}
     </span>
   );
 }
 
 function OrdersSkeleton({ isDark }: { isDark: boolean }) {
+  useLanguage();
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl animate-pulse">
@@ -124,6 +128,7 @@ function buildPaginationTokens(currentPage: number, totalPages: number): Paginat
 }
 
 export default function StoreOrdersPage() {
+  useLanguage();
   const { session, theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
   const [orders, setOrders] = useState<StoreOrder[]>([]);
@@ -194,18 +199,12 @@ export default function StoreOrdersPage() {
       <main className="px-4 py-12 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl rounded-[2rem] bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 p-[1px]">
           <div className={`rounded-[calc(2rem-1px)] px-6 py-10 text-center sm:px-8 ${isDark ? "bg-[#101826] text-white" : "bg-white text-slate-950"}`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Order History</p>
-            <h1 className={`mt-4 text-4xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Sign in to view your orders</h1>
-            <p className={`mx-auto mt-4 max-w-2xl text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-              Your order history is tied to your account. Sign in to review recent purchases, payment status, and fulfillment details.
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">{t("Order History")}</p>
+            <h1 className={`mt-4 text-4xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{t("Sign in to view your orders")}</h1>
+            <p className={`mx-auto mt-4 max-w-2xl text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("Your order history is tied to your account. Sign in to review recent purchases, payment status, and fulfillment details.")}</p>
             <div className="mt-7 flex flex-wrap justify-center gap-3">
-              <button type="button" onClick={() => openAuthModal("/store/orders")} className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-                Sign in
-              </button>
-              <Link href="/store/products" className={`rounded-full px-5 py-3 text-sm font-semibold ${isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"}`}>
-                Browse products
-              </Link>
+              <button type="button" onClick={() => openAuthModal("/store/orders")} className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">{t("Sign in")}</button>
+              <Link href="/store/products" className={`rounded-full px-5 py-3 text-sm font-semibold ${isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"}`}>{t("Browse products")}</Link>
             </div>
           </div>
         </div>
@@ -222,50 +221,37 @@ export default function StoreOrdersPage() {
               isDark ? "bg-[#101826] text-white" : "bg-white text-slate-950"
             }`}
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Order History</p>
-            <h1 className={`mt-4 text-3xl font-semibold tracking-tight sm:text-4xl ${isDark ? "text-white" : "text-slate-950"}`}>
-              Follow your orders
-            </h1>
-            <p className={`mt-4 max-w-3xl text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-              Review your placed orders, purchase times, current status, and detailed information about each product in your order.
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">{t("Order History")}</p>
+            <h1 className={`mt-4 text-3xl font-semibold tracking-tight sm:text-4xl ${isDark ? "text-white" : "text-slate-950"}`}>{t("Follow your orders")}</h1>
+            <p className={`mt-4 max-w-3xl text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("Review your placed orders, purchase times, current status, and detailed information about each product in your order.")}</p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-                Continue Shopping
-              </Link>
+              <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">{t("Continue Shopping")}</Link>
               <Link
                 href="/store/checkout"
                 className={`rounded-full px-5 py-3 text-sm font-semibold ${
                   isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
                 }`}
-              >
-                Proceed to Checkout
-              </Link>
+              >{t("Proceed to Checkout")}</Link>
             </div>
           </div>
         </div>
 
         {error ? (
           <div className={`mt-8 rounded-[1.75rem] border px-6 py-5 text-sm ${isDark ? "border-rose-500/20 bg-rose-500/10 text-rose-200" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
-            {error}
+            {translateLabel(error)}
           </div>
         ) : orders.length === 0 ? (
           <div
             className={`mt-8 rounded-[1.75rem] border border-dashed px-6 py-8 text-sm ${
               isDark ? "border-white/10 bg-white/5 text-slate-300" : "border-slate-200 bg-white text-slate-500"
             }`}
-          >
-            You have no orders in your purchase history.
-          </div>
+          >{t("You have no orders in your purchase history.")}</div>
         ) : (
           <div className="mt-8">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                Displaying <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{paginatedOrders.length}</span> /{" "}
-                <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{orders.length}</span> orders
-              </p>
-              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                Page <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{safePage}</span> /{" "}
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Displaying")} <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{paginatedOrders.length}</span> /{" "}
+                <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{orders.length}</span> {t("orders")}</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Page")} <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{safePage}</span> /{" "}
                 <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{totalPages}</span>
               </p>
             </div>
@@ -280,12 +266,10 @@ export default function StoreOrdersPage() {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500"> Order Id: {order.id.slice(0, 8)}</p>
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500"> {t("Order Id:")} {order.id.slice(0, 8)}</p>
                       <h2 className={`mt-2 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>
-                        {order.items.length} product lines
-                      </h2>
-                      <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-                        Order at {formatDateTime(order.createdAt)}
+                        {order.items.length} {t("product lines")}</h2>
+                      <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Order at")} {formatDateTime(order.createdAt)}
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
@@ -298,14 +282,12 @@ export default function StoreOrdersPage() {
 
                   <div className={`mt-3 truncate rounded-xl px-3 py-2 text-xs ${isDark ? "bg-white/5 text-slate-300" : "bg-slate-50 text-slate-600"}`}>
                     {order.items.slice(0, 2).map((item) => `${item.productName} × ${item.quantity}`).join(" · ")}
-                    {order.items.length > 2 ? ` · +${order.items.length - 2} more` : ""}
+                    {order.items.length > 2 ? t(" · +{value1} more", { value1: order.items.length - 2 }) : ""}
                   </div>
                   <Link
                     href={`/store/orders/detail?orderId=${encodeURIComponent(order.id)}`}
                     className={`mt-4 inline-flex rounded-full px-4 py-2 text-sm font-semibold ${isDark ? "bg-white/10 text-white hover:bg-white/15" : "bg-orange-50 text-orange-700 hover:bg-orange-100"}`}
-                  >
-                    Xem chi tiết đơn hàng
-                  </Link>
+                  >{t("View order details")}</Link>
                 </article>
               ))}
             </div>
@@ -324,9 +306,7 @@ export default function StoreOrdersPage() {
                       ? "border border-white/10 bg-white/5 text-white"
                       : "bg-white text-slate-950 shadow-sm"
                 }`}
-              >
-                Previous pages
-              </button>
+              >{t("Previous pages")}</button>
 
               {paginationTokens.map((token, index) =>
                 token === "ellipsis" ? (
@@ -362,9 +342,7 @@ export default function StoreOrdersPage() {
                       : "cursor-not-allowed bg-slate-200 text-slate-400"
                     : "bg-gradient-to-r from-orange-500 to-red-500 text-white"
                 }`}
-              >
-                Next page
-              </button>
+              >{t("Next page")}</button>
             </div>
           </div>
         )}

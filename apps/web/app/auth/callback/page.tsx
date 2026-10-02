@@ -1,4 +1,7 @@
 "use client";
+import { t, translateLabel } from "../../../src/i18n/language";
+import { useLanguage } from "../../../src/i18n/LanguageProvider";
+
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -9,6 +12,7 @@ import {
 } from "../../../src/features/auth/lib/cognito-auth";
 
 function AuthCallbackContent() {
+  useLanguage();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [message, setMessage] = useState("Completing Google sign-in...");
@@ -39,24 +43,23 @@ function AuthCallbackContent() {
 
   return (
     <section className="w-full rounded-[28px] border border-white/70 bg-white p-6 text-center shadow-[0_30px_100px_rgba(15,23,42,0.12)]">
-      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Google Authentication</h1>
+      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("Google sign-in")}</h1>
       <p className="mt-3 rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-700">
-        {message}
+        {translateLabel(message)}
       </p>
     </section>
   );
 }
 
 export default function AuthCallbackPage() {
+  useLanguage();
   return (
     <main className="mx-auto flex min-h-[60vh] max-w-lg items-center justify-center px-6 py-16">
       <Suspense
         fallback={(
           <section className="w-full rounded-[28px] border border-white/70 bg-white p-6 text-center shadow-[0_30px_100px_rgba(15,23,42,0.12)]">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Google Authentication</h1>
-            <p className="mt-3 rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-700">
-              Preparing Google authentication...
-            </p>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("Google sign-in")}</h1>
+            <p className="mt-3 rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-700">{t("Preparing Google authentication...")}</p>
           </section>
         )}
       >

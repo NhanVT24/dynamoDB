@@ -1,4 +1,8 @@
 "use client";
+import { getIntlLocale, t, translateLabel } from "../../../i18n/language";
+
+import { useLanguage } from "../../../i18n/LanguageProvider";
+
 
 import type { ChangeEvent, CSSProperties, FormEvent, KeyboardEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -286,7 +290,7 @@ const inputClassName = "h-10 w-full rounded-xl border border-slate-200 bg-white 
 const actionButtonClassName = "inline-flex h-9 items-center justify-center rounded-lg px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50";
 
 function currency(value: number | string | undefined | null) {
-  return new Intl.NumberFormat("vi-VN", {
+  return new Intl.NumberFormat(getIntlLocale(), {
     style: "currency",
     currency: "VND",
     maximumFractionDigits: 0
@@ -296,7 +300,7 @@ function currency(value: number | string | undefined | null) {
 function formatNumberInput(value: number | string | undefined | null) {
   const digits = String(value ?? "").replace(/\D/g, "");
   if (!digits) return "";
-  return new Intl.NumberFormat("vi-VN").format(Number(digits));
+  return new Intl.NumberFormat(getIntlLocale()).format(Number(digits));
 }
 
 function parseFormattedNumber(value: number | string | undefined | null) {
@@ -316,7 +320,7 @@ function computeSalePrice(basePrice: number, discountPercent: number | string) {
 
 function formatDateTime(value: string | undefined) {
   if (!value) return "";
-  return new Intl.DateTimeFormat("vi-VN", {
+  return new Intl.DateTimeFormat(getIntlLocale(), {
     dateStyle: "short",
     timeStyle: "short"
   }).format(new Date(value));
@@ -341,7 +345,7 @@ function normalizeCategoryValue(category: string | undefined) {
 }
 
 function categoryLabel(category: string) {
-  return categoryLabels[normalizeCategoryValue(category)] ?? category;
+  return translateLabel(categoryLabels[normalizeCategoryValue(category)] ?? category);
 }
 
 function toUpdatedAtFromIso(dateValue: string) {
@@ -420,23 +424,27 @@ async function logApiFailure(response: Response, fallback: string, context: stri
 }
 
 function Field({ children, className = "" }: { children: ReactNode; className?: string }) {
+  useLanguage();
   return <label className={`grid gap-2 text-sm font-semibold text-slate-700 ${className}`}>{children}</label>;
 }
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
+  useLanguage();
   return (
     <article className="rounded-2xl border border-white/70 bg-white/90 px-4 py-3 backdrop-blur" style={panelStyle}>
-      <span className="text-xs text-slate-500">{label}</span>
+      <span className="text-xs text-slate-500">{translateLabel(label)}</span>
       <strong className="mt-1 block text-xl font-semibold tracking-tight text-slate-900">{value}</strong>
     </article>
   );
 }
 
 function SkeletonBlock({ className = "" }: { className?: string }) {
+  useLanguage();
   return <div className={`animate-pulse rounded-2xl bg-slate-200/80 ${className}`} />;
 }
 
 function ShoppingManagerSkeleton() {
+  useLanguage();
   return (
     <div style={pageGridStyle}>
       <section className="flex justify-center rounded-2xl border border-white/70 bg-white/80 px-4 py-3 backdrop-blur" style={panelStyle}>
@@ -522,6 +530,7 @@ export default function ShoppingManager({
   currentUserSubject = "",
   permissions = []
 }: ShoppingManagerProps) {
+  useLanguage();
   const [items, setItems] = useState<ProductItem[]>([]);
   const [allItems, setAllItems] = useState<ProductItem[]>([]);
   const [categories, setCategories] = useState(fallbackCategories);
@@ -1016,7 +1025,7 @@ export default function ShoppingManager({
       setMessage("You can only delete products that you created.");
       return;
     }
-    if (!window.confirm(`Delete product "${item.name}"?`)) return;
+    if (!window.confirm(translateLabel(`Delete product "${item.name}"?`))) return;
     setBusy(true);
     try {
       const response = await authenticatedFetch(`${apiUrl}/api/shopping-items/${item.id}`, { method: "DELETE" });
@@ -1156,16 +1165,16 @@ export default function ShoppingManager({
   return (
     <div className="grid gap-5" style={pageGridStyle}>
       <section className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 text-center backdrop-blur" style={panelStyle}>
-        <p className="m-0 text-base font-semibold text-slate-900">Product Admin</p>
-        <p className="mt-1 text-xs text-slate-500">Manage products, inventory, and scheduled sales from one workspace.</p>
+        <p className="m-0 text-base font-semibold text-slate-900">{t("Product Admin")}</p>
+        <p className="mt-1 text-xs text-slate-500">{t("Manage products, inventory, and scheduled sales from one workspace.")}</p>
       </section>
 
       <section className="flex flex-col gap-5 lg:flex-row lg:items-center">
         <div className="grid w-full min-w-0 flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4" style={statsGridStyle}>
-          <StatCard label="Total Products" value={summary.totalProducts} />
-          <StatCard label="Low Stock" value={summary.lowStock} />
-          <StatCard label="Out of Stock" value={summary.outOfStock} />
-          <StatCard label="Inventory Value" value={currency(summary.inventoryValue)} />
+          <StatCard label={t("Total Products")} value={summary.totalProducts} />
+          <StatCard label={t("Low Stock")} value={summary.lowStock} />
+          <StatCard label={t("Out of Stock")} value={summary.outOfStock} />
+          <StatCard label={t("Inventory Value")} value={currency(summary.inventoryValue)} />
         </div>
         {headerActions}
       </section>
@@ -1175,9 +1184,7 @@ export default function ShoppingManager({
       <div className={workspaceContent ? "hidden" : "grid min-w-0 gap-5"}>
 
       {isViewerOnly ? (
-        <section className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800" style={panelStyle}>
-          This account does not have permission to manage products. You can view the product list, but you cannot create, edit, or delete products.
-        </section>
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-800" style={panelStyle}>{t("This account does not have permission to manage products. You can view the product list, but you cannot create, edit, or delete products.")}</section>
       ) : null}
 
       <section className="grid gap-3 rounded-3xl border bg-color-blue border-white/70 bg-white/90 p-4 md:grid-cols-2 xl:grid-cols-4" style={{ ...panelStyle, ...filterGridStyle }}>
@@ -1189,7 +1196,7 @@ export default function ShoppingManager({
             onChange={(event) => updateFilter("searchField", event.target.value)}
           >
             {searchFields.map((field) => (
-              <option key={field} value={field}>{searchFieldLabels[field] ?? field}</option>
+              <option key={field} value={field}>{translateLabel(searchFieldLabels[field] ?? field)}</option>
             ))}
           </select>
           <input
@@ -1204,7 +1211,7 @@ export default function ShoppingManager({
                 updateFilter("search", searchDraft);
               }
             }}
-            placeholder={`Search by ${String(searchFieldLabels[filters.searchField] ?? filters.searchField).toLowerCase()}`}
+            placeholder={t("Search by {value1}", { value1: String(searchFieldLabels[filters.searchField] ?? filters.searchField).toLowerCase() })}
           />
           {filters.searchField === "brand" ? (
             <datalist id="brand-search-suggestions">
@@ -1215,7 +1222,7 @@ export default function ShoppingManager({
           ) : null}
         </div>
         <select className={inputClassName} style={inputStyle} value={filters.category} onChange={(event) => updateFilter("category", event.target.value)}>
-          <option value="all">All categories</option>
+          <option value="all">{t("All categories")}</option>
           {categories.map((category) => (
             <option key={category} value={category}>{categoryLabel(category)}</option>
           ))}
@@ -1226,13 +1233,13 @@ export default function ShoppingManager({
           type="date"
           value={fromUpdatedAtFromIso(filters.updatedAtFrom)}
           onChange={(event) => updateFilter("updatedAtFrom", event.target.value)}
-          title="Updated from date"
+          title={t("Updated from date")}
         />
         <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%" }}>
           <select className={inputClassName} style={{ ...inputStyle, flex: 1 }} value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
-            <option value="">All statuses</option>
+            <option value="">{t("All statuses")}</option>
             {statuses.map((item) => (
-              <option key={item} value={item}>{statusLabel(item)}</option>
+              <option key={item} value={item}>{translateLabel(statusLabel(item))}</option>
             ))}
           </select>
           <select
@@ -1240,11 +1247,11 @@ export default function ShoppingManager({
             style={{ ...inputStyle, flex: 1 }}
             value={filters.sort}
             onChange={(event) => updateFilter("sort", event.target.value)}
-            title="Sort products"
+            title={t("Sort products")}
           >
-            <option value="updatedAt:desc">Newest first</option>
-            <option value="updatedAt:asc">Oldest first</option>
-            <option value="stock:desc">Stock high to low</option>
+            <option value="updatedAt:desc">{t("Newest first")}</option>
+            <option value="updatedAt:asc">{t("Oldest first")}</option>
+            <option value="stock:desc">{t("Stock high to low")}</option>
           </select>
           <button
             type="button"
@@ -1255,8 +1262,8 @@ export default function ShoppingManager({
             className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-base font-bold text-slate-700 transition hover:bg-slate-50"
             style={{ display: "none", height: "40px", width: "40px", padding: 0, borderRadius: "10px", flexShrink: 0 }}
             title={filters.sort.endsWith(":asc")
-                ? "Sort stock ascending"
-                : "Sort stock descending"}
+                ? t("Sort stock ascending")
+                : t("Sort stock descending")}
           >
             {filters.sort.endsWith(":asc") ? "↑" : "↓"}
           </button>
@@ -1267,11 +1274,11 @@ export default function ShoppingManager({
         <div className="product-manager-panel flex h-full min-h-full flex-col overflow-hidden rounded-3xl border border-white/70 bg-white/90" style={tablePanelStyle}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "space-between", padding: "12px 16px", borderBottom: "1px solid #e2e8f0" }}>
             <div>
-              <h2 className="text-base font-semibold text-slate-900" style={{ margin: 0, fontSize: "16px", fontWeight: 600 }}>{selectedSaleCampaign ? selectedSaleCampaign.name : "Products"}</h2>
-              {selectedSaleCampaign ? <button type="button" onClick={clearSaleCampaignProducts} className="mt-1 text-xs font-semibold text-orange-700 hover:text-orange-800">All products</button> : null}
+              <h2 className="text-base font-semibold text-slate-900" style={{ margin: 0, fontSize: "16px", fontWeight: 600 }}>{selectedSaleCampaign ? selectedSaleCampaign.name : t("Products")}</h2>
+              {selectedSaleCampaign ? <button type="button" onClick={clearSaleCampaignProducts} className="mt-1 text-xs font-semibold text-orange-700 hover:text-orange-800">{t("All products")}</button> : null}
             </div>
             <span className="max-w-xs text-xs text-slate-500 md:text-right" style={{ maxWidth: "320px", fontSize: "12px", color: "#64748b" }}>
-              {message}
+              {translateLabel(message)}
             </span>
           </div>
 
@@ -1279,23 +1286,23 @@ export default function ShoppingManager({
             <table className="min-w-full border-separate border-spacing-0" style={{ width: "100%", minWidth: "1080px", borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed" }}>
               <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
                 <tr>
-                  {isSaleProductSelectionMode ? <th className="w-12 border-b border-slate-200 text-center text-xs font-bold uppercase tracking-[0.2em] text-orange-600">Add</th> : null}
-                  <th style={{ ...columnStyles.product, padding: "12px 16px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Product</th>
-                  <th style={{ ...columnStyles.category, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Category</th>
-                  <th style={{ ...columnStyles.price, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Price</th>
-                  <th style={{ ...columnStyles.stock, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Inventory</th>
-                  <th style={{ ...columnStyles.updatedAt, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Updated</th>
-                  <th style={{ ...columnStyles.status, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Status</th>
-                  {panelMode === "product" || selectedSaleCampaign ? <th style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Actions</th> : null}
+                  {isSaleProductSelectionMode ? <th className="w-12 border-b border-slate-200 text-center text-xs font-bold uppercase tracking-[0.2em] text-orange-600">{t("Add")}</th> : null}
+                  <th style={{ ...columnStyles.product, padding: "12px 16px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{t("Product")}</th>
+                  <th style={{ ...columnStyles.category, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{t("Category")}</th>
+                  <th style={{ ...columnStyles.price, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{t("Price")}</th>
+                  <th style={{ ...columnStyles.stock, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{t("Inventory")}</th>
+                  <th style={{ ...columnStyles.updatedAt, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{t("Updated")}</th>
+                  <th style={{ ...columnStyles.status, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{t("Status")}</th>
+                  {panelMode === "product" || selectedSaleCampaign ? <th style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-200 text-left text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{t("Actions")}</th> : null}
                 </tr>
               </thead>
               <tbody>
                 {saleProductsLoading ? (
-                  <tr><td colSpan={7} style={{ padding: "64px 20px", textAlign: "center", fontSize: "14px", color: "#64748b" }}>Loading sale campaign products...</td></tr>
+                  <tr><td colSpan={7} style={{ padding: "64px 20px", textAlign: "center", fontSize: "14px", color: "#64748b" }}>{t("Loading sale campaign products...")}</td></tr>
                 ) : displayedProducts.length === 0 ? (
                   <tr>
                     <td colSpan={isSaleProductSelectionMode || panelMode === "product" || selectedSaleCampaign ? 7 : 6} style={{ padding: "64px 20px", textAlign: "center", fontSize: "14px", color: "#64748b" }}>
-                      {selectedSaleCampaign ? "This campaign has no available product records." : "No products match the current filters."}
+                      {selectedSaleCampaign ? t("This campaign has no available product records.") : t("No products match the current filters.")}
                     </td>
                   </tr>
                 ) : displayedProducts.map((item) => {
@@ -1312,14 +1319,13 @@ export default function ShoppingManager({
                       className={`cursor-pointer transition hover:bg-slate-50/80 ${editingId === item.id ? "bg-blue-50/80" : ""}`}
                       style={{ height: "68px" }}
                     >
-                      {isSaleProductSelectionMode ? <td className="border-b border-slate-100 text-center"><input type="checkbox" aria-label={`Add ${item.name} to sale`} checked={saleProductIds.includes(item.id)} onChange={() => toggleSaleProduct(item.id)} disabled={busy} /></td> : null}
+                      {isSaleProductSelectionMode ? <td className="border-b border-slate-100 text-center"><input type="checkbox" aria-label={t("Add {value1} to sale", { value1: item.name })} checked={saleProductIds.includes(item.id)} onChange={() => toggleSaleProduct(item.id)} disabled={busy} /></td> : null}
                       <td style={{ ...columnStyles.product, padding: "12px 16px" }} className="border-b border-slate-100 align-middle">
                         <div className="group relative" style={{ minWidth: 0, display: "flex", alignItems: "center", gap: "10px" }}>
                           <img src={item.imageUrl} alt={item.name} style={{ width: "40px", height: "40px", borderRadius: "12px", border: "1px solid #e2e8f0", objectFit: "cover", flexShrink: 0 }} />
                           <div style={{ minWidth: 0, overflow: "hidden" }}>
                             <strong className="block text-sm font-semibold text-slate-900" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</strong>
-                            <span style={{ marginTop: "2px", fontSize: "12px", color: "#64748b", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              SKU {item.sku}
+                            <span style={{ marginTop: "2px", fontSize: "12px", color: "#64748b", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t("SKU")} {item.sku}
                             </span>
                           </div>
                           {item.description ? (
@@ -1333,7 +1339,7 @@ export default function ShoppingManager({
                       <td style={{ ...columnStyles.price, padding: "12px 10px" }} className="border-b border-slate-100">
                         <strong className="block text-sm font-semibold text-slate-900" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currency(item.price)}</strong>
                         <small style={{ marginTop: "2px", fontSize: "12px" }} className="block text-slate-500">
-                          {discountPercent > 0 ? `${discountPercent}% off from ${currency(item.originalPrice)}` : "No discount"}
+                          {discountPercent > 0 ? t("{value1}% off from {value2}", { value1: discountPercent, value2: currency(item.originalPrice) }) : t("No discount")}
                         </small>
                       </td>
                       <td style={{ ...columnStyles.stock, padding: "12px 10px" }} className="border-b border-slate-100">
@@ -1374,20 +1380,18 @@ export default function ShoppingManager({
                       </td>
                       <td style={{ ...columnStyles.status, padding: "12px 10px" }} className="border-b border-slate-100">
                         <span className={`inline-flex min-h-8 items-center justify-center rounded-full px-3 text-xs font-bold ${badgeClassName(item.status)}`} style={{ minWidth: "96px", whiteSpace: "nowrap" }}>
-                          {statusLabel(item.status)}
+                          {translateLabel(statusLabel(item.status))}
                         </span>
                       </td>
                       {selectedSaleCampaign ? <td style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-100">
-                        <button type="button" onClick={() => void removeProductFromSaleCampaign(item)} disabled={removingSaleProductId === item.id} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ minWidth: "92px", padding: "0 10px" }}>{removingSaleProductId === item.id ? "Removing..." : "Remove"}</button>
+                        <button type="button" onClick={() => void removeProductFromSaleCampaign(item)} disabled={removingSaleProductId === item.id} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ minWidth: "92px", padding: "0 10px" }}>{removingSaleProductId === item.id ? t("Removing...") : t("Remove")}</button>
                       </td> : panelMode === "product" ? <td style={{ ...columnStyles.actions, padding: "12px 10px" }} className="border-b border-slate-100">
                         {!canUpdateProduct(item) && !canDeleteProduct(item) ? (
-                          <span className="inline-flex h-9 items-center rounded-lg bg-slate-100 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                            View only
-                          </span>
+                          <span className="inline-flex h-9 items-center rounded-lg bg-slate-100 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{t("View only")}</span>
                         ) : (
                           <div style={{ display: "flex", flexWrap: "nowrap", gap: "6px", width: "100%" }}>
-                            {canUpdateProduct(item) ? <button type="button" onClick={() => startEdit(item)} disabled={busy} className={`${actionButtonClassName} bg-blue-50 text-blue-700 hover:bg-blue-100`} style={{ flex: "1 1 0", minWidth: "48px", padding: "0 8px" }}>Edit</button> : null}
-                            {canDeleteProduct(item) ? <button type="button" onClick={() => void deleteProduct(item)} disabled={busy} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ flex: "1 1 0", minWidth: "56px", padding: "0 8px" }}>Delete</button> : null}
+                            {canUpdateProduct(item) ? <button type="button" onClick={() => startEdit(item)} disabled={busy} className={`${actionButtonClassName} bg-blue-50 text-blue-700 hover:bg-blue-100`} style={{ flex: "1 1 0", minWidth: "48px", padding: "0 8px" }}>{t("Edit")}</button> : null}
+                            {canDeleteProduct(item) ? <button type="button" onClick={() => void deleteProduct(item)} disabled={busy} className={`${actionButtonClassName} bg-rose-50 text-rose-700 hover:bg-rose-100`} style={{ flex: "1 1 0", minWidth: "56px", padding: "0 8px" }}>{t("Delete")}</button> : null}
                           </div>
                         )}
                       </td> : null}
@@ -1399,11 +1403,9 @@ export default function ShoppingManager({
           </div>
 
           {!selectedSaleCampaign ? <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "flex-end", padding: "10px 16px", borderTop: "1px solid #e2e8f0" }}>
-            <button type="button" onClick={goPreviousPage} disabled={busy || cursorIndex === 0} className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" style={secondaryButtonStyle}>
-              Previous
-            </button>
+            <button type="button" onClick={goPreviousPage} disabled={busy || cursorIndex === 0} className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" style={secondaryButtonStyle}>{t("Previous")}</button>
             <label style={{ display: "flex", alignItems: "center", gap: "8px", borderRadius: "12px", background: "#f1f5f9", padding: "6px 10px", fontSize: "14px", color: "#475569" }}>
-              <span>Page</span>
+              <span>{t("Page")}</span>
               <input
                 className={inputClassName}
                 style={{ ...inputStyle, width: "72px", height: "36px" }}
@@ -1419,7 +1421,7 @@ export default function ShoppingManager({
               />
             </label>
             <button type="button" onClick={goNextPage} disabled={busy || !hasNextPage} className="inline-flex h-10 items-center justify-center rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50" style={{ ...darkButtonStyle, height: "40px", padding: "0 16px" }}>
-              {hasNextPage ? "Next" : "Last Page"}
+              {hasNextPage ? t("Next") : t("Last Page")}
             </button>
           </div> : null}
         </div>
@@ -1428,12 +1430,12 @@ export default function ShoppingManager({
           <section className="product-manager-panel grid h-full content-start gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
             <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "16px" }}>
               <h2 className="text-xl font-semibold text-slate-900" style={{ margin: 0, fontSize: "20px", fontWeight: 600 }}>
-                {isViewerOnly ? "Viewer Mode" : "Select your product"}
+                {isViewerOnly ? t("Viewer Mode") : t("Select your product")}
               </h2>
               <p className="mt-1 text-sm text-slate-500" style={{ margin: "4px 0 0", fontSize: "14px", color: "#64748b" }}>
                 {isViewerOnly
-                  ? "This account does not have permission to create, edit, or delete products."
-                  : "Use Edit or Delete on products you created. Products owned by another account remain read-only."}
+                  ? t("This account does not have permission to create, edit, or delete products.")
+                  : t("Use Edit or Delete on products you created. Products owned by another account remain read-only.")}
               </p>
             </div>
           </section>
@@ -1441,37 +1443,37 @@ export default function ShoppingManager({
         <form onSubmit={panelMode === "product" ? submitForm : submitSale} className="product-manager-panel grid h-full gap-4 rounded-3xl border border-white/70 bg-white/90 p-5" style={formPanelStyle}>
           <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: "16px" }}>
             <div className={`mb-4 grid ${canManageProducts ? "grid-cols-2" : "grid-cols-1"} rounded-xl bg-slate-100 p-1`}>
-              {canCreateProduct || editingId ? <button type="button" onClick={() => { clearSaleCampaignProducts(); setPanelMode("product"); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${panelMode === "product" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>{editingId ? "Edit Product" : "Add Product"}</button> : null}
-              {canManageProducts ? <button type="button" onClick={() => { resetForm(); clearSaleCampaignProducts(); setPanelMode("sale"); void loadSaleCampaigns(); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${panelMode === "sale" ? "bg-orange-600 text-white shadow-sm" : "text-slate-500"}`}>Schedule Sale</button> : null}
+              {canCreateProduct || editingId ? <button type="button" onClick={() => { clearSaleCampaignProducts(); setPanelMode("product"); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${panelMode === "product" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}>{editingId ? t("Edit Product") : t("Add Product")}</button> : null}
+              {canManageProducts ? <button type="button" onClick={() => { resetForm(); clearSaleCampaignProducts(); setPanelMode("sale"); void loadSaleCampaigns(); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${panelMode === "sale" ? "bg-orange-600 text-white shadow-sm" : "text-slate-500"}`}>{t("Schedule Sale")}</button> : null}
             </div>
             <h2 className="text-xl font-semibold text-slate-900" style={{ margin: 0, fontSize: "20px", fontWeight: 600 }}>
-              {panelMode === "sale" ? "Schedule Sale Campaign" : editingId ? "Edit Product" : "Add Product"}
+              {panelMode === "sale" ? t("Schedule Sale Campaign") : editingId ? t("Edit Product") : t("Add Product")}
             </h2>
             <p className="mt-1 text-sm text-slate-500" style={{ margin: "4px 0 0", fontSize: "14px", color: "#64748b" }}>
-              {panelMode === "sale" ? `Choose products from the left table, then set the sale timeline here.` : "Only keep the fields admins actually need to edit often."}
+              {panelMode === "sale" ? t("Choose products from the left table, then set the sale timeline here.") : t("Edit the product details below.")}
             </p>
           </div>
 
           {panelMode === "product" ? <>
           <Field>
-            <span>Product Name</span>
+            <span>{t("Product Name")}</span>
             <input className={inputClassName} style={inputStyle} value={form.name} onChange={(event) => updateField("name", event.target.value)} required />
           </Field>
 
           <div className="grid gap-4 md:grid-cols-2">
             <Field>
-              <span>Brand</span>
+              <span>{t("Brand")}</span>
               <input
                 className={inputClassName}
                 style={inputStyle}
                 value={form.brand}
                 onChange={(event) => updateField("brand", event.target.value)}
-                placeholder="Apple, Nike, Samsung..."
+                placeholder={t("Apple, Nike, Samsung...")}
               />
             </Field>
 
             <Field>
-              <span>Category</span>
+              <span>{t("Category")}</span>
               <select className={inputClassName} style={inputStyle} value={form.category} onChange={(event) => updateField("category", event.target.value)}>
                 {categories.map((category) => (
                   <option key={category} value={category}>{categoryLabel(category)}</option>
@@ -1482,7 +1484,7 @@ export default function ShoppingManager({
 
           <div className="grid gap-4 md:grid-cols-2">
             <Field>
-              <span>Base Price</span>
+              <span>{t("Base Price")}</span>
               <input
                 className={inputClassName}
                 style={inputStyle}
@@ -1494,7 +1496,7 @@ export default function ShoppingManager({
               />
             </Field>
             <Field>
-              <span>Discount (%)</span>
+              <span>{t("Discount (%)")}</span>
               <input
                 className={inputClassName}
                 style={inputStyle}
@@ -1509,16 +1511,15 @@ export default function ShoppingManager({
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-slate-500">Final selling price</span>
+              <span className="text-sm font-medium text-slate-500">{t("Final selling price")}</span>
               <strong className="text-lg font-semibold text-slate-900">{currency(previewSalePrice)}</strong>
             </div>
-            <p className="mt-2 text-sm text-slate-500">
-              Base price: {currency(previewBasePrice || 0)} · Discount: {previewDiscount}%
+            <p className="mt-2 text-sm text-slate-500">{t("Base price:")} {currency(previewBasePrice || 0)} {t("· Discount:")} {previewDiscount}%
             </p>
           </div>
 
           <Field>
-            <span>Opening Stock</span>
+            <span>{t("Opening Stock")}</span>
             <input
               className={inputClassName}
               style={inputStyle}
@@ -1531,16 +1532,16 @@ export default function ShoppingManager({
           </Field>
 
           <Field>
-            <span>Description</span>
-            <textarea className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100" style={textareaStyle} value={form.description} onChange={(event) => updateField("description", event.target.value)} placeholder="Optional short note for the product..." />
+            <span>{t("Description")}</span>
+            <textarea className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100" style={textareaStyle} value={form.description} onChange={(event) => updateField("description", event.target.value)} placeholder={t("Optional short note for the product...")} />
           </Field>
 
           <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-slate-900">Product Image</div>
+                <div className="text-sm font-semibold text-slate-900">{t("Product Image")}</div>
                 <p className="mt-1 text-sm text-slate-500">
-                  {editingId ? "You can upload a new image while editing the product." : "Upload an image to make the product display better on the storefront."}
+                  {editingId ? t("You can upload a new image while editing the product.") : t("Upload an image to make the product display better on the storefront.")}
                 </p>
               </div>
               <button
@@ -1549,7 +1550,7 @@ export default function ShoppingManager({
                 disabled={busy || imageBusy}
                 className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {imageBusy ? "Uploading..." : editingId ? "Replace Image" : "Add Image"}
+                {imageBusy ? t("Uploading...") : editingId ? t("Replace Image") : t("Add Image")}
               </button>
             </div>
 
@@ -1565,13 +1566,11 @@ export default function ShoppingManager({
               {form.imageUrl ? (
                 <img
                   src={form.imageUrl}
-                  alt={form.name || "Product image"}
+                  alt={form.name || t("Product image")}
                   style={{ width: "100%", height: "180px", objectFit: "cover", display: "block" }}
                 />
               ) : (
-                <div className="flex h-[180px] items-center justify-center px-4 text-center text-sm text-slate-500">
-                  No image selected. Click {editingId ? "\"Replace Image\"" : "\"Add Image\""} to upload an image to S3.
-                </div>
+                <div className="flex h-[180px] items-center justify-center px-4 text-center text-sm text-slate-500">{t("No image selected. Click")} {editingId ? t("\"Replace Image\"") : t("\"Add Image\"")} {t("to upload an image to S3.")}</div>
               )}
             </div>
 
@@ -1584,47 +1583,45 @@ export default function ShoppingManager({
 
           <div style={{ marginTop: "auto", display: "flex", flexWrap: "wrap", gap: "12px", paddingTop: "8px" }}>
             <button disabled={busy || (!editingId && !canCreateProduct)} type="submit" className="inline-flex h-11 items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" style={primaryButtonStyle}>
-              {editingId ? "Save Changes" : "Create Product"}
+              {editingId ? t("Save Changes") : t("Create Product")}
             </button>
             {editingId ? (
-              <button disabled={busy} type="button" onClick={resetForm} className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" style={{ ...secondaryButtonStyle, height: "44px", padding: "0 20px" }}>
-                Cancel
-              </button>
+              <button disabled={busy} type="button" onClick={resetForm} className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50" style={{ ...secondaryButtonStyle, height: "44px", padding: "0 20px" }}>{t("Cancel")}</button>
             ) : null}
           </div>
           </> : <>
-            <Field><span>Campaign Name</span><input className={inputClassName} style={inputStyle} value={saleName} onChange={(event) => setSaleName(event.target.value)} placeholder="Weekend Sale" required /></Field>
-            <Field><span>Discount (%)</span><input className={inputClassName} style={inputStyle} type="number" min="1" max="95" value={saleDiscountPercent} onChange={(event) => setSaleDiscountPercent(event.target.value)} required /></Field>
-            <Field><span>Start Time</span><input className={inputClassName} style={inputStyle} type="datetime-local" value={saleStartAt} onChange={(event) => setSaleStartAt(event.target.value)} required /></Field>
-            <Field><span>End Time</span><input className={inputClassName} style={inputStyle} type="datetime-local" value={saleEndAt} onChange={(event) => setSaleEndAt(event.target.value)} required /></Field>
-            <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4"><div className="flex items-center justify-between"><span className="text-sm font-semibold text-orange-900">Selected products</span><strong className="text-lg text-orange-700">{saleProductIds.length}</strong></div><p className="mt-2 text-xs leading-5 text-orange-800">Tick products from the table on the left. The highest active campaign percentage is applied automatically.</p></div>
-            <button type="submit" disabled={busy || saleProductIds.length === 0} className="mt-auto inline-flex h-11 items-center justify-center rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Scheduling..." : "Schedule Sale"}</button>
+            <Field><span>{t("Campaign Name")}</span><input className={inputClassName} style={inputStyle} value={saleName} onChange={(event) => setSaleName(event.target.value)} placeholder={t("Weekend Sale")} required /></Field>
+            <Field><span>{t("Discount (%)")}</span><input className={inputClassName} style={inputStyle} type="number" min="1" max="95" value={saleDiscountPercent} onChange={(event) => setSaleDiscountPercent(event.target.value)} required /></Field>
+            <Field><span>{t("Start Time")}</span><input className={inputClassName} style={inputStyle} type="datetime-local" value={saleStartAt} onChange={(event) => setSaleStartAt(event.target.value)} required /></Field>
+            <Field><span>{t("End Time")}</span><input className={inputClassName} style={inputStyle} type="datetime-local" value={saleEndAt} onChange={(event) => setSaleEndAt(event.target.value)} required /></Field>
+            <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4"><div className="flex items-center justify-between"><span className="text-sm font-semibold text-orange-900">{t("Selected products")}</span><strong className="text-lg text-orange-700">{saleProductIds.length}</strong></div><p className="mt-2 text-xs leading-5 text-orange-800">{t("Tick products from the table on the left. The highest active campaign percentage is applied automatically.")}</p></div>
+            <button type="submit" disabled={busy || saleProductIds.length === 0} className="mt-auto inline-flex h-11 items-center justify-center rounded-xl bg-orange-600 px-5 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">{busy ? t("Scheduling...") : t("Schedule Sale")}</button>
             <section className="rounded-2xl border border-orange-200 bg-[linear-gradient(135deg,#fff7ed_0%,#fff_58%,#fef3c7_100%)] p-3 shadow-[0_12px_28px_rgba(234,88,12,0.08)]">
               <div className="flex items-center justify-between gap-3 border-b border-orange-200/80 pb-3">
                 <div>
-                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700">Sale Board</p>
-                  <h3 className="mt-1 text-sm font-semibold text-slate-900">Live & Upcoming</h3>
+                  <p className="m-0 text-[10px] font-bold uppercase tracking-[0.2em] text-orange-700">{t("Sale Board")}</p>
+                  <h3 className="mt-1 text-sm font-semibold text-slate-900">{t("Live & Upcoming")}</h3>
                 </div>
-                <button type="button" onClick={() => void loadSaleCampaigns()} disabled={saleCampaignsLoading} className="text-xs font-semibold text-orange-700 hover:text-orange-800 disabled:opacity-50">Refresh</button>
+                <button type="button" onClick={() => void loadSaleCampaigns()} disabled={saleCampaignsLoading} className="text-xs font-semibold text-orange-700 hover:text-orange-800 disabled:opacity-50">{t("Refresh")}</button>
               </div>
               <div className="mt-3 grid gap-2">
-                {saleCampaignsLoading ? <p className="m-0 text-xs text-slate-500">Loading campaigns...</p> : null}
-                {!saleCampaignsLoading && liveOrUpcomingSaleCampaigns.length === 0 ? <p className="m-0 rounded-xl border border-dashed border-orange-200 bg-white/70 px-3 py-3 text-xs text-slate-500">No active or scheduled sale campaigns.</p> : null}
+                {saleCampaignsLoading ? <p className="m-0 text-xs text-slate-500">{t("Loading campaigns...")}</p> : null}
+                {!saleCampaignsLoading && liveOrUpcomingSaleCampaigns.length === 0 ? <p className="m-0 rounded-xl border border-dashed border-orange-200 bg-white/70 px-3 py-3 text-xs text-slate-500">{t("No active or scheduled sale campaigns.")}</p> : null}
                 {liveOrUpcomingSaleCampaigns.map((campaign) => (
                   <article key={campaign.id} className={`rounded-xl border px-3 py-3 ${selectedSaleCampaign?.id === campaign.id ? "ring-2 ring-orange-400" : ""} ${campaign.campaignStatus === "active" ? "border-rose-300 bg-rose-50 shadow-[0_8px_18px_rgba(225,29,72,0.1)]" : "border-amber-200 bg-white/85"}`}>
                     <div className="flex items-start justify-between gap-2">
                       <button type="button" onClick={() => void viewSaleCampaignProducts(campaign)} className="min-w-0 text-left">
                         <p className="truncate text-sm font-semibold text-slate-900">{campaign.name}</p>
-                        <p className="mt-1 text-xs font-medium text-slate-600">{campaign.discountPercent}% off <span className="px-1 text-orange-300">|</span> {campaign.productIds.length} products</p>
-                        <span className="mt-2 inline-block text-xs font-semibold text-orange-700 hover:text-orange-800">View products</span>
+                        <p className="mt-1 text-xs font-medium text-slate-600">{campaign.discountPercent}{t("% off")} <span className="px-1 text-orange-300">|</span> {campaign.productIds.length} {t("products")}</p>
+                        <span className="mt-2 inline-block text-xs font-semibold text-orange-700 hover:text-orange-800">{t("View products")}</span>
                       </button>
-                      <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${campaign.campaignStatus === "active" ? "bg-rose-600 text-white" : "bg-amber-100 text-amber-800"}`}>{campaign.campaignStatus === "active" ? "Live now" : "Up next"}</span>
+                      <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${campaign.campaignStatus === "active" ? "bg-rose-600 text-white" : "bg-amber-100 text-amber-800"}`}>{campaign.campaignStatus === "active" ? t("Live now") : t("Up next")}</span>
                     </div>
                     <div className={`mt-3 h-1.5 overflow-hidden rounded-full ${campaign.campaignStatus === "active" ? "bg-rose-100" : "bg-amber-100"}`}>
                       <div className={`h-full rounded-full ${campaign.campaignStatus === "active" ? "w-2/3 bg-rose-500" : "w-1/4 bg-amber-400"}`} />
                     </div>
                     <p className="mt-2 text-[11px] leading-4 text-slate-500">{formatDateTime(campaign.startAt)} - {formatDateTime(campaign.endAt)}</p>
-                    {campaign.campaignStatus === "scheduled" ? <button type="button" onClick={() => void cancelSaleCampaign(campaign)} disabled={cancellingSaleId === campaign.id} className="mt-2 text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">{cancellingSaleId === campaign.id ? "Cancelling..." : "Cancel schedule"}</button> : null}
+                    {campaign.campaignStatus === "scheduled" ? <button type="button" onClick={() => void cancelSaleCampaign(campaign)} disabled={cancellingSaleId === campaign.id} className="mt-2 text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50">{cancellingSaleId === campaign.id ? t("Cancelling...") : t("Cancel schedule")}</button> : null}
                   </article>
                 ))}
               </div>

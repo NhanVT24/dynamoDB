@@ -1,3 +1,4 @@
+import { getIntlLocale, t } from "../../../i18n/language";
 export type AuditResourceType = "ALL" | "ORDER" | "PAYMENT" | "USER" | "PRODUCT" | "SALE_CAMPAIGN" | "NOTIFICATION" | "CHECKOUT" | "EMAIL" | "EMAIL_ROUTE" | "OPERATION";
 
 export type AuditChange = {
@@ -40,8 +41,8 @@ export type AuditLogRecord = {
 
 export function formatTime(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Unknown time";
-  return new Intl.DateTimeFormat("vi-VN", {
+  if (Number.isNaN(date.getTime())) return t("Unknown time");
+  return new Intl.DateTimeFormat(getIntlLocale(), {
     dateStyle: "medium",
     timeStyle: "medium",
     timeZone: "Asia/Ho_Chi_Minh"
@@ -61,8 +62,8 @@ export function actionTone(action: AuditLogRecord["action"]) {
 }
 
 export function displayValue(value: string | null, field: string) {
-  if (value === null) return "Not present";
-  if (value === "") return "(empty string)";
+  if (value === null) return t("Not present");
+  if (value === "") return t("(empty string)");
   if (field === "avatarKey") return value.split("/").at(-1) ?? value;
   if (field === "addresses") return formatAddressValue(value);
   if (["stock", "price", "originalPrice", "rating", "soldCount", "totalAmount", "amount", "quantity", "unitPrice", "discountPercent", "recipientCount", "publishAttempts", "manualRetryCount", "routeStage", "warrantyMonths", "capacityLiters", "weightGrams"].includes(field)) {
@@ -92,8 +93,8 @@ export function parseAuditValue(value: string | null): ParsedAuditValue {
 }
 
 export function displayNestedValue(value: unknown) {
-  if (value === null || value === undefined) return "Not present";
-  if (typeof value === "string") return value || "(empty string)";
+  if (value === null || value === undefined) return t("Not present");
+  if (typeof value === "string") return value || t("(empty string)");
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return JSON.stringify(value);
 }
@@ -107,12 +108,12 @@ export function summarizeChange(change: AuditChange, field: string) {
     const added = next.filter((item) => !previous.includes(item));
     const removed = previous.filter((item) => !next.includes(item));
     return [
-      added.length ? `Added ${added.join(", ")}` : "",
-      removed.length ? `Removed ${removed.join(", ")}` : ""
-    ].filter(Boolean).join("; ") || "No visible permission delta";
+      added.length ? t("Added {value1}", { value1: added.join(", ") }) : "",
+      removed.length ? t("Removed {value1}", { value1: removed.join(", ") }) : ""
+    ].filter(Boolean).join("; ") || t("No visible permission delta");
   }
   if (field === "addresses" && after.kind === "array") {
-    return after.value.length ? `${after.value.length} location${after.value.length === 1 ? "" : "s"} saved` : "No saved location";
+    return after.value.length ? t("{value1} locations saved", { value1: after.value.length }) : t("No saved location");
   }
   return `${displayValue(change.before, field)} -> ${displayValue(change.after, field)}`;
 }
@@ -128,7 +129,7 @@ export function fieldLabel(field: string) {
 function formatAddressValue(value: string) {
   try {
     const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed) || parsed.length === 0) return "No addresses";
+    if (!Array.isArray(parsed) || parsed.length === 0) return t("No addresses");
     const lines = parsed.flatMap((item, index) => {
       if (!item || typeof item !== "object") return [];
       const address = item as Record<string, unknown>;
@@ -137,9 +138,9 @@ function formatAddressValue(value: string) {
       const province = String(address.province || "").trim();
       if (!ward && !city && !province) return [];
       const value = [ward, city, province].filter(Boolean).join(", ");
-      return [parsed.length === 1 ? value : `Address ${index + 1}: ${value}`];
+      return [parsed.length === 1 ? value : t("Address {value1}: {value2}", { value1: index + 1, value2: value })];
     });
-    return lines.join("\n") || "No addresses";
+    return lines.join("\n") || t("No addresses");
   } catch {
     return value;
   }

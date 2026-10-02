@@ -2,6 +2,7 @@ import "./styles.css";
 import type { ReactNode } from "react";
 import { Roboto } from "next/font/google";
 import { AppChrome } from "./components/AppChrome";
+import { LanguageProvider } from "../src/i18n/LanguageProvider";
 
 const roboto = Roboto({
   subsets: ["latin", "vietnamese"],
@@ -10,7 +11,7 @@ const roboto = Roboto({
 
 export const metadata = {
   title: "Supermarket Platform",
-  description: "Admin management va storefront client cho du an DynamoDB"
+  description: "Shop products and manage your NovaX Market account."
 };
 
 type RootLayoutProps = {
@@ -19,7 +20,7 @@ type RootLayoutProps = {
 
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="vi">
+    <html lang="en">
       <body
         className={`${roboto.className} min-h-screen text-slate-900`}
         style={{
@@ -27,7 +28,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
           color: "#0f172a"
         }}
       >
-        <AppChrome>{children}</AppChrome>
+        <LanguageProvider><AppChrome>{children}</AppChrome></LanguageProvider>
       </body>
     </html>
   );

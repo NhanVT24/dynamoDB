@@ -1,4 +1,6 @@
 "use client";
+import { t, translateLabel } from "../../../../src/i18n/language";
+import { useLanguage } from "../../../../src/i18n/LanguageProvider";
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -68,6 +70,7 @@ function extractRequestId(orderInfo: string) {
 }
 
 function CheckoutResultPageContent() {
+  useLanguage();
   const searchParams = useSearchParams();
   const { clearCart, theme } = useStorefront();
   const isDark = theme === "dark";
@@ -377,7 +380,7 @@ function CheckoutResultPageContent() {
         tone: isDark ? "border-cyan-500/20 bg-cyan-500/10 text-cyan-100" : "border-cyan-200 bg-cyan-50 text-cyan-800",
         badge: "Processing",
         title: "Your order is being synchronized",
-        message: queueMessage || "Your request is already in the queue. The system is tracking its status to complete the order."
+        message: queueMessage || "Your order is being processed. We will update its status shortly."
       };
     }
 
@@ -386,7 +389,7 @@ function CheckoutResultPageContent() {
         tone: isDark ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100" : "border-emerald-200 bg-emerald-50 text-emerald-800",
         badge: "Completed",
         title: "Your order has been recorded",
-        message: queueMessage || "The queue finished processing and the order was created successfully."
+        message: queueMessage || "Your order was created successfully."
       };
     }
 
@@ -395,15 +398,15 @@ function CheckoutResultPageContent() {
         tone: isDark ? "border-rose-500/20 bg-rose-500/10 text-rose-100" : "border-rose-200 bg-rose-50 text-rose-800",
         badge: "Failed",
         title: "Your order could not be completed",
-        message: queueMessage || "The queue responded, but the order could not be completed fully."
+        message: queueMessage || "Your order needs further review. Please check your order history."
       };
     }
 
     return {
       tone: isDark ? "border-white/10 bg-white/5 text-slate-100" : "border-slate-200 bg-slate-50 text-slate-800",
       badge: "Received",
-      title: "The system is preparing your order request",
-      message: queueMessage || "Your request has been received. The system is preparing to check the queue status."
+      title: "Preparing your order",
+      message: queueMessage || "Your request has been received. We are checking your order."
     };
   }, [hasValidGatewaySuccess, result?.transactionStatus, isDark, queueMessage, queueState, requestId]);
 
@@ -415,23 +418,21 @@ function CheckoutResultPageContent() {
         }`}
       >
         <p className={`text-xs font-semibold uppercase tracking-[0.28em] ${isSuccess ? "text-emerald-500" : isPaymentFailure ? "text-rose-500" : "text-orange-500"}`}>
-          {isSuccess || hasValidGatewaySuccess ? "Payment confirmed" : isAwaitingWebhook ? "Awaiting confirmation" : isExpired ? "Payment expired" : "Payment not completed"}
+          {isSuccess || hasValidGatewaySuccess ? t("Payment confirmed") : isAwaitingWebhook ? t("Awaiting confirmation") : isExpired ? t("Payment expired") : t("Payment not completed")}
         </p>
         <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>
-          {resultHeading}
+          {translateLabel(resultHeading)}
         </h1>
         <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-          {resultDescription}
+          {translateLabel(resultDescription)}
         </p>
 
         {result && canStartNewCheckout ? (
           <div className={`mt-6 rounded-[1.5rem] border p-5 ${isDark
             ? "border-rose-500/25 bg-rose-500/10 text-rose-100"
             : "border-rose-200 bg-rose-50 text-rose-900"}`}>
-            <p className="text-sm font-semibold">{result.message}</p>
-            <p className="mt-2 text-sm leading-6 opacity-90">
-              The old transaction reference cannot be reused. When you continue, the system will recheck inventory and create a brand-new VNPay payment session.
-            </p>
+            <p className="text-sm font-semibold">{translateLabel(result.message)}</p>
+            <p className="mt-2 text-sm leading-6 opacity-90">{t("The old transaction reference cannot be reused. When you continue, the system will recheck inventory and create a brand-new VNPay payment session.")}</p>
           </div>
         ) : null}
 
@@ -440,16 +441,16 @@ function CheckoutResultPageContent() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <span className="inline-flex rounded-full border border-current/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em]">
-                  {queuePanel.badge}
+                  {translateLabel(queuePanel.badge)}
                 </span>
-                <p className="mt-3 text-lg font-semibold">{queuePanel.title}</p>
+                <p className="mt-3 text-lg font-semibold">{translateLabel(queuePanel.title)}</p>
               </div>
               <div className={`min-w-[12rem] rounded-2xl px-3 py-2 text-xs ${isDark ? "bg-slate-950/30 text-slate-200" : "bg-white/80 text-slate-600"}`}>
-                <p className="font-semibold">Request ID</p>
+                <p className="font-semibold">{t("Request ID")}</p>
                 <p className="mt-1 break-all opacity-90">{requestId}</p>
               </div>
             </div>
-            <p className="mt-4 text-sm leading-7 opacity-95">{queuePanel.message}</p>
+            <p className="mt-4 text-sm leading-7 opacity-95">{translateLabel(queuePanel.message)}</p>
           </div>
         ) : null}
 
@@ -465,26 +466,26 @@ function CheckoutResultPageContent() {
                   : "border-rose-200 bg-rose-50 text-rose-700"
             }`}
           >
-            {error}
+            {translateLabel(error)}
           </div>
         ) : null}
 
         {result ? (
           <div className={`mt-8 grid gap-4 rounded-[1.75rem] border p-5 sm:grid-cols-2 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50/80"}`}>
             <div>
-              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Store transaction reference</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Store transaction reference")}</p>
               <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{result.txnRef || "--"}</p>
             </div>
             <div>
-              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Amount</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Amount")}</p>
               <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{formatCurrency(result.amount)}</p>
             </div>
             <div>
-              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Bank</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Bank")}</p>
               <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{result.bankCode || "--"}</p>
             </div>
             <div>
-              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Response code</p>
+              <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Response code")}</p>
               <p className={`mt-1 font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{result.responseCode || "--"}</p>
             </div>
           </div>
@@ -492,17 +493,15 @@ function CheckoutResultPageContent() {
 
         {shouldShowQueueNotification && matchedNotification ? (
           <div className={`mt-6 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50/75"}`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Queue notification</p>
-            <h2 className={`mt-3 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{matchedNotification.title}</h2>
-            <p className={`mt-2 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{matchedNotification.message}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">{t("Queue notification")}</p>
+            <h2 className={`mt-3 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{translateLabel(matchedNotification.title)}</h2>
+            <p className={`mt-2 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{translateLabel(matchedNotification.message)}</p>
           </div>
         ) : null}
 
         <div className="mt-8 flex flex-wrap gap-3">
           {canStartNewCheckout ? (
-            <Link href="/store/checkout" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-              Create a new transaction
-            </Link>
+            <Link href="/store/checkout" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">{t("Create a new transaction")}</Link>
           ) : null}
           <Link
             href={canStartNewCheckout ? "/store" : "/store/products"}
@@ -510,7 +509,7 @@ function CheckoutResultPageContent() {
               isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
             }`}
           >
-            {canStartNewCheckout ? "Back to cart" : "Continue shopping"}
+            {canStartNewCheckout ? t("Back to cart") : t("Continue shopping")}
           </Link>
           {isSuccess ? (
             <Link
@@ -519,7 +518,7 @@ function CheckoutResultPageContent() {
                 isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
               }`}
             >
-              {requestId ? "View order details" : "View order history"}
+              {requestId ? t("View order details") : t("View order history")}
             </Link>
           ) : null}
         </div>
@@ -529,6 +528,7 @@ function CheckoutResultPageContent() {
 }
 
 export default function CheckoutResultPage() {
+  useLanguage();
   return (
     <Suspense fallback={null}>
       <CheckoutResultPageContent />

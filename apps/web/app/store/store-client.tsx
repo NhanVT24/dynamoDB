@@ -1,4 +1,7 @@
-﻿"use client";
+"use client";
+import { t, translateLabel } from "../../src/i18n/language";
+import { useLanguage } from "../../src/i18n/LanguageProvider";
+
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -7,6 +10,7 @@ import type { DragEvent, ReactNode } from "react";
 import { storeCategories, storeProducts } from "./store-data";
 import { buildProductDetailHref, fetchStorefrontProductById, fetchStorefrontProducts, toStoreProduct } from "./store-api";
 import ProductEditor from "./products/product-editor";
+import { LanguageSwitcher } from "../../src/i18n/LanguageSwitcher";
 import {
   beginGoogleSignIn,
   confirmForgotPassword,
@@ -297,6 +301,7 @@ function buildPaginationTokens(currentPage: number, totalPages: number): Paginat
 }
 
 export function StorefrontProvider({ children }: { children: ReactNode }) {
+  useLanguage();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [items, setItems] = useState<CartItem[]>([]);
@@ -500,6 +505,7 @@ export function useStorefront() {
 }
 
 function CartDrawer({ session }: { session: AuthSession | null }) {
+  useLanguage();
   const { items, isDrawerOpen, toggleDrawer, updateQuantity, removeItem, subtotal, shipping, total, clearCart, theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
 
@@ -511,16 +517,14 @@ function CartDrawer({ session }: { session: AuthSession | null }) {
       <aside className={`fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col border-l p-6 ${isDark ? "border-white/10 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">Cart</p>
-            <h3 className="mt-2 text-2xl font-semibold">Quick shopping</h3>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-orange-500">{t("Cart")}</p>
+            <h3 className="mt-2 text-2xl font-semibold">{t("Quick shopping")}</h3>
           </div>
-          <button className="rounded-2xl border px-3 py-2" onClick={() => toggleDrawer(false)}>Close</button>
+          <button className="rounded-2xl border px-3 py-2" onClick={() => toggleDrawer(false)}>{t("Close")}</button>
         </div>
         <div className="mt-6 flex-1 space-y-4 overflow-y-auto pr-2">
           {items.length === 0 ? (
-            <div className={`rounded-[1.5rem] border border-dashed p-6 text-sm ${isDark ? "border-white/10 bg-white/5 text-slate-300" : "border-slate-300 bg-slate-50 text-slate-600"}`}>
-              Your cart is empty.
-            </div>
+            <div className={`rounded-[1.5rem] border border-dashed p-6 text-sm ${isDark ? "border-white/10 bg-white/5 text-slate-300" : "border-slate-300 bg-slate-50 text-slate-600"}`}>{t("Your cart is empty.")}</div>
           ) : items.map((item) => (
             <article key={item.variantId} className={`rounded-[1.5rem] border p-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
               <div className="flex gap-4">
@@ -531,7 +535,7 @@ function CartDrawer({ session }: { session: AuthSession | null }) {
                       <h4 className="line-clamp-2 font-semibold">{item.productName}</h4>
                       <p className={`mt-1 text-sm ${isDark ? "text-slate-300" : "text-slate-500"}`}>{item.variantName}</p>
                     </div>
-                    <button onClick={() => removeItem(item.variantId)} className="text-sm text-rose-500">Remove</button>
+                    <button onClick={() => removeItem(item.variantId)} className="text-sm text-rose-500">{t("Remove")}</button>
                   </div>
                   <div className="mt-3 flex items-center justify-between">
                     <div className="inline-flex items-center gap-2 rounded-full border px-2 py-1">
@@ -547,19 +551,17 @@ function CartDrawer({ session }: { session: AuthSession | null }) {
           ))}
         </div>
         <div className="mt-6 rounded-[1.75rem] bg-gradient-to-r from-orange-500 to-red-500 p-5 text-white">
-          <div className="flex justify-between text-sm"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-          <div className="mt-2 flex justify-between text-sm"><span>Shipping</span><span>{shipping === 0 ? "Free" : formatCurrency(shipping)}</span></div>
-          <div className="mt-4 flex justify-between border-t border-white/20 pt-4 text-lg font-semibold"><span>Total</span><span>{formatCurrency(total)}</span></div>
+          <div className="flex justify-between text-sm"><span>{t("Subtotal")}</span><span>{formatCurrency(subtotal)}</span></div>
+          <div className="mt-2 flex justify-between text-sm"><span>{t("Shipping")}</span><span>{shipping === 0 ? t("Free") : formatCurrency(shipping)}</span></div>
+          <div className="mt-4 flex justify-between border-t border-white/20 pt-4 text-lg font-semibold"><span>{t("Total")}</span><span>{formatCurrency(total)}</span></div>
           <div className="mt-4 grid gap-3">
-            <button onClick={clearCart} className="rounded-full border border-white/20 px-4 py-3 font-semibold">Clear cart</button>
+            <button onClick={clearCart} className="rounded-full border border-white/20 px-4 py-3 font-semibold">{t("Clear cart")}</button>
             {session ? (
               <Link
                 href="/store/checkout"
                 onClick={() => toggleDrawer(false)}
                 className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600"
-              >
-                Sandbox checkout
-              </Link>
+              >{t("Sandbox checkout")}</Link>
             ) : (
               <button
                 type="button"
@@ -569,9 +571,7 @@ function CartDrawer({ session }: { session: AuthSession | null }) {
                   openAuthModal("/store/checkout");
                 }}
                 className="rounded-full bg-white px-4 py-3 text-center font-semibold text-orange-600"
-              >
-                Sign in to checkout
-              </button>
+              >{t("Sign in to checkout")}</button>
             )}
           </div>
         </div>
@@ -599,9 +599,10 @@ function PasswordField({
   onChange: (value: string) => void;
   onToggle: () => void;
 }) {
+  useLanguage();
   return (
     <label className="grid gap-2" htmlFor={id}>
-      <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{label}</span>
+      <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{translateLabel(label)}</span>
       <div className="relative">
         <input
           id={id}
@@ -614,13 +615,13 @@ function PasswordField({
         />
         <button
           type="button"
-          aria-label={isVisible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+          aria-label={isVisible ? t("Hide {value1}", { value1: label.toLowerCase() }) : t("Show {value1}", { value1: label.toLowerCase() })}
           aria-pressed={isVisible}
           onMouseDown={(event) => event.preventDefault()}
           onClick={onToggle}
           className={`absolute right-2 top-1/2 -translate-y-1/2 rounded-xl px-3 py-1.5 text-xs font-semibold ${isDark ? "bg-white/10 text-white hover:bg-white/15" : "bg-white text-slate-700 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50"}`}
         >
-          {isVisible ? "Hide" : "Show"}
+          {isVisible ? t("Hide") : t("Show")}
         </button>
       </div>
     </label>
@@ -634,6 +635,7 @@ function StorefrontAuthModal({
   session: AuthSession | null;
   onSignedIn: (nextSession: AuthSession) => void;
 }) {
+  useLanguage();
   const router = useRouter();
   const { isAuthModalOpen, authModalMessage, closeAuthModal, theme } = useStorefront();
   const isDark = theme === "dark";
@@ -913,47 +915,45 @@ function StorefrontAuthModal({
     <div className="fixed inset-0 z-[80] flex items-center justify-center px-4">
       <button
         type="button"
-        aria-label="Close sign-in dialog"
+        aria-label={t("Close sign-in dialog")}
         onClick={closeAuthModal}
         className="absolute inset-0 bg-slate-950/60 backdrop-blur-[2px]"
       />
       <section className={`relative z-[81] w-full max-w-md rounded-[2rem] border p-6 shadow-[0_30px_100px_rgba(15,23,42,0.25)] ${isDark ? "border-white/10 bg-[#101826] text-white" : "border-slate-200 bg-white text-slate-950"}`}>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Account</p>
-            <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{titleByMode[mode]}</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">{t("Account")}</p>
+            <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{translateLabel(titleByMode[mode])}</h2>
           </div>
           <button
             type="button"
             onClick={closeAuthModal}
             className={`inline-flex h-10 w-10 items-center justify-center rounded-2xl border text-lg ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
-          >
-            ×
-          </button>
+          >{t("×")}</button>
         </div>
 
         <p className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${renderAuthMessageTone()}`}>
-          {message}
+          {translateLabel(message)}
         </p>
 
         {mode === "login" ? (
           <form className="mt-5 grid gap-4" onSubmit={handleLogin}>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Email</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Email")}</span>
               <input
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
+                placeholder={t("you@example.com")}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
             </label>
             <PasswordField
               id="storefront-login-password"
-              label="Password"
+              label={t("Password")}
               value={password}
-              placeholder="Enter your password"
+              placeholder={t("Enter your password")}
               isVisible={isPasswordVisible}
               isDark={isDark}
               onChange={setPassword}
@@ -964,61 +964,59 @@ function StorefrontAuthModal({
               disabled={isSubmitting}
               className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Signing in..." : "Sign in"}
+              {isSubmitting ? t("Signing in...") : t("Sign in")}
             </button>
             <button
               type="button"
               onClick={() => beginGoogleSignIn()}
               className={`inline-flex h-12 items-center justify-center rounded-2xl border px-4 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
-            >
-              Sign in with Google
-            </button>
+            >{t("Sign in with Google")}</button>
           </form>
         ) : null}
 
         {mode === "register" ? (
           <form className="mt-5 grid gap-4" onSubmit={handleRegister}>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Full name</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Full name")}</span>
               <input
                 value={registerName}
                 onChange={(event) => setRegisterName(event.target.value)}
-                placeholder="Example: Alex Nguyen"
+                placeholder={t("Example: Alex Nguyen")}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
               />
             </label>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Email</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Email")}</span>
               <input
                 type="email"
                 value={registerEmail}
                 onChange={(event) => setRegisterEmail(event.target.value)}
-                placeholder="you@example.com"
+                placeholder={t("you@example.com")}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
             </label>
             <div className="grid gap-3 rounded-2xl border border-slate-200/70 p-3">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Location</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Location")}</span>
               <div className="grid gap-3 sm:grid-cols-3">
                 <input
                   value={registerWard}
                   onChange={(event) => setRegisterWard(event.target.value)}
-                  placeholder="Ward"
+                  placeholder={t("Ward")}
                   className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                   required
                 />
                 <input
                   value={registerCity}
                   onChange={(event) => setRegisterCity(event.target.value)}
-                  placeholder="City"
+                  placeholder={t("City")}
                   className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                   required
                 />
                 <input
                   value={registerProvince}
                   onChange={(event) => setRegisterProvince(event.target.value)}
-                  placeholder="Province"
+                  placeholder={t("Province")}
                   className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                   required
                 />
@@ -1026,9 +1024,9 @@ function StorefrontAuthModal({
             </div>
             <PasswordField
               id="storefront-register-password"
-              label="Password"
+              label={t("Password")}
               value={registerPassword}
-              placeholder="At least 8 characters"
+              placeholder={t("At least 8 characters")}
               isVisible={isRegisterPasswordVisible}
               isDark={isDark}
               onChange={setRegisterPassword}
@@ -1036,9 +1034,9 @@ function StorefrontAuthModal({
             />
             <PasswordField
               id="storefront-register-confirm-password"
-              label="Confirm password"
+              label={t("Confirm password")}
               value={registerConfirmPassword}
-              placeholder="Re-enter your password"
+              placeholder={t("Re-enter your password")}
               isVisible={isRegisterConfirmPasswordVisible}
               isDark={isDark}
               onChange={setRegisterConfirmPassword}
@@ -1049,7 +1047,7 @@ function StorefrontAuthModal({
               disabled={isSubmitting}
               className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-            {isSubmitting ? "Creating account..." : "Create account"}
+            {isSubmitting ? t("Creating account...") : t("Create account")}
             </button>
           </form>
         ) : null}
@@ -1057,22 +1055,22 @@ function StorefrontAuthModal({
         {mode === "confirm" ? (
           <form className="mt-5 grid gap-4" onSubmit={handleConfirm}>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Email</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Email")}</span>
               <input
                 type="email"
                 value={confirmEmail}
                 onChange={(event) => setConfirmEmail(event.target.value)}
-                placeholder="Email you just registered"
+                placeholder={t("Email you just registered")}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
             </label>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Confirmation code</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Confirmation code")}</span>
               <input
                 value={confirmCode}
                 onChange={(event) => setConfirmCode(event.target.value)}
-                placeholder="Enter the 6-digit code from your email"
+                placeholder={t("Enter the 6-digit code from your email")}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
@@ -1082,7 +1080,7 @@ function StorefrontAuthModal({
               disabled={isSubmitting}
               className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Confirming..." : "Confirm account"}
+              {isSubmitting ? t("Confirming...") : t("Confirm account")}
             </button>
             <button
               type="button"
@@ -1090,7 +1088,7 @@ function StorefrontAuthModal({
               disabled={isSubmitting || resendCountdown > 0}
               className={`inline-flex h-12 items-center justify-center rounded-2xl border px-4 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
             >
-              {resendCountdown > 0 ? `Resend code in ${resendCountdown}s` : "Resend code"}
+              {resendCountdown > 0 ? t("Resend code in {value1}s", { value1: resendCountdown }) : t("Resend code")}
             </button>
           </form>
         ) : null}
@@ -1098,12 +1096,12 @@ function StorefrontAuthModal({
         {mode === "forgot" ? (
           <form className="mt-5 grid gap-4" onSubmit={handleForgotPassword}>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Email</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Email")}</span>
               <input
                 type="email"
                 value={forgotEmail}
                 onChange={(event) => setForgotEmail(event.target.value)}
-                placeholder="Enter your email"
+                placeholder={t("Enter your email")}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
@@ -1113,7 +1111,7 @@ function StorefrontAuthModal({
               disabled={isSubmitting}
               className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Sending code..." : "Send reset code"}
+              {isSubmitting ? t("Sending code...") : t("Send reset code")}
             </button>
           </form>
         ) : null}
@@ -1121,31 +1119,31 @@ function StorefrontAuthModal({
         {mode === "reset" ? (
           <form className="mt-5 grid gap-4" onSubmit={handleResetPassword}>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Email</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Email")}</span>
               <input
                 type="email"
                 value={forgotEmail}
                 onChange={(event) => setForgotEmail(event.target.value)}
-                placeholder="Email for password reset"
+                placeholder={t("Email for password reset")}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
             </label>
             <label className="grid gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Reset code</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Reset code")}</span>
               <input
                 value={resetCode}
                 onChange={(event) => setResetCode(event.target.value)}
-                placeholder="Enter the code from your email"
+                placeholder={t("Enter the code from your email")}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                 required
               />
             </label>
             <PasswordField
               id="storefront-reset-password"
-              label="New password"
+              label={t("New password")}
               value={resetPassword}
-              placeholder="Enter a new password"
+              placeholder={t("Enter a new password")}
               isVisible={isResetPasswordVisible}
               isDark={isDark}
               onChange={setResetPassword}
@@ -1153,9 +1151,9 @@ function StorefrontAuthModal({
             />
             <PasswordField
               id="storefront-reset-confirm-password"
-              label="Confirm new password"
+              label={t("Confirm new password")}
               value={resetConfirmPassword}
-              placeholder="Re-enter the new password"
+              placeholder={t("Re-enter the new password")}
               isVisible={isResetConfirmPasswordVisible}
               isDark={isDark}
               onChange={setResetConfirmPassword}
@@ -1166,7 +1164,7 @@ function StorefrontAuthModal({
               disabled={isSubmitting}
               className="inline-flex h-12 items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? "Updating..." : "Update password"}
+              {isSubmitting ? t("Updating...") : t("Update password")}
             </button>
           </form>
         ) : null}
@@ -1177,17 +1175,13 @@ function StorefrontAuthModal({
               type="button"
               onClick={() => setMode("register")}
               className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-cyan-400/30 bg-cyan-500/10 text-cyan-100" : "border-cyan-200 bg-cyan-50 text-cyan-700"}`}
-            >
-              Create account
-            </button>
+            >{t("Create account")}</button>
           ) : (
             <button
               type="button"
               onClick={() => setMode("login")}
               className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
-            >
-              Back to sign in
-            </button>
+            >{t("Back to sign in")}</button>
           )}
           {mode !== "forgot" && mode !== "reset" ? (
             <button
@@ -1197,17 +1191,13 @@ function StorefrontAuthModal({
                 setMode("forgot");
               }}
               className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
-            >
-              Forgot password
-            </button>
+            >{t("Forgot password")}</button>
           ) : (
             <button
               type="button"
               onClick={() => setMode("login")}
               className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
-            >
-              Back to sign in
-            </button>
+            >{t("Back to sign in")}</button>
           )}
         </div>
       </section>
@@ -1216,6 +1206,7 @@ function StorefrontAuthModal({
 }
 
 function NotificationBell({ session, isDark }: { session: AuthSession | null; isDark: boolean }) {
+  useLanguage();
   const [notifications, setNotifications] = useState<StoreNotification[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [open, setOpen] = useState(false);
@@ -1459,7 +1450,7 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        aria-label="Open notifications"
+        aria-label={t("Open notifications")}
         className={`relative inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition-colors ${
           isDark
             ? "border-white/10 bg-white/5 text-white hover:bg-white/10"
@@ -1488,8 +1479,8 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
       {open ? (
         <div className={`absolute right-0 mt-3 w-[26rem] max-w-[calc(100vw-1.5rem)] rounded-[1.5rem] border p-4 shadow-2xl ${isDark ? "border-white/10 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-950"}`}>
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold">Notifications</p>
-            <span className="text-xs text-orange-500">{pendingCount} unread</span>
+            <p className="text-sm font-semibold">{t("Notifications")}</p>
+            <span className="text-xs text-orange-500">{pendingCount} {t("unread")}</span>
           </div>
           {notifications.length > 0 ? (
             <div className="mt-3 flex flex-wrap justify-end gap-2">
@@ -1497,46 +1488,36 @@ function NotificationBell({ session, isDark }: { session: AuthSession | null; is
                 type="button"
                 onClick={() => void handleDeleteAllNotifications()}
                 className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-rose-500/15 text-rose-200 hover:bg-rose-500/25 hover:text-white" : "bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"}`}
-              >
-                Delete all
-              </button>
+              >{t("Delete all")}</button>
               <button
                 type="button"
                 onClick={() => void handleMarkAllAsRead()}
                 className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-white/10 text-slate-200 hover:bg-white/15 hover:text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200 hover:text-slate-900"}`}
-              >
-                Mark all as read
-              </button>
+              >{t("Mark all as read")}</button>
             </div>
           ) : null}
           <div className="mt-3 max-h-[26rem] space-y-3 overflow-y-auto pr-1">
             {notifications.length === 0 ? (
-              <div className={`rounded-2xl border border-dashed p-4 text-sm ${isDark ? "border-white/10 text-slate-300" : "border-slate-200 text-slate-500"}`}>
-                No notifications yet.
-              </div>
+              <div className={`rounded-2xl border border-dashed p-4 text-sm ${isDark ? "border-white/10 text-slate-300" : "border-slate-200 text-slate-500"}`}>{t("No notifications yet.")}</div>
             ) : notifications.map((item) => (
               <div key={item.id} className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-100 bg-slate-50"}`}>
                 <div className="flex items-center justify-between gap-3">
-                  <p className={`line-clamp-2 text-sm font-semibold ${item.isRead ? (isDark ? "text-slate-300" : "text-slate-500") : ""}`}>{item.title}</p>
+                  <p className={`line-clamp-2 text-sm font-semibold ${item.isRead ? (isDark ? "text-slate-300" : "text-slate-500") : ""}`}>{translateLabel(item.title)}</p>
                 </div>
-                <p className={`mt-2 line-clamp-3 text-xs leading-5 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{item.message}</p>
+                <p className={`mt-2 line-clamp-3 text-xs leading-5 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{translateLabel(item.message)}</p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   {!item.isRead ? (
                     <button
                       type="button"
                       onClick={() => void handleDismissNotification(item)}
                       className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-white/10 text-slate-200 hover:bg-white/15 hover:text-white" : "bg-white text-slate-600 hover:bg-slate-100 hover:text-slate-900"}`}
-                    >
-                      Mark as read
-                    </button>
+                    >{t("Mark as read")}</button>
                   ) : null}
                   <button
                     type="button"
                     onClick={() => void handleDeleteNotification(item)}
                     className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${isDark ? "bg-rose-500/15 text-rose-200 hover:bg-rose-500/25 hover:text-white" : "bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700"}`}
-                  >
-                    Delete
-                  </button>
+                  >{t("Delete")}</button>
                 </div>
               </div>
             ))}
@@ -1570,6 +1551,7 @@ function getCountdownParts(endsAt: string | undefined, now = Date.now()) {
 }
 
 function SaleCountdown({ endsAt, isDark }: { endsAt?: string; isDark: boolean }) {
+  useLanguage();
   const [now, setNow] = useState<number | null>(null);
   const parts = now === null ? undefined : getCountdownParts(endsAt, now);
 
@@ -1580,11 +1562,11 @@ function SaleCountdown({ endsAt, isDark }: { endsAt?: string; isDark: boolean })
   }, [endsAt]);
 
   if (now === null) {
-    return <p className="mt-3 text-xs font-semibold text-slate-400">Ends in --</p>;
+    return <p className="mt-3 text-xs font-semibold text-slate-400">{t("Ends in --")}</p>;
   }
 
   if (!parts) {
-    return <p className="mt-3 text-xs font-semibold text-slate-400">Offer ended</p>;
+    return <p className="mt-3 text-xs font-semibold text-slate-400">{t("Offer ended")}</p>;
   }
 
   const values = [
@@ -1595,14 +1577,15 @@ function SaleCountdown({ endsAt, isDark }: { endsAt?: string; isDark: boolean })
   ];
 
   return (
-    <div className={`mt-3 flex items-center gap-1.5 text-[11px] font-bold tabular-nums ${isDark ? "text-rose-200" : "text-rose-700"}`} aria-label={`Sale ends in ${values.map((item) => `${item.value}${item.label}`).join(" ")}`}>
-      <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]">Ends in</span>
-      {values.map((item) => <span key={item.label} className={`rounded-md px-1.5 py-1 ${isDark ? "bg-rose-500/15" : "bg-rose-100"}`}>{item.value}{item.label}</span>)}
+    <div className={`mt-3 flex items-center gap-1.5 text-[11px] font-bold tabular-nums ${isDark ? "text-rose-200" : "text-rose-700"}`} aria-label={t("Sale ends in {value1}", { value1: values.map((item) => `${item.value}${item.label}`).join(" ") })}>
+      <span className="mr-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]">{t("Ends in")}</span>
+      {values.map((item) => <span key={item.label} className={`rounded-md px-1.5 py-1 ${isDark ? "bg-rose-500/15" : "bg-rose-100"}`}>{item.value}{translateLabel(item.label)}</span>)}
     </div>
   );
 }
 
 function ProductCard({ product }: { product: StoreProduct }) {
+  useLanguage();
   const { addCatalogItem, theme } = useStorefront();
   const imageRef = useRef<HTMLImageElement | null>(null);
   const isDark = theme === "dark";
@@ -1630,7 +1613,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
         <img ref={imageRef} src={product.imageUrl} alt={product.name} className="h-64 w-full object-cover transition duration-500 group-hover:scale-105" draggable={false} />
         <div className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-4 pt-4 transition duration-300 group-hover:opacity-0">
           {hasDiscount ? <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${discountTone.badge}`}>-{discountPercent}%</span> : <span />}
-          <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "bg-white/10 text-slate-200" : "bg-white/90 text-slate-700"}`}>{product.category}</span>
+          <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "bg-white/10 text-slate-200" : "bg-white/90 text-slate-700"}`}>{translateLabel(product.category)}</span>
         </div>
         <div className="absolute inset-0 z-20 bg-slate-950/0 transition duration-300 group-hover:bg-slate-950/72" />
         <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center px-6 text-center opacity-0 transition duration-300 group-hover:opacity-100">
@@ -1649,7 +1632,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
             disabled={isUnavailable}
             className="pointer-events-auto mt-5 inline-flex min-w-[9rem] items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400"
           >
-            {product.isLocked ? "Reserved" : isUnavailable ? "Out of stock" : "Add to cart"}
+            {product.isLocked ? t("Reserved") : isUnavailable ? t("Out of stock") : t("Add to cart")}
           </button>
         </div>
       </div>
@@ -1663,14 +1646,14 @@ function ProductCard({ product }: { product: StoreProduct }) {
         <p className={`mt-2 line-clamp-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{product.description}</p>
         <div className="mt-3 flex items-center gap-2 text-sm">
           <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-600">★ {product.rating}</span>
-          <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>Sold {product.soldCount}</span>
+          <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>{t("Sold")} {product.soldCount}</span>
         </div>
         <div className="mt-4">
           {hasDiscount ? <div className="text-[13px] text-slate-400 line-through">{formatCurrency(product.originalPrice)}</div> : null}
           <strong className="text-2xl font-bold text-rose-600">{formatCurrency(product.price)}</strong>
         </div>
         {product.isLocked ? (
-          <p className="mt-3 text-sm font-medium text-amber-600">This product is temporarily reserved. Please try again later.</p>
+          <p className="mt-3 text-sm font-medium text-amber-600">{t("This product is temporarily reserved. Please try again later.")}</p>
         ) : null}
       </div>
     </article>
@@ -1678,6 +1661,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
 }
 
 export function StorefrontShell({ children }: { children: ReactNode }) {
+  useLanguage();
   const { session, setSession, theme, toggleTheme, count, toggleDrawer, addCatalogItem, theme: currentTheme, openAuthModal } = useStorefront();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -1761,49 +1745,46 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
     <div className={`${isDark ? "bg-[#0b1220] text-slate-100" : "bg-[linear-gradient(180deg,_#f6f8fc_0%,_#eef3ff_26%,_#ffffff_100%)] text-slate-950"} min-h-screen transition-colors duration-300`}>
       <header className={`relative sticky top-0 z-40 border-b backdrop-blur-xl ${isDark ? "border-white/10 bg-slate-950/85" : "border-slate-200 bg-white/92"}`}>
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <Link href="/store" className="flex min-w-0 items-center gap-3">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-orange-500 via-red-500 to-pink-500 text-sm font-bold tracking-[0.28em] text-white">NX</div>
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-orange-500">NovaX Market</p>
-                <p className={`truncate text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Storefront client integrated into the web app</p>
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-orange-500 via-red-500 to-pink-500 text-sm font-bold tracking-[0.28em] text-white">{t("NX")}</div>
+              <div className="hidden min-w-0 sm:block">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-orange-500">{t("NovaX Market")}</p>
+                <p className={`truncate text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("Everyday essentials, delivered")}</p>
               </div>
             </Link>
             <nav className={`hidden items-center gap-2 rounded-full p-1 lg:flex ${isDark ? "bg-white/5" : "bg-slate-100"}`}>
-              <Link href="/store" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isHomeRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Home</Link>
-              <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isProductsRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Products</Link>
-              <Link href="/store/orders" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isOrdersRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Orders</Link>
-              <Link href="/store/profile" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isProfileRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>Profile</Link>
+              <Link href="/store" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isHomeRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{t("Home")}</Link>
+              <Link href="/store/products" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isProductsRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{t("Products")}</Link>
+              <Link href="/store/orders" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isOrdersRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{t("Orders")}</Link>
+              <Link href="/store/profile" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isProfileRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "text-slate-300 hover:bg-white/8 hover:text-white" : "text-slate-600 hover:bg-white hover:text-slate-950"}`}>{t("Profile")}</Link>
               {session?.role === "admin" ? (
-                <Link href="/admin" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isDark ? "bg-cyan-400/12 text-cyan-200 hover:bg-cyan-400/20" : "bg-cyan-50 text-cyan-700 hover:bg-cyan-100"}`}>Admin Console</Link>
+                <Link href="/admin" className={`rounded-full px-5 py-2.5 text-sm font-medium ${isDark ? "bg-cyan-400/12 text-cyan-200 hover:bg-cyan-400/20" : "bg-cyan-50 text-cyan-700 hover:bg-cyan-100"}`}>{t("Admin Console")}</Link>
               ) : null}
             </nav>
             <div className="ml-auto flex items-center gap-2">
+              <LanguageSwitcher isDark={isDark} />
               <div className="hidden sm:block"><NotificationBell session={session} isDark={isDark} /></div>
               {session ? (
                 <div className="hidden items-center gap-2 lg:flex">
                   <Link href={session.role === "admin" ? "/admin" : "/store/profile"} className={`rounded-2xl px-4 py-2 text-right no-underline ${isDark ? "bg-white/5 text-slate-200" : "bg-slate-100 text-slate-700"}`}>
                     <p className="max-w-40 truncate text-sm font-semibold">{session.name}</p>
                     <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${session.role === "admin" ? "text-cyan-500" : "text-orange-500"}`}>
-                      {session.role === "admin" ? "Admin" : "Customer"}
+                      {session.role === "admin" ? t("Admin") : t("Customer")}
                     </p>
                   </Link>
                   <button
                     type="button"
                     onClick={handleStorefrontLogout}
                     className={`inline-flex h-11 items-center justify-center rounded-2xl border px-4 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
-                  >
-                    Sign out
-                  </button>
+                  >{t("Sign out")}</button>
                 </div>
               ) : (
                 <button
                   type="button"
                   onClick={() => openAuthModal(normalizedPathname.startsWith("/store") ? normalizedPathname : "/store")}
                   className={`hidden h-11 items-center justify-center rounded-2xl border px-4 text-sm font-semibold lg:inline-flex ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}
-                >
-                  Sign in
-                </button>
+                >{t("Sign in")}</button>
               )}
               <button onClick={toggleTheme} className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${isDark ? "border-white/10 bg-white/5 text-slate-200" : "border-slate-200 bg-white text-slate-700"}`}>{currentTheme === "dark" ? "☀" : "☾"}</button>
               <button
@@ -1821,7 +1802,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
                 onClick={() => setIsMobileMenuOpen((current) => !current)}
                 aria-expanded={isMobileMenuOpen}
                 aria-controls="storefront-mobile-navigation"
-                aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+                aria-label={isMobileMenuOpen ? t("Close navigation menu") : t("Open navigation menu")}
                 className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border lg:hidden ${isDark ? "border-white/10 bg-white/5 text-slate-100" : "border-slate-200 bg-white text-slate-700"}`}
               >
                 {isMobileMenuOpen ? (
@@ -1839,13 +1820,13 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
         </div>
         {isMobileMenuOpen ? (
           <div id="storefront-mobile-navigation" className={`absolute inset-x-0 top-full border-b px-4 py-4 shadow-2xl lg:hidden ${isDark ? "border-white/10 bg-slate-950" : "border-slate-200 bg-white"}`}>
-            <nav aria-label="Storefront navigation" className="grid gap-2">
-              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isHomeRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Home</Link>
-              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/products" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isProductsRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Products</Link>
-              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/orders" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isOrdersRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Orders</Link>
-              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/profile" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isProfileRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>Profile</Link>
+            <nav aria-label={t("Storefront navigation")} className="grid gap-2">
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isHomeRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>{t("Home")}</Link>
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/products" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isProductsRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>{t("Products")}</Link>
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/orders" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isOrdersRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>{t("Orders")}</Link>
+              <Link onClick={() => setIsMobileMenuOpen(false)} href="/store/profile" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isProfileRoute ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200 hover:bg-white/10" : "bg-slate-50 text-slate-700 hover:bg-slate-100"}`}>{t("Profile")}</Link>
               {session?.role === "admin" ? (
-                <Link onClick={() => setIsMobileMenuOpen(false)} href="/admin" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isDark ? "bg-cyan-400/12 text-cyan-200 hover:bg-cyan-400/20" : "bg-cyan-50 text-cyan-700 hover:bg-cyan-100"}`}>Admin Console</Link>
+                <Link onClick={() => setIsMobileMenuOpen(false)} href="/admin" className={`rounded-2xl px-4 py-3 text-sm font-semibold ${isDark ? "bg-cyan-400/12 text-cyan-200 hover:bg-cyan-400/20" : "bg-cyan-50 text-cyan-700 hover:bg-cyan-100"}`}>{t("Admin Console")}</Link>
               ) : null}
             </nav>
             <div className={`mt-4 border-t pt-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
@@ -1853,17 +1834,17 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
                 <div className="flex items-center justify-between gap-3">
                   <Link onClick={() => setIsMobileMenuOpen(false)} href={session.role === "admin" ? "/admin" : "/store/profile"} className="min-w-0">
                     <p className="truncate text-sm font-semibold">{session.name}</p>
-                    <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${session.role === "admin" ? "text-cyan-500" : "text-orange-500"}`}>{session.role === "admin" ? "Admin" : "Customer"}</p>
+                    <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${session.role === "admin" ? "text-cyan-500" : "text-orange-500"}`}>{session.role === "admin" ? t("Admin") : t("Customer")}</p>
                   </Link>
-                  <button type="button" onClick={() => { handleStorefrontLogout(); setIsMobileMenuOpen(false); }} className={`rounded-xl border px-3 py-2 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}>Sign out</button>
+                  <button type="button" onClick={() => { handleStorefrontLogout(); setIsMobileMenuOpen(false); }} className={`rounded-xl border px-3 py-2 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}>{t("Sign out")}</button>
                 </div>
               ) : (
-                <button type="button" onClick={() => { setIsMobileMenuOpen(false); openAuthModal(normalizedPathname.startsWith("/store") ? normalizedPathname : "/store"); }} className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}>Sign in</button>
+                <button type="button" onClick={() => { setIsMobileMenuOpen(false); openAuthModal(normalizedPathname.startsWith("/store") ? normalizedPathname : "/store"); }} className={`w-full rounded-xl border px-4 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"}`}>{t("Sign in")}</button>
               )}
             </div>
           </div>
         ) : null}
-        <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 px-4 py-2 text-center text-xs font-medium text-white">The storefront client runs on /store, while the admin area lives on /admin.</div>
+        <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 px-4 py-2 text-center text-xs font-medium text-white">{t("Shop products and manage your orders in one place.")}</div>
       </header>
       <CartDrawer session={session} />
       <StorefrontAuthModal session={session} onSignedIn={setSession} />
@@ -1873,6 +1854,7 @@ export function StorefrontShell({ children }: { children: ReactNode }) {
 }
 
 export function HomeSections() {
+  useLanguage();
   const { theme } = useStorefront();
   const isDark = theme === "dark";
   const [products, setProducts] = useState<StoreProduct[]>([]);
@@ -2026,31 +2008,31 @@ export function HomeSections() {
         <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[1.3fr_0.7fr]">
           <div className="overflow-hidden rounded-[2rem] bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 p-[1px]">
             <div className={`rounded-[calc(2rem-1px)] px-6 py-8 sm:px-8 lg:px-10 ${isDark ? "bg-[#101826]" : "bg-white"}`}>
-              <div className="inline-flex rounded-full bg-orange-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-orange-600">Today&apos;s tech deals</div>
-              <h1 className={`mt-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl ${isDark ? "text-white" : "text-slate-950"}`}>The storefront client is wired into this project so you can test purchases directly.</h1>
-              <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>This flow runs inside the Next app at /store, while admin stays at /admin, with dark mode, drag-and-drop cart support, and a dedicated product listing.</p>
+              <div className="inline-flex rounded-full bg-orange-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-orange-600">{t("Today's tech deals")}</div>
+              <h1 className={`mt-5 text-4xl font-bold leading-tight tracking-tight sm:text-5xl ${isDark ? "text-white" : "text-slate-950"}`}>{t("Discover everyday essentials and shop your favorites.")}</h1>
+              <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("Explore our catalog, add items to your cart, and checkout when you are ready.")}</p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">Shop now</Link>
-                <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 text-white" : "border-slate-200 text-slate-800"}`}>Browse catalog</Link>
+                <Link href="/store/products" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">{t("Shop now")}</Link>
+                <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 text-white" : "border-slate-200 text-slate-800"}`}>{t("Browse catalog")}</Link>
               </div>
               <div className="mt-8 grid gap-4 sm:grid-cols-3">
-                {["24+ mock products", "6 main categories", "8 products per page"].map((item) => (
-                  <div key={item} className={`rounded-[1.5rem] border p-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>{item}</div>
+                {["Discover new favorites", "Explore all categories", "Shop at your own pace"].map((item) => (
+                  <div key={item} className={`rounded-[1.5rem] border p-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>{translateLabel(item)}</div>
                 ))}
               </div>
             </div>
           </div>
           <div className="grid gap-4">
             <div className={`rounded-[2rem] border p-6 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Connected</p>
-              <h3 className={`mt-4 text-2xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>/store, /store/products, /store/products/detail</h3>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">{t("Shopping made simple")}</p>
+              <h3 className={`mt-4 text-2xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{t("Find your favorites and checkout with ease.")}</h3>
             </div>
             <div className={`rounded-[2rem] border p-6 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Highlights</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">{t("Highlights")}</p>
               <div className={`mt-4 space-y-3 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-                <p>Dark mode</p>
-                <p>Pagination with 8 products per page</p>
-                <p>Drag products onto the cart icon</p>
+                <p>{t("Dark mode")}</p>
+                <p>{t("Browse products by page")}</p>
+                <p>{t("Drag products onto the cart icon")}</p>
               </div>
             </div>
           </div>
@@ -2061,16 +2043,16 @@ export function HomeSections() {
 
       <section className="px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-7xl">
-          <SectionTitle title="Featured categories" description="Jump into the main shopping groups faster." />
+          <SectionTitle title={t("Featured categories")} description={t("Jump into the main shopping groups faster.")} />
           <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {storeCategories.map((category) => (
               <Link key={category.id} href={`/store/products?category=${encodeURIComponent(category.label)}`} className={`group relative overflow-hidden rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
                 <div className="absolute inset-x-0 top-0 h-1" style={{ background: category.accent }} />
                 <div className="flex items-start gap-4">
-                  <img src={category.imageUrl} alt={category.label} className="h-24 w-24 rounded-3xl object-cover" />
+                  <img src={category.imageUrl} alt={translateLabel(category.label)} className="h-24 w-24 rounded-3xl object-cover" />
                   <div>
-                    <h3 className={`text-xl font-semibold transition group-hover:text-orange-500 ${isDark ? "text-white" : "text-slate-950"}`}>{category.label}</h3>
-                    <p className={`mt-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-500"}`}>{category.description}</p>
+                    <h3 className={`text-xl font-semibold transition group-hover:text-orange-500 ${isDark ? "text-white" : "text-slate-950"}`}>{translateLabel(category.label)}</h3>
+                    <p className={`mt-2 text-sm leading-6 ${isDark ? "text-slate-300" : "text-slate-500"}`}>{translateLabel(category.description)}</p>
                   </div>
                 </div>
               </Link>
@@ -2079,14 +2061,15 @@ export function HomeSections() {
         </div>
       </section>
 
-      <ProductShowcase title="Best sellers" products={bestSellerProducts} />
-      <ProductShowcase title="Flash Pick" products={flashSaleProducts} />
-      <ProductShowcase title="Newest" products={newArrivals} />
+      <ProductShowcase title={t("Best sellers")} products={bestSellerProducts} />
+      <ProductShowcase title={t("Flash Pick")} products={flashSaleProducts} />
+      <ProductShowcase title={t("Newest")} products={newArrivals} />
     </>
   );
 }
 
 function SaleSpotlight({ products }: { products: StoreProduct[] }) {
+  useLanguage();
   const { theme } = useStorefront();
   const isDark = theme === "dark";
 
@@ -2096,13 +2079,13 @@ function SaleSpotlight({ products }: { products: StoreProduct[] }) {
         <div className={`rounded-[calc(2rem-1px)] py-7 sm:py-8 ${isDark ? "bg-[#1b1018]" : "bg-[#fff7f5]"}`}>
           <div className="flex flex-wrap items-end justify-between gap-3 px-6 sm:px-8">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.32em] text-rose-500">Live Sale</p>
-              <h2 className={`mt-2 text-2xl font-bold tracking-tight sm:text-3xl ${isDark ? "text-white" : "text-slate-950"}`}>Deals is Living</h2>
+              <p className="text-xs font-bold uppercase tracking-[0.32em] text-rose-500">{t("Live Sale")}</p>
+              <h2 className={`mt-2 text-2xl font-bold tracking-tight sm:text-3xl ${isDark ? "text-white" : "text-slate-950"}`}>{t("Live deals")}</h2>
             </div>
-            <p className={`text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Automatically apply sale prices at checkout</p>
+            <p className={`text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("Automatically apply sale prices at checkout")}</p>
           </div>
 
-          <div className="sale-marquee mt-7 overflow-hidden px-6 sm:px-8" aria-label="Products currently on sale">
+          <div className="sale-marquee mt-7 overflow-hidden px-6 sm:px-8" aria-label={t("Products currently on sale")}>
             <div className="sale-marquee-track flex w-max gap-4">
               {[0, 1].map((copy) => (
                 <div key={copy} className="flex gap-4" aria-hidden={copy === 1}>
@@ -2132,6 +2115,7 @@ function SaleSpotlight({ products }: { products: StoreProduct[] }) {
 }
 
 function SaleMarqueeCard({ product, isDark }: { product: StoreProduct; isDark: boolean }) {
+  useLanguage();
   const discount = Math.max(0, Number(product.saleDiscountPercent ?? 0));
   const hasDiscount = product.price < product.originalPrice;
   const discountTone = getDiscountTone(discount);
@@ -2142,7 +2126,7 @@ function SaleMarqueeCard({ product, isDark }: { product: StoreProduct; isDark: b
         {hasDiscount ? <span className={`absolute inset-x-1 bottom-1 rounded-md px-1 py-0.5 text-center text-[10px] font-bold ${discountTone.badge}`}>-{discount}%</span> : null}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-500">Campaign deal</p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-rose-500">{t("Campaign deal")}</p>
         <h3 className={`mt-1 truncate text-sm font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{product.name}</h3>
         {hasDiscount ? <p className="mt-2 text-xs text-slate-400 line-through">{formatCurrency(product.originalPrice)}</p> : null}
         <p className="text-sm font-bold text-rose-600">{formatCurrency(product.price)}</p>
@@ -2153,26 +2137,28 @@ function SaleMarqueeCard({ product, isDark }: { product: StoreProduct; isDark: b
 }
 
 export function SectionTitle({ title, description }: { title: string; description: string }) {
+  useLanguage();
   const { theme } = useStorefront();
   const isDark = theme === "dark";
   return (
     <div>
-      <p className="text-xs font-semibold uppercase tracking-[0.32em] text-orange-500">Storefront</p>
-      <h2 className={`mt-3 text-3xl font-semibold tracking-tight sm:text-4xl ${isDark ? "text-white" : "text-slate-950"}`}>{title}</h2>
-      <p className={`mt-4 text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>{description}</p>
+      <p className="text-xs font-semibold uppercase tracking-[0.32em] text-orange-500">{t("Storefront")}</p>
+      <h2 className={`mt-3 text-3xl font-semibold tracking-tight sm:text-4xl ${isDark ? "text-white" : "text-slate-950"}`}>{translateLabel(title)}</h2>
+      <p className={`mt-4 text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>{translateLabel(description)}</p>
     </div>
   );
 }
 
 export function ProductShowcase({ title, products }: { title: string; products: StoreProduct[] }) {
+  useLanguage();
   const { theme } = useStorefront();
   const isDark = theme === "dark";
   return (
     <section className="px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <div className="flex items-end justify-between gap-4">
-          <SectionTitle title={title} description="Products connected directly to the storefront route in this web project." />
-          <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-300 bg-white text-slate-950"}`}>View all</Link>
+          <SectionTitle title={translateLabel(title)} description={t("Explore the latest products in our store.")} />
+          <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-300 bg-white text-slate-950"}`}>{t("View all")}</Link>
         </div>
         <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {products.map((product) => <ProductCard key={product.id} product={product} />)}
@@ -2189,6 +2175,7 @@ export function ProductsPageClient({
   category?: string;
   sort?: string;
 }) {
+  useLanguage();
   const { theme } = useStorefront();
   const isDark = theme === "dark";
   const [keyword, setKeyword] = useState("");
@@ -2227,38 +2214,38 @@ export function ProductsPageClient({
   return (
     <section className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <SectionTitle title="Marketplace-style product listing" description="This product page is wired directly into the current Next.js project and shows 8 products per page by default." />
+        <SectionTitle title={t("Browse our product catalog")} description={t("Browse products and use filters to find what you need.")} />
         <div className={`mt-8 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
           <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr_1fr]">
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Search products</span>
-              <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="Enter product name, brand, or description..." className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-slate-900 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`} />
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Search products")}</span>
+              <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder={t("Enter product name, brand, or description...")} className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-slate-900 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`} />
             </label>
             <div className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Category</span>
-              <div className={`h-12 rounded-2xl border px-4 text-sm leading-[46px] ${isDark ? "border-white/10 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-950"}`}>{activeCategory}</div>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Category")}</span>
+              <div className={`h-12 rounded-2xl border px-4 text-sm leading-[46px] ${isDark ? "border-white/10 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-950"}`}>{translateLabel(activeCategory)}</div>
             </div>
             <div className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Sort</span>
-              <div className={`h-12 rounded-2xl border px-4 text-sm leading-[46px] ${isDark ? "border-white/10 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-950"}`}>{activeSort}</div>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Sort")}</span>
+              <div className={`h-12 rounded-2xl border px-4 text-sm leading-[46px] ${isDark ? "border-white/10 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-950"}`}>{translateLabel(activeSort)}</div>
             </div>
           </div>
         </div>
         <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-          <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>Showing <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{paginatedProducts.length}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{filteredProducts.length}</span> products</p>
-          <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>Page <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{safePage}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{totalPages}</span></p>
+          <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>{t("Showing")} <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{paginatedProducts.length}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{filteredProducts.length}</span> {t("products")}</p>
+          <p className={isDark ? "text-sm text-slate-300" : "text-sm text-slate-500"}>{t("Page")} <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{safePage}</span> / <span className={isDark ? "font-semibold text-white" : "font-semibold text-slate-950"}>{totalPages}</span></p>
         </div>
         <div className="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
           {paginatedProducts.map((product) => <ProductCard key={product.id} product={product} />)}
         </div>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage <= 1 ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>Previous page</button>
+            <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage <= 1 ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>{t("Previous page")}</button>
             {paginationTokens.map((token, index) => token === "ellipsis" ? (
               <span key={`ellipsis-${index}`} className={`px-2 text-sm font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>...</span>
             ) : (
               <button key={token} type="button" onClick={() => setPage(token)} className={`h-11 min-w-11 rounded-full px-4 text-sm font-semibold ${token === safePage ? "bg-gradient-to-r from-orange-500 to-red-500 text-white" : isDark ? "bg-white/5 text-slate-200" : "bg-white text-slate-700 shadow-sm"}`}>{token}</button>
             ))}
-            <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage >= totalPages ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>Next page</button>
+            <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages} className={`rounded-full px-5 py-3 text-sm font-semibold ${safePage >= totalPages ? "cursor-not-allowed bg-slate-200 text-slate-400" : isDark ? "bg-white/5 text-white" : "bg-white text-slate-950 shadow-sm"}`}>{t("Next page")}</button>
           </div>
       </div>
     </section>
@@ -2266,6 +2253,7 @@ export function ProductsPageClient({
 }
 
 export function ProductDetailClient({ slug }: { slug: string }) {
+  useLanguage();
   const { theme, addCatalogItem } = useStorefront();
   const router = useRouter();
   const isDark = theme === "dark";
@@ -2428,27 +2416,20 @@ export function ProductDetailClient({ slug }: { slug: string }) {
     return (
       <section className="px-4 py-10 sm:px-6 lg:px-8">
         <div className={`mx-auto max-w-3xl rounded-[2rem] border p-8 text-center ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-950 shadow-[0_28px_80px_-56px_rgba(15,23,42,0.35)]"}`}>
-          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-orange-500">Product unavailable</p>
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight">Product not found or has been updated
-          </h1>
-          <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-            The link you just opened might be pointing to an old version of the product or the product has been changed after the data was updated.
-          </p>
+          <p className="text-sm font-semibold uppercase tracking-[0.22em] text-orange-500">{t("Product unavailable")}</p>
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight">{t("Product not found or has been updated")}</h1>
+          <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("The link you just opened might be pointing to an old version of the product or the product has been changed after the data was updated.")}</p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <button
               type="button"
               onClick={() => router.replace("/store/products")}
               className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white"
-            >
-              Back to products
-            </button>
+            >{t("Back to products")}</button>
             <button
               type="button"
               onClick={() => router.replace("/store")}
               className={`inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-semibold ${isDark ? "bg-white/10 text-white" : "bg-slate-100 text-slate-900"}`}
-            >
-              storefront home
-            </button>
+            >{t("storefront home")}</button>
           </div>
         </div>
       </section>
@@ -2459,9 +2440,9 @@ export function ProductDetailClient({ slug }: { slug: string }) {
     return (
       <section className="px-4 py-20 sm:px-6 lg:px-8">
         <div className={`mx-auto max-w-3xl rounded-[2rem] border p-10 text-center ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
-          <p className="text-sm uppercase tracking-[0.3em] text-orange-500">Not found</p>
-          <h1 className={`mt-4 text-3xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>This product does not exist in the storefront</h1>
-          <Link href="/store/products" className="mt-6 inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">Back to product list</Link>
+          <p className="text-sm uppercase tracking-[0.3em] text-orange-500">{t("Not found")}</p>
+          <h1 className={`mt-4 text-3xl font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{t("This product does not exist in the storefront")}</h1>
+          <Link href="/store/products" className="mt-6 inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">{t("Back to product list")}</Link>
         </div>
       </section>
     );
@@ -2494,7 +2475,7 @@ export function ProductDetailClient({ slug }: { slug: string }) {
   }
 
   async function deleteOwnedProduct() {
-    if (!managedProduct || !canDeleteProduct || !window.confirm(`Delete product "${managedProduct.name}"?`)) return;
+    if (!managedProduct || !canDeleteProduct || !window.confirm(translateLabel(`Delete product "${managedProduct.name}"?`))) return;
     setDeleteBusy(true);
     setActionMessage("");
     try {
@@ -2519,15 +2500,13 @@ export function ProductDetailClient({ slug }: { slug: string }) {
           className={`inline-flex items-center justify-center rounded-full border px-4 py-2 text-sm font-semibold ${
             isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-700"
           }`}
-        >
-          Back to products
-        </Link>
+        >{t("Back to products")}</Link>
         <div className="mt-8 grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
           <div className={`overflow-hidden rounded-[2rem] border p-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white shadow-[0_28px_80px_-56px_rgba(15,23,42,0.35)]"}`}>
             <img src={product.imageUrl} alt={product.name} className="h-[28rem] w-full rounded-[1.75rem] object-cover sm:h-[36rem]" />
           </div>
           <div className={`rounded-[2rem] border p-6 sm:p-8 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white shadow-[0_28px_80px_-56px_rgba(15,23,42,0.35)]"}`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">{product.category}</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">{translateLabel(product.category)}</p>
             <h1 className={`mt-3 text-4xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{product.name}</h1>
             <p className={`mt-4 text-base leading-8 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{product.description}</p>
             <div className="mt-6 flex flex-wrap gap-3">
@@ -2538,9 +2517,9 @@ export function ProductDetailClient({ slug }: { slug: string }) {
               {product.price < product.originalPrice ? <span className="pb-1 text-lg text-slate-400 line-through">{formatCurrency(product.originalPrice)}</span> : null}
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
-              <InfoTile isDark={isDark} label="Rating" value={`${product.rating} / 5`} />
-              <InfoTile isDark={isDark} label="Sold" value={`${product.soldCount}+`} />
-              <InfoTile isDark={isDark} label="Updated" value={formatShortDate(product.updatedAt)} />
+              <InfoTile isDark={isDark} label={t("Rating")} value={`${product.rating} / 5`} />
+              <InfoTile isDark={isDark} label={t("Sold")} value={`${product.soldCount}+`} />
+              <InfoTile isDark={isDark} label={t("Updated")} value={formatShortDate(product.updatedAt)} />
             </div>
             <div className="mt-8 flex flex-wrap items-center gap-4">
               <div className={`inline-flex items-center rounded-full border p-1 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
@@ -2548,21 +2527,21 @@ export function ProductDetailClient({ slug }: { slug: string }) {
                 <span className="min-w-12 text-center font-semibold">{quantity}</span>
                 <button type="button" onClick={() => setQuantity((current) => Math.min(product.stock || 1, current + 1))} className="rounded-full p-3">+</button>
               </div>
-              <button type="button" onClick={() => addCatalogItem(product, quantity)} disabled={!canAdd} className="inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400">{product.isLocked ? "Reserved" : canAdd ? "Add to cart" : "Out of stock"}</button>
+              <button type="button" onClick={() => addCatalogItem(product, quantity)} disabled={!canAdd} className="inline-flex rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400">{product.isLocked ? t("Reserved") : canAdd ? t("Add to cart") : t("Out of stock")}</button>
             </div>
             {canUpdateProduct || canDeleteProduct ? (
               <div id="manage-product" className={`mt-6 scroll-mt-28 rounded-3xl border p-4 ${isDark ? "border-orange-400/20 bg-orange-400/10" : "border-orange-200 bg-orange-50"}`}>
-                <p className="text-sm font-semibold text-orange-700">Your product</p>
-                <p className={`mt-1 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>The actions below only appear when you own this product and have the matching permission.</p>
+                <p className="text-sm font-semibold text-orange-700">{t("Your product")}</p>
+                <p className={`mt-1 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("The actions below only appear when you own this product and have the matching permission.")}</p>
                 <div className="mt-4 flex flex-wrap gap-3">
-                  {canUpdateProduct ? <button type="button" onClick={() => setIsEditing((current) => !current)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">{isEditing ? "Close update form" : "Update product"}</button> : null}
-                  {canDeleteProduct ? <button type="button" onClick={() => void deleteOwnedProduct()} disabled={deleteBusy} className="rounded-full bg-rose-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{deleteBusy ? "Deleting..." : "Delete product"}</button> : null}
+                  {canUpdateProduct ? <button type="button" onClick={() => setIsEditing((current) => !current)} className="rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">{isEditing ? t("Close update form") : t("Update product")}</button> : null}
+                  {canDeleteProduct ? <button type="button" onClick={() => void deleteOwnedProduct()} disabled={deleteBusy} className="rounded-full bg-rose-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50">{deleteBusy ? t("Deleting...") : t("Delete product")}</button> : null}
                 </div>
               </div>
             ) : null}
-            {actionMessage ? <p role="status" className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-700">{actionMessage}</p> : null}
+            {actionMessage ? <p role="status" className="mt-4 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-700">{translateLabel(actionMessage)}</p> : null}
             {product.isLocked ? (
-              <p className="text-sm font-medium text-amber-600">This product is temporarily reserved, so it cannot be selected right now.</p>
+              <p className="text-sm font-medium text-amber-600">{t("This product is temporarily reserved, so it cannot be selected right now.")}</p>
             ) : null}
           </div>
         </div>
@@ -2574,10 +2553,10 @@ export function ProductDetailClient({ slug }: { slug: string }) {
         <div className="mt-14">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Related</p>
-              <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>More from this category</h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">{t("Related")}</p>
+              <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{t("More from this category")}</h2>
             </div>
-            <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-300 bg-white text-slate-950"}`}>View catalog</Link>
+            <Link href="/store/products" className={`rounded-full border px-5 py-3 text-sm font-semibold ${isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-300 bg-white text-slate-950"}`}>{t("View catalog")}</Link>
           </div>
           <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
             {relatedProducts.map((item) => <ProductCard key={item.id} product={item} />)}
@@ -2589,9 +2568,10 @@ export function ProductDetailClient({ slug }: { slug: string }) {
 }
 
 function InfoTile({ isDark, label, value }: { isDark: boolean; label: string; value: string }) {
+  useLanguage();
   return (
     <div className={`rounded-[1.5rem] border p-4 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-      <div className={`text-sm ${isDark ? "text-slate-300" : "text-slate-500"}`}>{label}</div>
+      <div className={`text-sm ${isDark ? "text-slate-300" : "text-slate-500"}`}>{translateLabel(label)}</div>
       <p className={`mt-3 text-lg font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{value}</p>
     </div>
   );

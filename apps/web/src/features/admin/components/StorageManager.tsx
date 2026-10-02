@@ -1,4 +1,7 @@
 "use client";
+import { getIntlLocale, t, translateLabel } from "../../../i18n/language";
+
+import { useLanguage } from "../../../i18n/LanguageProvider";
 
 import type { ChangeEvent } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -46,13 +49,14 @@ function formatBytes(value: number) {
 
 function formatDate(value: string) {
   if (!value) return "";
-  return new Intl.DateTimeFormat("vi-VN", {
+  return new Intl.DateTimeFormat(getIntlLocale(), {
     dateStyle: "short",
     timeStyle: "short"
   }).format(new Date(value));
 }
 
 export default function StorageManager() {
+  useLanguage();
   const [avatars, setAvatars] = useState<PublicAvatarItem[]>([]);
   const [reports, setReports] = useState<PrivateReportItem[]>([]);
   const [message, setMessage] = useState("");
@@ -72,8 +76,8 @@ export default function StorageManager() {
     const avatarPayload = await avatarResponse.json().catch(() => null) as { items?: PublicAvatarItem[]; message?: string } | null;
     const reportPayload = await reportResponse.json().catch(() => null) as { items?: PrivateReportItem[]; message?: string } | null;
 
-    if (!avatarResponse.ok) throw new Error(avatarPayload?.message || "Không tải được danh sách avatar mặc định.");
-    if (!reportResponse.ok) throw new Error(reportPayload?.message || "Không tải được danh sách report private.");
+    if (!avatarResponse.ok) throw new Error(avatarPayload?.message || "Could not load default avatars.");
+    if (!reportResponse.ok) throw new Error(reportPayload?.message || "Could not load private reports.");
 
     setAvatars(avatarPayload?.items ?? []);
     setReports(reportPayload?.items ?? []);
@@ -81,7 +85,7 @@ export default function StorageManager() {
 
   useEffect(() => {
     void loadStorageItems().catch((loadError) => {
-      setError(loadError instanceof Error ? loadError.message : "Không tải được storage.");
+      setError(loadError instanceof Error ? loadError.message : "Could not load storage.");
     });
   }, []);
 
@@ -93,7 +97,7 @@ export default function StorageManager() {
     });
     const presign = await presignResponse.json().catch(() => null) as PresignedUploadResponse | null;
     if (!presignResponse.ok || !presign?.uploadUrl) {
-      throw new Error(presign?.message || "Không tạo được presigned upload URL.");
+      throw new Error(presign?.message || "Could not prepare the upload.");
     }
 
     const uploadResponse = await fetch(presign.uploadUrl, {
@@ -101,7 +105,7 @@ export default function StorageManager() {
       headers: { "Content-Type": file.type },
       body: file
     });
-    if (!uploadResponse.ok) throw new Error("Upload lên S3 thất bại.");
+    if (!uploadResponse.ok) throw new Error("File upload failed.");
     return presign;
   }
 
@@ -109,7 +113,7 @@ export default function StorageManager() {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
-      setError("Avatar mặc định chỉ hỗ trợ JPG, PNG, WebP hoặc GIF.");
+      setError("Default avatars must be JPG, PNG, WebP, or GIF files.");
       return;
     }
 
@@ -121,10 +125,10 @@ export default function StorageManager() {
         fileName: file.name,
         contentType: file.type
       });
-      setMessage("Đã upload avatar mặc định vào public/default-avatars.");
+      setMessage("Default avatar uploaded successfully.");
       await loadStorageItems();
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Upload avatar thất bại.");
+      setError(uploadError instanceof Error ? uploadError.message : "Avatar upload failed.");
     } finally {
       setIsUploadingAvatar(false);
       if (avatarInputRef.current) avatarInputRef.current.value = "";
@@ -143,7 +147,7 @@ export default function StorageManager() {
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     ]);
     if (!allowedReportTypes.has(file.type)) {
-      setError("Report chỉ hỗ trợ PDF, CSV, TXT, JSON, XLS hoặc XLSX.");
+      setError("Reports must be PDF, CSV, TXT, JSON, XLS, or XLSX files.");
       return;
     }
 
@@ -155,10 +159,10 @@ export default function StorageManager() {
         fileName: file.name,
         contentType: file.type
       });
-      setMessage("Đã upload report vào private/admin-reports.");
+      setMessage("Private report uploaded successfully.");
       await loadStorageItems();
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Upload report thất bại.");
+      setError(uploadError instanceof Error ? uploadError.message : "Report upload failed.");
     } finally {
       setIsUploadingReport(false);
       if (reportInputRef.current) reportInputRef.current.value = "";
@@ -174,7 +178,7 @@ export default function StorageManager() {
     });
     const payload = await response.json().catch(() => null) as PresignedDownloadResponse | null;
     if (!response.ok || !payload?.downloadUrl) {
-      setError(payload?.message || "Không tạo được link tải report.");
+      setError(payload?.message || "Could not create the report download link.");
       return;
     }
 
@@ -186,26 +190,24 @@ export default function StorageManager() {
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold text-slate-950">Storage</h2>
-            <p className="mt-1 text-sm text-slate-500">Public avatar mặc định và private report dùng chung một S3 bucket theo prefix.</p>
+            <h2 className="text-lg font-bold text-slate-950">{t("Storage")}</h2>
+            <p className="mt-1 text-sm text-slate-500">{t("Manage default avatars and private reports.")}</p>
           </div>
-          <button type="button" onClick={() => void loadStorageItems()} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-            Refresh
-          </button>
+          <button type="button" onClick={() => void loadStorageItems()} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">{t("Refresh")}</button>
         </div>
-        {message ? <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{message}</p> : null}
-        {error ? <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
+        {message ? <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{translateLabel(message)}</p> : null}
+        {error ? <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{translateLabel(error)}</p> : null}
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="font-bold text-slate-950">Default Avatars</h3>
-              <p className="mt-1 text-sm text-slate-500">Lưu ở public/default-avatars, customer có thể chọn trực tiếp.</p>
+              <h3 className="font-bold text-slate-950">{t("Default Avatars")}</h3>
+              <p className="mt-1 text-sm text-slate-500">{t("Customers can choose these avatars for their profiles.")}</p>
             </div>
             <button type="button" disabled={isUploadingAvatar} onClick={() => avatarInputRef.current?.click()} className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-              {isUploadingAvatar ? "Uploading..." : "Add Avatar"}
+              {isUploadingAvatar ? t("Uploading...") : t("Add Avatar")}
             </button>
             <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={(event) => void handleAvatarFile(event)} />
           </div>
@@ -222,18 +224,18 @@ export default function StorageManager() {
                 </div>
               </div>
             ))}
-            {avatars.length === 0 ? <p className="col-span-full rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Chưa có avatar mặc định.</p> : null}
+            {avatars.length === 0 ? <p className="col-span-full rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{t("No default avatars yet.")}</p> : null}
           </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="font-bold text-slate-950">Private Reports</h3>
-              <p className="mt-1 text-sm text-slate-500">Lưu ở private/admin-reports, chỉ admin lấy link tải tạm thời.</p>
+              <h3 className="font-bold text-slate-950">{t("Private Reports")}</h3>
+              <p className="mt-1 text-sm text-slate-500">{t("Private reports are available to administrators only.")}</p>
             </div>
             <button type="button" disabled={isUploadingReport} onClick={() => reportInputRef.current?.click()} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-              {isUploadingReport ? "Uploading..." : "Upload Report"}
+              {isUploadingReport ? t("Uploading...") : t("Upload Report")}
             </button>
             <input ref={reportInputRef} type="file" accept=".pdf,.csv,.txt,.json,.xls,.xlsx" className="hidden" onChange={(event) => void handleReportFile(event)} />
           </div>
@@ -245,12 +247,10 @@ export default function StorageManager() {
                   <p className="truncate text-sm font-semibold text-slate-800">{report.fileName}</p>
                   <p className="mt-1 text-xs text-slate-500">{formatBytes(report.size)}{report.updatedAt ? ` · ${formatDate(report.updatedAt)}` : ""}</p>
                 </div>
-                <button type="button" onClick={() => void openPrivateReport(report)} className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
-                  Open
-                </button>
+                <button type="button" onClick={() => void openPrivateReport(report)} className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">{t("Open")}</button>
               </div>
             ))}
-            {reports.length === 0 ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Chưa có private report.</p> : null}
+            {reports.length === 0 ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{t("No private reports yet.")}</p> : null}
           </div>
         </div>
       </div>

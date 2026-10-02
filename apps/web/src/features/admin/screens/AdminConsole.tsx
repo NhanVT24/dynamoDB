@@ -1,4 +1,7 @@
 "use client";
+import { getIntlLocale, t, translateLabel } from "../../../i18n/language";
+
+import { useLanguage } from "../../../i18n/LanguageProvider";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -8,6 +11,7 @@ import EmailCenter from "../components/EmailCenter";
 import StorageManager from "../components/StorageManager";
 import UserPermissionManager from "../components/UserPermissionManager";
 import AuditWorkspace from "../components/AuditWorkspace";
+import { LanguageSwitcher } from "../../../i18n/LanguageSwitcher";
 import {
   clearAuthSession,
   rememberPostLoginRedirect,
@@ -36,13 +40,14 @@ type AdminNotification = {
 
 function formatNotificationTime(value?: string) {
   if (!value) return "";
-  return new Intl.DateTimeFormat("vi-VN", {
+  return new Intl.DateTimeFormat(getIntlLocale(), {
     dateStyle: "short",
     timeStyle: "short"
   }).format(new Date(value));
 }
 
 function AdminNotificationBell({ authToken }: { authToken: string }) {
+  useLanguage();
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [open, setOpen] = useState(false);
@@ -249,7 +254,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
         type="button"
         onClick={() => setOpen((current) => !current)}
         className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
-        aria-label="open admin notifications"
+        aria-label={t("open admin notifications")}
       >
         <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M15 18H5.5a1 1 0 0 1-.8-1.6l1.3-1.7V10a6 6 0 1 1 12 0v4.7l1.3 1.7a1 1 0 0 1-.8 1.6H15" />
@@ -274,8 +279,8 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
         >
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold">Admin Notifications</p>
-              <p className="text-xs text-slate-500">{pendingCount} unread</p>
+              <p className="text-sm font-semibold">{t("Admin Notifications")}</p>
+              <p className="text-xs text-slate-500">{pendingCount} {t("unread")}</p>
             </div>
             <div className="flex shrink-0 gap-2">
               <button
@@ -283,25 +288,19 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
                 disabled={busy || pendingCount === 0}
                 onClick={() => void markAllAsRead()}
                 className="rounded-full bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-200 disabled:opacity-50"
-              >
-                Mark All as Read
-              </button>
+              >{t("Mark All as Read")}</button>
               <button
                 type="button"
                 disabled={busy || notifications.length === 0}
                 onClick={() => void clearAll()}
                 className="rounded-full bg-rose-50 px-3 py-1.5 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
-              >
-                Clear all
-              </button>
+              >{t("Clear all")}</button>
             </div>
           </div>
 
           <div className="mt-3 max-h-[26rem] space-y-3 overflow-y-auto pr-1">
             {notifications.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
-                No notifications available for admin.
-              </div>
+              <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">{t("No notifications available for admin.")}</div>
             ) : notifications.map((item) => {
               const alertLevel = String(item.metadata?.alertLevel ?? "");
               const isCritical = alertLevel === "out_of_stock";
@@ -312,31 +311,27 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
                 >
                   <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-                      <p className={`text-sm font-semibold ${item.isRead ? "text-slate-500" : "text-slate-900"}`}>{item.title}</p>
+                      <p className={`text-sm font-semibold ${item.isRead ? "text-slate-500" : "text-slate-900"}`}>{translateLabel(item.title)}</p>
                       <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                        {isCritical ? "Out of Stock" : "Low Inventory"} {item.createdAt ? `· ${formatNotificationTime(item.createdAt)}` : ""}
+                        {isCritical ? t("Out of Stock") : t("Low Inventory")} {item.createdAt ? `· ${formatNotificationTime(item.createdAt)}` : ""}
                       </p>
                     </div>
                     {!item.isRead ? <span className="mt-0.5 h-2.5 w-2.5 rounded-full bg-rose-500" /> : null}
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">{item.message}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">{translateLabel(item.message)}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {!item.isRead ? (
                       <button
                         type="button"
                         onClick={() => void markAsRead(item.id)}
                         className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-100"
-                      >
-                        Mark as Read
-                      </button>
+                      >{t("Mark as Read")}</button>
                     ) : null}
                     <button
                       type="button"
                       onClick={() => void removeNotification(item.id, Boolean(item.isRead))}
                       className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-rose-600 transition hover:bg-rose-100"
-                    >
-                      Delete
-                    </button>
+                    >{t("Delete")}</button>
                   </div>
                 </article>
               );
@@ -349,6 +344,7 @@ function AdminNotificationBell({ authToken }: { authToken: string }) {
 }
 
 export default function Home() {
+  useLanguage();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [ready, setReady] = useState(false);
@@ -421,30 +417,29 @@ export default function Home() {
               : null}
           tabNavigation={(
           <nav className="flex w-full flex-wrap justify-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
-          <button type="button" onClick={() => setAdminTab("products")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "products" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Products</button>
-          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("email")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "email" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Email Center</button> : null}
-          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("storage")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "storage" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Storage</button> : null}
-          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("permissions")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "permissions" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Permissions</button> : null}
-          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("audit")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "audit" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Audit</button> : null}
+          <button type="button" onClick={() => setAdminTab("products")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "products" ? "bg-slate-900 text-white" : "text-slate-600"}`}>{t("Products")}</button>
+          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("email")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "email" ? "bg-slate-900 text-white" : "text-slate-600"}`}>{t("Email Center")}</button> : null}
+          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("storage")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "storage" ? "bg-slate-900 text-white" : "text-slate-600"}`}>{t("Storage")}</button> : null}
+          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("permissions")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "permissions" ? "bg-slate-900 text-white" : "text-slate-600"}`}>{t("Permissions")}</button> : null}
+          {session.role === "admin" ? <button type="button" onClick={() => setAdminTab("audit")} className={`rounded-xl px-4 py-2 text-sm font-bold ${adminTab === "audit" ? "bg-slate-900 text-white" : "text-slate-600"}`}>{t("Audit")}</button> : null}
           </nav>
           )}
           headerActions={(
             <div className="relative z-50 flex items-center gap-3">
+              <LanguageSwitcher />
               <AdminNotificationBell authToken={session.accessToken} />
               <div className="hidden rounded-2xl bg-cyan-50 px-4 py-3 text-right ring-1 ring-cyan-200 md:block">
                 <p className="text-sm font-semibold text-slate-900">{session.name}</p>
                 <p className="text-xs text-slate-500">{session.email}</p>
                 <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700">
-                  {session.role === "admin" ? "Admin" : session.role === "customer" ? "Customer" : "Viewer"}
+                  {session.role === "admin" ? t("Admin") : session.role === "customer" ? t("Customer") : t("Viewer")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={signOutFromCognitoHostedUi}
                 className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Logout
-              </button>
+              >{t("Logout")}</button>
             </div>
           )}
         />

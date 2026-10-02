@@ -218,12 +218,12 @@ export async function fetchOrderDetails(orderId: string): Promise<StoreOrder> {
     cache: "no-store"
   });
   if (!response.ok) {
-    if (response.status === 404) throw new Error("Không tìm thấy đơn hàng trong tài khoản này.");
+    if (response.status === 404) throw new Error("This order was not found in your account.");
     const payload = await response.json().catch(() => null) as { message?: string } | null;
-    throw new Error(payload?.message || "Không thể tải chi tiết đơn hàng.");
+    throw new Error(payload?.message || "Could not load order details.");
   }
   const order = toStoreOrder(await response.json() as StorefrontOrderApiItem);
-  if (!order) throw new Error("Dữ liệu đơn hàng không hợp lệ.");
+  if (!order) throw new Error("The order data is invalid.");
   return order;
 }
 
@@ -233,7 +233,7 @@ export async function requestOrderRefund(orderId: string): Promise<void> {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { message?: string } | null;
-    throw new Error(payload?.message || "Không thể gửi yêu cầu hoàn tiền.");
+    throw new Error(payload?.message || "Could not submit the refund request.");
   }
 }
 

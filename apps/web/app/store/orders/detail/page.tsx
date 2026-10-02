@@ -1,4 +1,7 @@
 "use client";
+import { getIntlLocale, t, translateLabel } from "../../../../src/i18n/language";
+
+import { useLanguage } from "../../../../src/i18n/LanguageProvider";
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -10,26 +13,27 @@ import { formatCurrency } from "../../store-utils";
 import { getOrderStatusColor, getOrderStatusPanelColor } from "../../order-status";
 
 const statusLabels: Record<string, string> = {
-  awaiting_payment: "Chờ thanh toán",
-  paid: "Đã thanh toán",
-  pending: "Đang xử lý",
-  done: "Hoàn tất",
-  cancelled: "Đã hủy",
-  expired: "Đã hết hạn",
-  payment_failed: "Thanh toán không thành công",
-  refund_pending: "Đang xử lý hoàn tiền",
-  refund_sent: "Đã gửi hoàn tiền sang ngân hàng",
-  refund_rejected: "Yêu cầu hoàn tiền bị từ chối"
+  awaiting_payment: "Awaiting payment",
+  paid: "Paid",
+  pending: "Processing",
+  done: "Completed",
+  cancelled: "Cancelled",
+  expired: "Expired",
+  payment_failed: "Payment failed",
+  refund_pending: "Refund pending",
+  refund_sent: "Refund sent to bank",
+  refund_rejected: "Refund rejected"
 };
 
 function formatDateTime(value: string) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("vi-VN", {
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(getIntlLocale(), {
     dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh"
   }).format(date);
 }
 
 function OrderDetailContent() {
+  useLanguage();
   const searchParams = useSearchParams();
   const orderId = searchParams.get("orderId")?.trim() ?? "";
   const { session, theme, openAuthModal } = useStorefront();
@@ -58,7 +62,7 @@ function OrderDetailContent() {
     setIsLoading(true);
     void fetchOrderDetails(orderId).then(
       (result) => { if (!cancelled) { setOrder(result); setServerClockOffset(result.serverNow ? Date.parse(result.serverNow) - Date.now() : 0); } },
-      (cause: unknown) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Không thể tải đơn hàng."); }
+      (cause: unknown) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Could not load the order."); }
     ).finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
   }, [orderId, session?.accessToken]);
@@ -99,7 +103,7 @@ function OrderDetailContent() {
       await requestOrderRefund(order.id);
       setOrder(await fetchOrderDetails(order.id));
     } catch (cause) {
-      setRefundError(cause instanceof Error ? cause.message : "Không thể gửi yêu cầu hoàn tiền.");
+      setRefundError(cause instanceof Error ? cause.message : "Could not submit the refund request.");
       setOrder(await fetchOrderDetails(order.id).catch(() => order));
     } finally {
       setRefundBusy(false);
@@ -109,66 +113,66 @@ function OrderDetailContent() {
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl">
-        <Link href="/store/orders" className={`text-sm font-semibold ${isDark ? "text-orange-300" : "text-orange-700"}`}>← Lịch sử đơn hàng</Link>
+        <Link href="/store/orders" className={`text-sm font-semibold ${isDark ? "text-orange-300" : "text-orange-700"}`}>{t("← Order history")}</Link>
         <div className={`mt-5 rounded-3xl border p-6 shadow-sm sm:p-8 ${panelClass}`}>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-500">NovaX Market</p>
-          <h1 className="mt-2 text-3xl font-bold">Chi tiết đơn hàng</h1>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-500">{t("NovaX Market")}</p>
+          <h1 className="mt-2 text-3xl font-bold">{t("Order details")}</h1>
 
-          {!orderId ? <p className="mt-6 text-sm">Link đơn hàng không hợp lệ.</p> : null}
+          {!orderId ? <p className="mt-6 text-sm">{t("The order link is invalid.")}</p> : null}
           {orderId && !session ? (
             <div className="mt-6">
-              <p className={`text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>Đăng nhập bằng tài khoản đã đặt hàng để xem bill và trạng thái đơn.</p>
-              <button type="button" onClick={() => openAuthModal(`/store/orders/detail?orderId=${encodeURIComponent(orderId)}`)} className="mt-4 rounded-full bg-orange-600 px-5 py-3 text-sm font-semibold text-white">Đăng nhập để xem đơn</button>
+              <p className={`text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("Sign in with the account that placed this order to view its receipt and status.")}</p>
+              <button type="button" onClick={() => openAuthModal(`/store/orders/detail?orderId=${encodeURIComponent(orderId)}`)} className="mt-4 rounded-full bg-orange-600 px-5 py-3 text-sm font-semibold text-white">{t("Sign in to view the order")}</button>
             </div>
           ) : null}
-          {orderId && session && isLoading ? <p role="status" className="mt-6 text-sm">Đang tải đơn hàng…</p> : null}
-          {orderId && session && !isLoading && error ? <p role="alert" className="mt-6 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{error}</p> : null}
+          {orderId && session && isLoading ? <p role="status" className="mt-6 text-sm">{t("Loading order…")}</p> : null}
+          {orderId && session && !isLoading && error ? <p role="alert" className="mt-6 rounded-xl bg-rose-50 p-4 text-sm text-rose-700">{translateLabel(error)}</p> : null}
 
           {order ? (
             <>
               <div className={`mt-6 flex flex-wrap items-start justify-between gap-4 rounded-2xl border p-4 ${getOrderStatusPanelColor(order.status, isDark)}`}>
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider">Trạng thái</p>
-                  <p className={`mt-1 inline-flex rounded-full px-3 py-1 text-sm font-bold ${getOrderStatusColor(order.status, isDark)}`}>{statusLabels[order.status] ?? order.status}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider">{t("Status")}</p>
+                  <p className={`mt-1 inline-flex rounded-full px-3 py-1 text-sm font-bold ${getOrderStatusColor(order.status, isDark)}`}>{translateLabel(statusLabels[order.status] ?? order.status)}</p>
                   {order.status === "paid" ? (
                     <div className="mt-4">
                       <button type="button" onClick={() => void handleRefund()} disabled={!canRefund || refundBusy}
                         className="rounded-full bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-slate-400 disabled:shadow-none">
-                        {refundBusy ? "Đang gửi yêu cầu…" : "Yêu cầu hoàn tiền"}
+                        {refundBusy ? t("Submitting request…") : t("Request a refund")}
                       </button>
                       <p className="mt-2 text-xs">
-                        {!order.paymentConfirmedAt ? "Đơn này chưa có đủ dữ liệu thanh toán để yêu cầu hoàn tiền."
+                        {!order.paymentConfirmedAt ? t("Payment details are not available for a refund request.")
                           : refundRemainingSeconds > 0
-                            ? `Còn ${Math.floor(refundRemainingSeconds / 60)}:${String(refundRemainingSeconds % 60).padStart(2, "0")} để yêu cầu hoàn tiền`
-                            : "Đã hết hạn yêu cầu hoàn tiền (5 phút sau thanh toán)."}
+                            ? t("Time left to request a refund: {value1}:{value2}", { value1: Math.floor(refundRemainingSeconds / 60), value2: String(refundRemainingSeconds % 60).padStart(2, "0") })
+                            : t("The refund window has closed (5 minutes after payment).")}
                       </p>
-                      {refundError ? <p role="alert" className="mt-2 text-sm text-rose-600">{refundError}</p> : null}
+                      {refundError ? <p role="alert" className="mt-2 text-sm text-rose-600">{translateLabel(refundError)}</p> : null}
                     </div>
                   ) : null}
                   {order.status.startsWith("refund_") ? (
-                    <p className="mt-3 max-w-sm text-sm">{statusLabels[order.status]}. Tiền về tài khoản phụ thuộc ngân hàng.</p>
+                    <p className="mt-3 max-w-sm text-sm">{translateLabel(statusLabels[order.status])}{t(". The time it takes to receive your refund depends on your bank.")}</p>
                   ) : null}
                 </div>
                 <div className="text-sm">
-                  <p>Đặt hàng: <strong>{formatDateTime(order.createdAt)}</strong></p>
-                  {order.paymentConfirmedAt ? <p className="mt-1">Xác nhận thanh toán: <strong>{formatDateTime(order.paymentConfirmedAt)}</strong></p> : null}
+                  <p>{t("Placed at:")} <strong>{formatDateTime(order.createdAt)}</strong></p>
+                  {order.paymentConfirmedAt ? <p className="mt-1">{t("Payment confirmed at:")} <strong>{formatDateTime(order.paymentConfirmedAt)}</strong></p> : null}
                 </div>
               </div>
 
               <div className="mt-7 space-y-4">
-                <h2 className="text-lg font-bold">Sản phẩm đã đặt</h2>
+                <h2 className="text-lg font-bold">{t("Ordered products")}</h2>
                 {order.items.map((item) => {
                   const hasDiscount = typeof item.originalUnitPrice === "number" && item.originalUnitPrice > item.price;
                   return (
                     <div key={item.productId} className={`flex flex-wrap justify-between gap-3 border-b pb-4 ${isDark ? "border-white/10" : "border-slate-200"}`}>
                       <div>
                         <p className="font-semibold">{item.productName}</p>
-                        <p className={`mt-1 text-sm ${isDark ? "text-slate-400" : "text-slate-600"}`}>Số lượng: {item.quantity}</p>
+                        <p className={`mt-1 text-sm ${isDark ? "text-slate-400" : "text-slate-600"}`}>{t("Quantity:")} {item.quantity}</p>
                       </div>
                       <div className="text-right text-sm">
-                        {hasDiscount ? <p className="text-slate-400 line-through">{formatCurrency(item.originalUnitPrice!)} / sản phẩm</p> : null}
-                        <p>{formatCurrency(item.price)} / sản phẩm</p>
-                        <p className="mt-1 font-bold">Thành tiền: {formatCurrency(item.lineTotal)}</p>
+                        {hasDiscount ? <p className="text-slate-400 line-through">{formatCurrency(item.originalUnitPrice!)} {t("/ item")}</p> : null}
+                        <p>{formatCurrency(item.price)} {t("/ item")}</p>
+                        <p className="mt-1 font-bold">{t("Line total:")} {formatCurrency(item.lineTotal)}</p>
                       </div>
                     </div>
                   );
@@ -177,14 +181,13 @@ function OrderDetailContent() {
 
               <div className="mt-6 text-right">
                 {savings > 0 ? <>
-                  <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-600"}`}>Giá trước giảm: {formatCurrency(originalTotal!)}</p>
-                  <p className="mt-1 text-sm text-emerald-600">Đã giảm: -{formatCurrency(savings)}</p>
+                  <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-600"}`}>{t("Before discount:")} {formatCurrency(originalTotal!)}</p>
+                  <p className="mt-1 text-sm text-emerald-600">{t("Savings: -")}{formatCurrency(savings)}</p>
                 </> : null}
-                <p className="mt-3 text-sm">Tổng giá trị đơn hàng</p>
+                <p className="mt-3 text-sm">{t("Order total")}</p>
                 <p className="mt-1 text-3xl font-bold text-orange-600">{formatCurrency(order.totalAmount)}</p>
               </div>
-              <p className={`mt-7 break-all rounded-xl p-3 text-xs ${isDark ? "bg-white/5 text-slate-400" : "bg-slate-50 text-slate-500"}`}>
-                Mã đơn hàng để tra cứu/hỗ trợ: {order.id}
+              <p className={`mt-7 break-all rounded-xl p-3 text-xs ${isDark ? "bg-white/5 text-slate-400" : "bg-slate-50 text-slate-500"}`}>{t("Order reference for support:")}{order.id}
               </p>
             </>
           ) : null}
@@ -195,5 +198,6 @@ function OrderDetailContent() {
 }
 
 export default function OrderDetailPage() {
-  return <Suspense fallback={<main className="p-8" role="status">Đang tải đơn hàng…</main>}><OrderDetailContent /></Suspense>;
+  useLanguage();
+  return <Suspense fallback={<main className="p-8" role="status">{t("Loading order…")}</main>}><OrderDetailContent /></Suspense>;
 }

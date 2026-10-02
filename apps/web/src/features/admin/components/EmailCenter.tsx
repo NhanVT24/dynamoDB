@@ -1,4 +1,6 @@
 "use client";
+import { getIntlLocale, t, translateLabel } from "../../../i18n/language";
+import { useLanguage } from "../../../i18n/LanguageProvider";
 
 import { useEffect, useState } from "react";
 import { apiUrl, authenticatedFetch } from "../../auth/lib/cognito-auth";
@@ -35,6 +37,7 @@ const statusColor: Record<string, string> = {
 };
 
 export default function EmailCenter({ authToken }: Props) {
+  useLanguage();
   const [mode, setMode] = useState<RecipientMode>("customers");
   const [customers, setCustomers] = useState<VerifiedCustomer[]>([]);
   const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
@@ -118,7 +121,7 @@ export default function EmailCenter({ authToken }: Props) {
 
   async function replayDlqMessage(queue: RecoveryQueueKey, messageId: string) {
     const destination = queue === "emailEventbridgeDelivery" ? "EventBridge" : "the email queue";
-    if (!window.confirm(`Fix the root cause first. Replay this message to ${destination}?`)) return;
+    if (!window.confirm(translateLabel(`Fix the root cause first. Replay this message to ${destination}?`))) return;
     setReplayingMessageId(messageId);
     try {
       const result = await request<{ summary: { succeeded: number; failed: number } }>("/api/admin/ops/dlq/replay", {
@@ -161,7 +164,7 @@ export default function EmailCenter({ authToken }: Props) {
     try {
       const payload = JSON.parse(message.body) as { "detail-type"?: string; detail?: { subject?: string; campaignId?: string } };
       return payload.detail?.subject || payload["detail-type"] || payload.detail?.campaignId || message.messageId;
-    } catch { return `Invalid JSON · ${message.messageId}`; }
+    } catch { return t("Invalid JSON · {value1}", { value1: message.messageId }); }
   }
 
   useEffect(() => { void loadHistory(); void loadRecoveryQueues(); void loadPublishFailures(); }, [authToken]);
@@ -195,51 +198,51 @@ export default function EmailCenter({ authToken }: Props) {
   }
 
   return <div className="grid gap-5">
-    {toast ? <div role="status" className="fixed right-5 top-5 z-50 max-w-sm rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-xl">{toast}</div> : null}
-    <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm"><p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-700">Email center</p><h1 className="mt-2 text-2xl font-bold text-slate-950">Sale notifications & delivery tracking</h1></section>
+    {toast ? <div role="status" className="fixed right-5 top-5 z-50 max-w-sm rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-xl">{translateLabel(toast)}</div> : null}
+    <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm"><p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-700">{t("Email center")}</p><h1 className="mt-2 text-2xl font-bold text-slate-950">{t("Sale notifications & delivery tracking")}</h1></section>
     <section className="grid gap-5 lg:grid-cols-2">
       <form onSubmit={send} className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900">New sale notification</h2>
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3"><div className="flex rounded-xl border border-slate-200 bg-white p-1"><button type="button" onClick={() => setMode("customers")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-bold ${mode === "customers" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Customer list</button><button type="button" onClick={() => setMode("manual")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-bold ${mode === "manual" ? "bg-slate-900 text-white" : "text-slate-600"}`}>Manual email</button></div>
-          {mode === "customers" ? <label className="mt-3 grid gap-2 text-sm font-bold text-slate-800">Select verified customer<select value={selectedCustomer} onChange={(event) => { if (event.target.value) addRecipient(event.target.value); setSelectedCustomer(""); }} className="h-10 rounded-xl border border-slate-200 bg-white px-3 font-normal"><option value="">Choose a verified customer…</option>{customers.map((customer) => <option key={customer.email} value={customer.email}>{customer.displayName} — {customer.email}</option>)}</select></label> : <div className="mt-3"><label className="grid gap-2 text-sm font-bold text-slate-800">Add one email<input value={manualEmail} onChange={(event) => setManualEmail(event.target.value)} placeholder="customer@example.com" className="h-10 rounded-xl border border-slate-200 bg-white px-3 font-normal" /></label><button type="button" onClick={() => { addRecipient(manualEmail); setManualEmail(""); }} className="mt-2 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-bold text-cyan-800">Add email</button></div>}</div>
-        <div className="mt-4 flex flex-wrap gap-2">{selectedEmails.length ? selectedEmails.map((email) => <button type="button" key={email} onClick={() => setSelectedEmails((items) => items.filter((item) => item !== email))} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{email} ×</button>) : <p className="text-xs text-slate-500">No recipient selected yet.</p>}</div>
-        <label className="mt-4 grid gap-2 text-sm font-semibold text-slate-700">Subject<input value={subject} onChange={(event) => setSubject(event.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 font-normal" placeholder="Weekend sale" /></label><label className="mt-4 grid gap-2 text-sm font-semibold text-slate-700">Email content<textarea value={body} onChange={(event) => setBody(event.target.value)} className="min-h-32 resize-y rounded-xl border border-slate-200 px-3 py-2 font-normal leading-6" placeholder="Write the sale announcement here…" /></label><button disabled={isSending} className="mt-4 rounded-xl bg-cyan-700 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60">{isSending ? "Queueing…" : "Send sale email"}</button>
+        <h2 className="text-lg font-bold text-slate-900">{t("New sale notification")}</h2>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3"><div className="flex rounded-xl border border-slate-200 bg-white p-1"><button type="button" onClick={() => setMode("customers")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-bold ${mode === "customers" ? "bg-slate-900 text-white" : "text-slate-600"}`}>{t("Customer list")}</button><button type="button" onClick={() => setMode("manual")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-bold ${mode === "manual" ? "bg-slate-900 text-white" : "text-slate-600"}`}>{t("Manual email")}</button></div>
+          {mode === "customers" ? <label className="mt-3 grid gap-2 text-sm font-bold text-slate-800">{t("Select verified customer")}<select value={selectedCustomer} onChange={(event) => { if (event.target.value) addRecipient(event.target.value); setSelectedCustomer(""); }} className="h-10 rounded-xl border border-slate-200 bg-white px-3 font-normal"><option value="">{t("Choose a verified customer…")}</option>{customers.map((customer) => <option key={customer.email} value={customer.email}>{customer.displayName} — {customer.email}</option>)}</select></label> : <div className="mt-3"><label className="grid gap-2 text-sm font-bold text-slate-800">{t("Add one email")}<input value={manualEmail} onChange={(event) => setManualEmail(event.target.value)} placeholder={t("customer@example.com")} className="h-10 rounded-xl border border-slate-200 bg-white px-3 font-normal" /></label><button type="button" onClick={() => { addRecipient(manualEmail); setManualEmail(""); }} className="mt-2 rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-bold text-cyan-800">{t("Add email")}</button></div>}</div>
+        <div className="mt-4 flex flex-wrap gap-2">{selectedEmails.length ? selectedEmails.map((email) => <button type="button" key={email} onClick={() => setSelectedEmails((items) => items.filter((item) => item !== email))} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{email} {t("×")}</button>) : <p className="text-xs text-slate-500">{t("No recipient selected yet.")}</p>}</div>
+        <label className="mt-4 grid gap-2 text-sm font-semibold text-slate-700">{t("Subject")}<input value={subject} onChange={(event) => setSubject(event.target.value)} className="h-10 rounded-xl border border-slate-200 px-3 font-normal" placeholder={t("Weekend sale")} /></label><label className="mt-4 grid gap-2 text-sm font-semibold text-slate-700">{t("Email content")}<textarea value={body} onChange={(event) => setBody(event.target.value)} className="min-h-32 resize-y rounded-xl border border-slate-200 px-3 py-2 font-normal leading-6" placeholder={t("Write the sale announcement here…")} /></label><button disabled={isSending} className="mt-4 rounded-xl bg-cyan-700 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60">{isSending ? t("Queueing…") : t("Send sale email")}</button>
       </form>
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">Delivery attempts</h2><p className="mt-1 text-sm text-slate-600">Select a batch to inspect each recipient.</p></div><button type="button" onClick={() => void loadHistory()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">Refresh</button></div>
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><div><h2 className="text-lg font-bold text-slate-900">{t("Delivery attempts")}</h2><p className="mt-1 text-sm text-slate-600">{t("Select a batch to inspect each recipient.")}</p></div><button type="button" onClick={() => void loadHistory()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">{t("Refresh")}</button></div>
         <div className="mt-4 max-h-52 space-y-2 overflow-y-auto">
-          {loadingHistory ? <p className="text-sm text-slate-500">Loading history…</p> : !deliveries.length ? <p className="text-sm text-slate-500">No email delivery batches yet.</p> : deliveries.map((delivery) => {
+          {loadingHistory ? <p className="text-sm text-slate-500">{t("Loading history…")}</p> : !deliveries.length ? <p className="text-sm text-slate-500">{t("No email delivery batches yet.")}</p> : deliveries.map((delivery) => {
             const status = delivery.deliveryStatus ?? delivery.sendStatus;
             return <button type="button" key={delivery.id} onClick={() => void viewDelivery(delivery.id)} className={`w-full rounded-xl border p-3 text-left ${detail?.meta.id === delivery.id ? "border-cyan-500 bg-cyan-50" : "border-slate-200 hover:bg-slate-50"}`}>
-              <div className="flex justify-between gap-3"><span className="truncate text-sm font-bold text-slate-800">{delivery.subject}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${statusColor[status] ?? "bg-slate-100 text-slate-700"}`}>{status}</span></div>
-              <p className="mt-1 text-xs text-slate-500">{delivery.recipientCount} recipient(s) · {new Date(delivery.createdAt).toLocaleString()}</p>
+              <div className="flex justify-between gap-3"><span className="truncate text-sm font-bold text-slate-800">{delivery.subject}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${statusColor[status] ?? "bg-slate-100 text-slate-700"}`}>{translateLabel(status)}</span></div>
+              <p className="mt-1 text-xs text-slate-500">{delivery.recipientCount} {t("recipient(s) ·")} {new Date(delivery.createdAt).toLocaleString(getIntlLocale())}</p>
             </button>;
           })}
         </div>
-        {detail ? <div className="mt-4 border-t border-slate-200 pt-4"><div className="flex items-start justify-between gap-3"><p className="min-w-0 flex-1 break-all text-sm font-bold text-slate-800">Recipients — {detail.meta.subject}</p>{detail.recipients.some((recipient) => ["failed", "not_sent", "rejected"].includes(recipient.status)) ? <button type="button" disabled={isRetrying} onClick={() => void retryDelivery()} className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800 disabled:opacity-60">{isRetrying ? "Queueing…" : "Retry safe failures"}</button> : null}</div><div className="mt-2 max-h-52 space-y-2 overflow-y-auto">{detail.recipients.map((recipient) => <div key={recipient.recipientId} className="rounded-xl bg-slate-50 p-3"><div className="flex items-center justify-between gap-3"><span className="truncate text-sm text-slate-700">{recipient.recipientEmail}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${statusColor[recipient.status] ?? "bg-slate-100 text-slate-700"}`}>{recipient.status}</span></div>{recipient.failureReason ? <p className="mt-1 text-xs text-rose-700">{recipient.failureReason}</p> : null}</div>)}</div></div> : <div className="mt-4 rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">Select a delivery batch to view recipient status.</div>}</section>
+        {detail ? <div className="mt-4 border-t border-slate-200 pt-4"><div className="flex items-start justify-between gap-3"><p className="min-w-0 flex-1 break-all text-sm font-bold text-slate-800">{t("Recipients —")} {detail.meta.subject}</p>{detail.recipients.some((recipient) => ["failed", "not_sent", "rejected"].includes(recipient.status)) ? <button type="button" disabled={isRetrying} onClick={() => void retryDelivery()} className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800 disabled:opacity-60">{isRetrying ? t("Queueing…") : t("Retry safe failures")}</button> : null}</div><div className="mt-2 max-h-52 space-y-2 overflow-y-auto">{detail.recipients.map((recipient) => <div key={recipient.recipientId} className="rounded-xl bg-slate-50 p-3"><div className="flex items-center justify-between gap-3"><span className="truncate text-sm text-slate-700">{recipient.recipientEmail}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ${statusColor[recipient.status] ?? "bg-slate-100 text-slate-700"}`}>{translateLabel(recipient.status)}</span></div>{recipient.failureReason ? <p className="mt-1 text-xs text-rose-700">{recipient.failureReason}</p> : null}</div>)}</div></div> : <div className="mt-4 rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500">{t("Select a delivery batch to view recipient status.")}</div>}</section>
     </section>
     <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Event publish failures</h2>
-          <p className="mt-1 text-sm text-slate-600">Producer retries are exhausted. Fix the root cause before starting a new bounded retry cycle.</p>
+          <h2 className="text-lg font-bold text-slate-900">{t("Event publish failures")}</h2>
+          <p className="mt-1 text-sm text-slate-600">{t("Producer retries are exhausted. Fix the root cause before starting a new bounded retry cycle.")}</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-700">{publishFailures.length}</span>
-          <button type="button" onClick={() => void loadPublishFailures()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">Refresh</button>
+          <button type="button" onClick={() => void loadPublishFailures()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">{t("Refresh")}</button>
         </div>
       </div>
       <div className="mt-4 max-h-80 space-y-3 overflow-y-auto">
-        {loadingPublishFailures ? <p className="text-sm text-slate-500">Loading publish failures...</p> : !publishFailures.length ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No terminal publish failures.</p> : publishFailures.map((failure) => <div key={failure.emailJobId} className="rounded-2xl border border-rose-100 bg-rose-50/50 p-4">
+        {loadingPublishFailures ? <p className="text-sm text-slate-500">{t("Loading publish failures...")}</p> : !publishFailures.length ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{t("No terminal publish failures.")}</p> : publishFailures.map((failure) => <div key={failure.emailJobId} className="rounded-2xl border border-rose-100 bg-rose-50/50 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-bold text-slate-900">{failure.subject || failure.eventDetailType}</p>
               <p className="mt-1 break-all font-mono text-[10px] text-slate-500">{failure.emailJobId}</p>
-              <p className="mt-2 text-xs text-slate-600">Bus: {failure.eventBusName || "default"} - attempts: {failure.publishAttempts} - manual retries: {failure.manualRetryCount}</p>
-              <p className="mt-1 text-xs text-slate-500">Batch {failure.batchIndex + 1}/{failure.batchCount}{typeof failure.recipientCount === "number" ? ` - ${failure.recipientCount} recipient(s)` : ""} - {new Date(failure.failedAt).toLocaleString()}</p>
+              <p className="mt-2 text-xs text-slate-600">{t("Bus:")} {failure.eventBusName || t("default")} {t("- attempts:")} {failure.publishAttempts} {t("- manual retries:")} {failure.manualRetryCount}</p>
+              <p className="mt-1 text-xs text-slate-500">{t("Batch")} {failure.batchIndex + 1}/{failure.batchCount}{typeof failure.recipientCount === "number" ? t(" - {value1} recipient(s)", { value1: failure.recipientCount }) : ""} - {new Date(failure.failedAt).toLocaleString(getIntlLocale())}</p>
               {failure.failureReason ? <p className="mt-2 break-words text-xs font-semibold text-rose-700">{failure.failureReason}</p> : null}
             </div>
             <button type="button" disabled={retryingPublishId === failure.emailJobId} onClick={() => void retryPublishFailure(failure)} className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800 disabled:cursor-not-allowed disabled:opacity-60">
-              {retryingPublishId === failure.emailJobId ? "Scheduling..." : "Retry publish"}
+              {retryingPublishId === failure.emailJobId ? t("Scheduling...") : t("Retry publish")}
             </button>
           </div>
         </div>)}
@@ -248,10 +251,10 @@ export default function EmailCenter({ authToken }: Props) {
     <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Queue recovery</h2>
-          <p className="mt-1 text-sm text-slate-600">Fix the root cause, then replay one failed message at a time.</p>
+          <h2 className="text-lg font-bold text-slate-900">{t("Queue recovery")}</h2>
+          <p className="mt-1 text-sm text-slate-600">{t("Fix the root cause, then replay one failed message at a time.")}</p>
         </div>
-        <button type="button" onClick={() => void loadRecoveryQueues()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">Refresh</button>
+        <button type="button" onClick={() => void loadRecoveryQueues()} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700">{t("Refresh")}</button>
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         {(["emailEventbridgeDelivery", "emailJobs"] as const).map((queue) => {
@@ -260,18 +263,18 @@ export default function EmailCenter({ authToken }: Props) {
           return <div key={queue} className="rounded-2xl border border-slate-200 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">{isEventBridge ? "EventBridge delivery DLQ" : "Email processing DLQ"}</h3>
-                <p className="mt-1 text-xs text-slate-500">{isEventBridge ? "Bus could not deliver to the primary queue." : "Pipe/Lambda could not process the queued job."}</p>
+                <h3 className="text-sm font-bold text-slate-900">{isEventBridge ? t("EventBridge delivery DLQ") : t("Email processing DLQ")}</h3>
+                <p className="mt-1 text-xs text-slate-500">{isEventBridge ? t("Bus could not deliver to the primary queue.") : t("Pipe/Lambda could not process the queued job.")}</p>
               </div>
               <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-700">{snapshot?.messageCount ?? 0}</span>
             </div>
             <div className="mt-3 max-h-48 space-y-2 overflow-y-auto">
-              {loadingRecovery ? <p className="text-xs text-slate-500">Loading…</p> : !snapshot?.messages?.length ? <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">No failed messages.</p> : snapshot.messages.map((message) => <div key={message.messageId} className="rounded-xl bg-slate-50 p-3">
+              {loadingRecovery ? <p className="text-xs text-slate-500">{t("Loading…")}</p> : !snapshot?.messages?.length ? <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">{t("No failed messages.")}</p> : snapshot.messages.map((message) => <div key={message.messageId} className="rounded-xl bg-slate-50 p-3">
                 <p className="truncate text-xs font-bold text-slate-800">{recoveryMessageLabel(message)}</p>
                 <p className="mt-1 truncate font-mono text-[10px] text-slate-500">{message.messageId}</p>
                 {message.messageAttributes?.ERROR_CODE ? <p className="mt-1 text-xs text-rose-700">{message.messageAttributes.ERROR_CODE}: {message.messageAttributes.ERROR_MESSAGE}</p> : null}
                 <button type="button" disabled={replayingMessageId === message.messageId} onClick={() => void replayDlqMessage(queue, message.messageId)} className="mt-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800 disabled:opacity-60">
-                  {replayingMessageId === message.messageId ? "Replaying…" : isEventBridge ? "Replay to EventBus" : "Redrive to email queue"}
+                  {replayingMessageId === message.messageId ? t("Replaying…") : isEventBridge ? t("Replay to EventBus") : t("Redrive to email queue")}
                 </button>
               </div>)}
             </div>

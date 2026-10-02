@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "typecheck": "next build"
+    "typecheck": "next build",
+    "test:i18n": "tsx --test src/i18n/language.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.888.0",
@@ -21,6 +22,7 @@
     "@types/react-dom": "^19.2.4",
     "postcss": "^8.4.31",
     "tailwindcss": "^4.3.3",
+    "tsx": "^4.20.5",
     "typescript": "^5.9.3"
   }
 }

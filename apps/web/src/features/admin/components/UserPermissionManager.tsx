@@ -1,4 +1,7 @@
 "use client";
+import { getIntlLocale, t, translateLabel } from "../../../i18n/language";
+
+import { useLanguage } from "../../../i18n/LanguageProvider";
 
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
@@ -31,7 +34,7 @@ type DialogState =
 
 const permissionOptions: Array<{ code: ProductPermission; label: string; description: string }> = [
   { code: "products:create", label: "Create products", description: "Can create new products and become the owner of those products." },
-  { code: "products:update-own", label: "Update own products", description: "Can only update products whose ownerSub matches the account." },
+  { code: "products:update-own", label: "Update own products", description: "Can update products created by this account." },
   { code: "products:delete-own", label: "Delete own products", description: "Can only delete products created by this account." }
 ];
 
@@ -52,7 +55,7 @@ function formatLastLogin(value: string) {
   if (!value) return "Never";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unknown";
-  return new Intl.DateTimeFormat("vi-VN", {
+  return new Intl.DateTimeFormat(getIntlLocale(), {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);
@@ -71,6 +74,7 @@ function normalizeAddressDraft(addresses: UserAddress[]) {
 }
 
 export default function UserPermissionManager() {
+  useLanguage();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState("");
@@ -245,15 +249,15 @@ export default function UserPermissionManager() {
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-700">Authorization</p>
-          <h2 className="mt-1 text-2xl font-bold text-slate-950">User Access</h2>
-          <p className="mt-2 max-w-3xl text-sm text-slate-600">Review account status, product permissions, and saved location information before opening a focused change form.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-700">{t("Authorization")}</p>
+          <h2 className="mt-1 text-2xl font-bold text-slate-950">{t("User Access")}</h2>
+          <p className="mt-2 max-w-3xl text-sm text-slate-600">{t("Review account status, product permissions, and saved location information before opening a focused change form.")}</p>
         </div>
-        <button type="button" onClick={() => void loadUsers()} disabled={loading} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">Refresh</button>
+        <button type="button" onClick={() => void loadUsers()} disabled={loading} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50">{t("Refresh")}</button>
       </div>
 
-      {message ? <p role={messageIsError ? "alert" : "status"} className={`mt-4 rounded-xl px-4 py-3 text-sm ${messageIsError ? "bg-rose-50 text-rose-900" : "bg-cyan-50 text-cyan-900"}`}>{message}</p> : null}
-      {loading ? <p className="mt-6 text-sm text-slate-500">Loading accounts...</p> : null}
+      {message ? <p role={messageIsError ? "alert" : "status"} className={`mt-4 rounded-xl px-4 py-3 text-sm ${messageIsError ? "bg-rose-50 text-rose-900" : "bg-cyan-50 text-cyan-900"}`}>{translateLabel(message)}</p> : null}
+      {loading ? <p className="mt-6 text-sm text-slate-500">{t("Loading accounts...")}</p> : null}
 
       <div className="mt-6 grid gap-4">
         {users.map((user) => (
@@ -262,37 +266,37 @@ export default function UserPermissionManager() {
               <div className="min-w-0">
                 <h3 className="break-all font-bold text-slate-900">{user.displayName || user.email}</h3>
                 <p className="break-all text-sm text-slate-500">{user.email}</p>
-                <p className="mt-2 text-xs font-semibold text-slate-500">Last login: <span className="text-slate-800">{formatLastLogin(user.lastLoginAt)}</span></p>
+                <p className="mt-2 text-xs font-semibold text-slate-500">{t("Last login:")} <span className="text-slate-800">{formatLastLogin(user.lastLoginAt)}</span></p>
               </div>
-              <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${statusTone(user.accountStatus)}`}>{user.accountStatus}</span>
+              <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${statusTone(user.accountStatus)}`}>{translateLabel(user.accountStatus)}</span>
             </div>
 
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
               <section className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-bold text-slate-900">Account</h4>
-                  <button type="button" onClick={() => openStatusDialog(user)} disabled={Boolean(updating)} className="text-sm font-bold text-cyan-700 disabled:opacity-50">Change</button>
+                  <h4 className="text-sm font-bold text-slate-900">{t("Account")}</h4>
+                  <button type="button" onClick={() => openStatusDialog(user)} disabled={Boolean(updating)} className="text-sm font-bold text-cyan-700 disabled:opacity-50">{t("Change")}</button>
                 </div>
-                <p className="mt-2 text-sm text-slate-600">{statusOptions.find((option) => option.value === user.accountStatus)?.description}</p>
+                <p className="mt-2 text-sm text-slate-600">{translateLabel(statusOptions.find((option) => option.value === user.accountStatus)?.description)}</p>
               </section>
 
               <section className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-bold text-slate-900">Permissions</h4>
-                  <button type="button" onClick={() => openPermissionsDialog(user)} disabled={Boolean(updating)} className="text-sm font-bold text-cyan-700 disabled:opacity-50">Change</button>
+                  <h4 className="text-sm font-bold text-slate-900">{t("Permissions")}</h4>
+                  <button type="button" onClick={() => openPermissionsDialog(user)} disabled={Boolean(updating)} className="text-sm font-bold text-cyan-700 disabled:opacity-50">{t("Change")}</button>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {user.permissions.length ? user.permissions.map((permission) => <span key={permission} className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-700">{permission}</span>) : <span className="text-sm text-slate-500">No product permissions</span>}
+                  {user.permissions.length ? user.permissions.map((permission) => <span key={permission} className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-700">{permission}</span>) : <span className="text-sm text-slate-500">{t("No product permissions")}</span>}
                 </div>
               </section>
 
               <section className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-bold text-slate-900">Location</h4>
-                  <button type="button" onClick={() => openAddressesDialog(user)} disabled={Boolean(updating)} className="text-sm font-bold text-cyan-700 disabled:opacity-50">Change</button>
+                  <h4 className="text-sm font-bold text-slate-900">{t("Location")}</h4>
+                  <button type="button" onClick={() => openAddressesDialog(user)} disabled={Boolean(updating)} className="text-sm font-bold text-cyan-700 disabled:opacity-50">{t("Change")}</button>
                 </div>
                 <div className="mt-2 space-y-1 text-sm text-slate-600">
-                  {user.addresses.length ? user.addresses.map((address, index) => <p key={`${address.ward}:${address.city}:${address.province}:${index}`} className="break-words">{index + 1}. {addressLabel(address)}</p>) : <p>No saved location</p>}
+                  {user.addresses.length ? user.addresses.map((address, index) => <p key={`${address.ward}:${address.city}:${address.province}:${index}`} className="break-words">{index + 1}. {addressLabel(address)}</p>) : <p>{t("No saved location")}</p>}
                 </div>
               </section>
             </div>
@@ -305,11 +309,11 @@ export default function UserPermissionManager() {
           <form onSubmit={submitDialog} className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Change {dialog.type}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">{t("Change")} {translateLabel(dialog.type)}</p>
                 <h3 className="mt-1 break-all text-xl font-bold text-slate-950">{dialog.user.displayName || dialog.user.email}</h3>
                 <p className="break-all text-sm text-slate-500">{dialog.user.email}</p>
               </div>
-              <button type="button" onClick={closeDialog} disabled={Boolean(updating)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 disabled:opacity-50">Close</button>
+              <button type="button" onClick={closeDialog} disabled={Boolean(updating)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-bold text-slate-700 disabled:opacity-50">{t("Close")}</button>
             </div>
 
             {dialog.type === "status" ? (
@@ -318,8 +322,8 @@ export default function UserPermissionManager() {
                   <label key={option.value} className="flex gap-3 rounded-lg border border-slate-200 p-3">
                     <input type="radio" name="status" checked={statusDraft === option.value} onChange={() => setStatusDraft(option.value)} className="mt-1 h-4 w-4" />
                     <span>
-                      <span className="block text-sm font-bold text-slate-900">{option.label}</span>
-                      <span className="mt-1 block text-xs leading-5 text-slate-500">{option.description}</span>
+                      <span className="block text-sm font-bold text-slate-900">{translateLabel(option.label)}</span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-500">{translateLabel(option.description)}</span>
                     </span>
                   </label>
                 ))}
@@ -334,8 +338,8 @@ export default function UserPermissionManager() {
                     <label key={option.code} className="flex gap-3 rounded-lg border border-slate-200 p-3">
                       <input type="checkbox" checked={enabled} onChange={(event) => togglePermissionDraft(option.code, event.target.checked)} className="mt-1 h-4 w-4" />
                       <span>
-                        <span className="block text-sm font-bold text-slate-900">{option.label}</span>
-                        <span className="mt-1 block text-xs leading-5 text-slate-500">{option.description}</span>
+                        <span className="block text-sm font-bold text-slate-900">{translateLabel(option.label)}</span>
+                        <span className="mt-1 block text-xs leading-5 text-slate-500">{translateLabel(option.description)}</span>
                       </span>
                     </label>
                   );
@@ -346,19 +350,19 @@ export default function UserPermissionManager() {
             {dialog.type === "addresses" ? (
               <div className="mt-5 grid gap-4">
                 <div className="rounded-lg border border-slate-200 p-3">
-                  <p className="mb-3 text-sm font-bold text-slate-900">Location</p>
+                  <p className="mb-3 text-sm font-bold text-slate-900">{t("Location")}</p>
                   <div className="grid gap-3 sm:grid-cols-3">
-                    <label className="grid gap-1 text-xs font-bold text-slate-700">Ward<input value={addressDraft[0]?.ward ?? ""} onChange={(event) => updateAddressDraft(0, "ward", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
-                    <label className="grid gap-1 text-xs font-bold text-slate-700">City<input value={addressDraft[0]?.city ?? ""} onChange={(event) => updateAddressDraft(0, "city", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
-                    <label className="grid gap-1 text-xs font-bold text-slate-700">Province<input value={addressDraft[0]?.province ?? ""} onChange={(event) => updateAddressDraft(0, "province", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">{t("Ward")}<input value={addressDraft[0]?.ward ?? ""} onChange={(event) => updateAddressDraft(0, "ward", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">{t("City")}<input value={addressDraft[0]?.city ?? ""} onChange={(event) => updateAddressDraft(0, "city", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">{t("Province")}<input value={addressDraft[0]?.province ?? ""} onChange={(event) => updateAddressDraft(0, "province", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
                   </div>
                 </div>
               </div>
             ) : null}
 
             <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4">
-              <button type="button" onClick={closeDialog} disabled={Boolean(updating)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 disabled:opacity-50">Cancel</button>
-              <button type="submit" disabled={Boolean(updating)} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{updating ? "Saving..." : "Save change"}</button>
+              <button type="button" onClick={closeDialog} disabled={Boolean(updating)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-bold text-slate-700 disabled:opacity-50">{t("Cancel")}</button>
+              <button type="submit" disabled={Boolean(updating)} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{updating ? t("Saving...") : t("Save change")}</button>
             </div>
           </form>
         </div>

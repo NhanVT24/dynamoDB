@@ -1,4 +1,6 @@
 "use client";
+import { t, translateLabel } from "../../../src/i18n/language";
+import { useLanguage } from "../../../src/i18n/LanguageProvider";
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -83,6 +85,7 @@ function buildPaginationTokens(currentPage: number, totalPages: number): Paginat
 }
 
 function ProductCard({ product }: { product: StoreProduct }) {
+  useLanguage();
   const { addCatalogItem, theme } = useStorefront();
   const imageRef = useRef<HTMLImageElement | null>(null);
   const isDark = theme === "dark";
@@ -133,7 +136,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
               isDark ? "bg-white/10 text-slate-200" : "bg-white/90 text-slate-700"
             }`}
           >
-            {product.category}
+            {translateLabel(product.category)}
           </span>
         </div>
         <div className="absolute inset-0 z-20 bg-slate-950/0 transition duration-300 group-hover:bg-slate-950/72" />
@@ -153,7 +156,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
             disabled={isUnavailable}
             className="pointer-events-auto mt-5 inline-flex min-w-[9rem] items-center justify-center rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:from-slate-300 disabled:to-slate-400"
           >
-            {product.isLocked ? "Reserved" : product.status === "out_of_stock" ? "Out of stock" : "Add to cart"}
+            {product.isLocked ? t("Reserved") : product.status === "out_of_stock" ? t("Out of stock") : t("Add to cart")}
           </button>
         </div>
       </div>
@@ -171,8 +174,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
         </p>
         <div className="mt-3 flex items-center gap-2 text-sm">
           <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-600">★ {product.rating}</span>
-          <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>
-            Sold {product.soldCount}
+          <span className={`rounded-full px-2.5 py-1 ${isDark ? "bg-white/8 text-slate-300" : "bg-slate-100 text-slate-600"}`}>{t("Sold")} {product.soldCount}
           </span>
         </div>
         <div className="mt-4">
@@ -180,9 +182,9 @@ function ProductCard({ product }: { product: StoreProduct }) {
           <strong className="text-2xl font-bold text-orange-500">{formatCurrency(product.price)}</strong>
         </div>
         {product.isLocked ? (
-          <p className="mt-3 text-sm font-medium text-amber-600">this product is currently reserved and cannot be purchased.</p>
+          <p className="mt-3 text-sm font-medium text-amber-600">{t("this product is currently reserved and cannot be purchased.")}</p>
         ) : product.status === "out_of_stock" ? (
-          <p className="mt-3 text-sm font-medium text-rose-500">this product is currently out of stock and cannot be purchased.</p>
+          <p className="mt-3 text-sm font-medium text-rose-500">{t("this product is currently out of stock and cannot be purchased.")}</p>
         ) : null}
       </div>
     </article>
@@ -190,6 +192,7 @@ function ProductCard({ product }: { product: StoreProduct }) {
 }
 
 function ProductCardSkeleton({ isDark }: { isDark: boolean }) {
+  useLanguage();
   return (
     <article
       className={`animate-pulse overflow-hidden rounded-[1.75rem] border ${
@@ -223,6 +226,7 @@ function ProductCardSkeleton({ isDark }: { isDark: boolean }) {
 }
 
 export function ProductsPageClient({ category, sort }: { category?: string; sort?: string }) {
+  useLanguage();
   const { theme } = useStorefront();
   const pathname = usePathname();
   const router = useRouter();
@@ -371,26 +375,24 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
         <div className="relative flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
           <div className="relative">
             <SectionTitle
-              title="Products Store"
-              description="Explore our wide range of products, from the latest gadgets to everyday essentials. Use the filters below to find exactly what you're looking for."
+              title={t("Products Store")}
+              description={t("Explore our wide range of products, from the latest gadgets to everyday essentials. Use the filters below to find exactly what you're looking for.")}
             />
           </div>
           <div className="relative shrink-0 self-end">
             {session && (session.role === "admin" || session.permissions.includes("products:create")) ? (
-              <button type="button" onClick={() => setIsProductFormOpen(true)} className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_-12px_rgba(239,68,68,0.8)]">
-                + Add Product
-              </button>
+              <button type="button" onClick={() => setIsProductFormOpen(true)} className="inline-flex items-center justify-center rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_-12px_rgba(239,68,68,0.8)]">{t("+ Add Product")}</button>
             ) : null}
           </div>
         </div>
         <div className={`mt-4 rounded-[1.75rem] border p-5 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
           <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr_1fr]">
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Search Products</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Search Products")}</span>
               <input
                 value={keyword}
                 onChange={(event) => setKeyword(event.target.value)}
-                placeholder="Enter product name, brand, or description..."
+                placeholder={t("Enter product name, brand, or description...")}
                 className={`h-12 rounded-2xl border px-4 text-sm outline-none transition ${
                   isDark
                     ? "border-white/10 bg-slate-900 text-white placeholder:text-slate-500 focus:border-orange-500"
@@ -399,7 +401,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
               />
             </label>
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Category</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Category")}</span>
               <select
                 value={activeCategory}
                 onChange={(event) => updateFilters({ category: event.target.value })}
@@ -407,16 +409,16 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
                   isDark ? "border-white/10 bg-slate-900 text-white focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 focus:border-orange-500"
                 }`}
               >
-                <option value="all">All Categories</option>
+                <option value="all">{t("All Categories")}</option>
                 {storeCategories.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.label}
+                    {translateLabel(item.label)}
                   </option>
                 ))}
               </select>
             </label>
             <label className="flex flex-col gap-2">
-              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>Sort By</span>
+              <span className={`text-sm font-medium ${isDark ? "text-slate-200" : "text-slate-700"}`}>{t("Sort By")}</span>
               <select
                 value={activeSort}
                 onChange={(event) => updateFilters({ sort: event.target.value as SortMode })}
@@ -424,11 +426,11 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
                   isDark ? "border-white/10 bg-slate-900 text-white focus:border-orange-500" : "border-slate-200 bg-slate-50 text-slate-950 focus:border-orange-500"
                 }`}
               >
-                <option value="newest">Newest</option>
-                <option value="oldest">Oldest</option>
-                <option value="price-asc">Price: Low to High</option>
-                <option value="price-desc">Price: High to Low</option>
-                <option value="best-seller">Best Sellers</option>
+                <option value="newest">{t("Newest")}</option>
+                <option value="oldest">{t("Oldest")}</option>
+                <option value="price-asc">{t("Price: Low to High")}</option>
+                <option value="price-desc">{t("Price: High to Low")}</option>
+                <option value="best-seller">{t("Best Sellers")}</option>
               </select>
             </label>
           </div>
@@ -440,7 +442,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
               <ProductCard key={product.id} product={product} />
             ))}
         </div>
-        {!loading && error ? <p className="mt-6 text-sm font-medium text-rose-500">{error}</p> : null}
+        {!loading && error ? <p className="mt-6 text-sm font-medium text-rose-500">{translateLabel(error)}</p> : null}
         {!loading && !error && totalPages > 1 ? (
           <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
             <button
@@ -454,9 +456,7 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
                     ? "bg-white/5 text-white hover:bg-white/10"
                     : "bg-white text-slate-950 shadow-sm hover:bg-slate-50"
               }`}
-            >
-              Previous page
-            </button>
+            >{t("Previous page")}</button>
             {paginationTokens.map((token, index) =>
               token === "ellipsis" ? (
                 <span key={`ellipsis-${index}`} className={`px-2 text-sm font-semibold ${isDark ? "text-slate-400" : "text-slate-500"}`}>
@@ -490,14 +490,12 @@ export function ProductsPageClient({ category, sort }: { category?: string; sort
                     ? "bg-white/5 text-white hover:bg-white/10"
                     : "bg-white text-slate-950 shadow-sm hover:bg-slate-50"
               }`}
-            >
-              Next page
-            </button>
+            >{t("Next page")}</button>
           </div>
         ) : null}
       </div>
       {isProductFormOpen && session ? (
-        <div role="dialog" aria-modal="true" aria-label="Add product" onMouseDown={(event) => { if (event.target === event.currentTarget) closeProductForm(); }} className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 px-4 py-8 backdrop-blur-sm sm:px-6">
+        <div role="dialog" aria-modal="true" aria-label={t("Add product")} onMouseDown={(event) => { if (event.target === event.currentTarget) closeProductForm(); }} className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/50 px-4 py-8 backdrop-blur-sm sm:px-6">
           <div className="mx-auto max-w-5xl">
             <ProductEditor session={session} onSaved={handleProductCreated} onCancel={closeProductForm} />
           </div>

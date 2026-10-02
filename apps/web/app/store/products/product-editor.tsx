@@ -1,4 +1,6 @@
 "use client";
+import { t, translateLabel } from "../../../src/i18n/language";
+import { useLanguage } from "../../../src/i18n/LanguageProvider";
 
 import type { FormEvent } from "react";
 import { useState } from "react";
@@ -41,6 +43,7 @@ async function readApiError(response: Response) {
 }
 
 export default function ProductEditor({ session, initialProduct, onSaved, onCancel }: ProductEditorProps) {
+  useLanguage();
   const isEditing = Boolean(initialProduct);
   const [name, setName] = useState(initialProduct?.name ?? "");
   const [brand, setBrand] = useState(initialProduct?.brand ?? "");
@@ -69,7 +72,7 @@ export default function ProductEditor({ session, initialProduct, onSaved, onCanc
     const parsedPrice = Number(price);
     const parsedOriginalPrice = Math.max(parsedPrice, Number(originalPrice));
     if (!Number.isInteger(parsedStock) || parsedStock < 1) {
-      setMessage("Stock must be an integer greater than 0 for the product to appear in the storefront.");
+      setMessage("Stock must be a whole number greater than zero.");
       return;
     }
     if (!Number.isFinite(parsedPrice) || parsedPrice < 1000) {
@@ -117,28 +120,28 @@ export default function ProductEditor({ session, initialProduct, onSaved, onCanc
   return (
     <form onSubmit={submit} className="grid gap-5 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-[0_28px_80px_-56px_rgba(15,23,42,0.35)] sm:p-8">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-500">Product workspace</p>
-        <h1 className="mt-3 text-3xl font-semibold text-slate-950">{isEditing ? "Update product" : "Add product"}</h1>
-        <p className="mt-2 text-sm text-slate-600">{isEditing ? "You can only update products that you created." : "After creation, the product will open directly on its detail page."}</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-500">{t("Product workspace")}</p>
+        <h1 className="mt-3 text-3xl font-semibold text-slate-950">{isEditing ? t("Update product") : t("Add product")}</h1>
+        <p className="mt-2 text-sm text-slate-600">{isEditing ? t("You can only update products that you created.") : t("After creation, the product will open directly on its detail page.")}</p>
       </div>
 
       <div className="grid gap-5 md:grid-cols-2">
-        <label className="text-sm font-semibold text-slate-700">Product name<input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={120} required /></label>
-        <label className="text-sm font-semibold text-slate-700">Brand<input className={inputClass} value={brand} onChange={(event) => setBrand(event.target.value)} minLength={2} maxLength={80} required /></label>
-        <label className="text-sm font-semibold text-slate-700">Category<select className={inputClass} value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-        <label className="text-sm font-semibold text-slate-700">Stock<input className={inputClass} type="number" min="1" step="1" value={stock} onChange={(event) => setStock(event.target.value)} required /></label>
-        <label className="text-sm font-semibold text-slate-700">Sale price<input className={inputClass} type="number" min="1000" step="1000" value={price} onChange={(event) => setPrice(event.target.value)} required /></label>
-        <label className="text-sm font-semibold text-slate-700">Original price<input className={inputClass} type="number" min="1000" step="1000" value={originalPrice} onChange={(event) => setOriginalPrice(event.target.value)} required /></label>
-        <label className="text-sm font-semibold text-slate-700 md:col-span-2">Image URL<input className={inputClass} type="url" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} maxLength={500} required /></label>
-        <label className="text-sm font-semibold text-slate-700 md:col-span-2">Location<input className={inputClass} value={location} onChange={(event) => setLocation(event.target.value)} minLength={2} maxLength={80} required /></label>
-        <label className="text-sm font-semibold text-slate-700 md:col-span-2">Description<textarea className="mt-2 min-h-32 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-100" value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} maxLength={500} required /></label>
+        <label className="text-sm font-semibold text-slate-700">{t("Product name")}<input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={120} required /></label>
+        <label className="text-sm font-semibold text-slate-700">{t("Brand")}<input className={inputClass} value={brand} onChange={(event) => setBrand(event.target.value)} minLength={2} maxLength={80} required /></label>
+        <label className="text-sm font-semibold text-slate-700">{t("Category")}<select className={inputClass} value={category} onChange={(event) => setCategory(event.target.value)}>{categories.map((item) => <option key={item.value} value={item.value}>{translateLabel(item.label)}</option>)}</select></label>
+        <label className="text-sm font-semibold text-slate-700">{t("Stock")}<input className={inputClass} type="number" min="1" step="1" value={stock} onChange={(event) => setStock(event.target.value)} required /></label>
+        <label className="text-sm font-semibold text-slate-700">{t("Sale price")}<input className={inputClass} type="number" min="1000" step="1000" value={price} onChange={(event) => setPrice(event.target.value)} required /></label>
+        <label className="text-sm font-semibold text-slate-700">{t("Original price")}<input className={inputClass} type="number" min="1000" step="1000" value={originalPrice} onChange={(event) => setOriginalPrice(event.target.value)} required /></label>
+        <label className="text-sm font-semibold text-slate-700 md:col-span-2">{t("Image URL")}<input className={inputClass} type="url" value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} maxLength={500} required /></label>
+        <label className="text-sm font-semibold text-slate-700 md:col-span-2">{t("Location")}<input className={inputClass} value={location} onChange={(event) => setLocation(event.target.value)} minLength={2} maxLength={80} required /></label>
+        <label className="text-sm font-semibold text-slate-700 md:col-span-2">{t("Description")}<textarea className="mt-2 min-h-32 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none focus:border-orange-400 focus:ring-4 focus:ring-orange-100" value={description} onChange={(event) => setDescription(event.target.value)} minLength={10} maxLength={500} required /></label>
       </div>
 
-      {imageUrl ? <img src={imageUrl} alt="Product preview" className="h-64 w-full rounded-3xl border border-slate-200 object-cover" /> : null}
-      {message ? <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{message}</p> : null}
+      {imageUrl ? <img src={imageUrl} alt={t("Product preview")} className="h-64 w-full rounded-3xl border border-slate-200 object-cover" /> : null}
+      {message ? <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{translateLabel(message)}</p> : null}
       <div className="flex flex-wrap gap-3">
-        <button type="submit" disabled={busy || !hasRequiredPermission} className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Saving..." : isEditing ? "Save changes" : "Create product"}</button>
-        {onCancel ? <button type="button" onClick={onCancel} disabled={busy} className="rounded-full bg-slate-100 px-6 py-3 text-sm font-semibold text-slate-700">Cancel</button> : null}
+        <button type="submit" disabled={busy || !hasRequiredPermission} className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy ? t("Saving...") : isEditing ? t("Save changes") : t("Create product")}</button>
+        {onCancel ? <button type="button" onClick={onCancel} disabled={busy} className="rounded-full bg-slate-100 px-6 py-3 text-sm font-semibold text-slate-700">{t("Cancel")}</button> : null}
       </div>
     </form>
   );

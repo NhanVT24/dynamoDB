@@ -1,4 +1,6 @@
 "use client";
+import { t, translateLabel, getLanguage } from "../../../src/i18n/language";
+import { useLanguage } from "../../../src/i18n/LanguageProvider";
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -49,6 +51,7 @@ type CancelCheckoutResponse = {
 };
 
 export default function CheckoutPage() {
+  useLanguage();
   const router = useRouter();
   const { items, subtotal, shipping, total, theme, openAuthModal, removeItem } = useStorefront();
   const isDark = theme === "dark";
@@ -238,7 +241,7 @@ export default function CheckoutPage() {
         return;
       }
 
-      setGateMessage("Creating your order and holding inventory.");
+      setGateMessage("Creating your order and reserving your items.");
       const response = await authenticatedFetch(`${apiBaseUrl}/api/storefront/orders`, {
         method: "POST",
         headers: {
@@ -249,7 +252,7 @@ export default function CheckoutPage() {
             productId: item.productId,
             quantity: item.quantity
           })),
-          locale: "vn",
+          locale: getLanguage() === "vi" ? "vn" : "en",
           processingMode: "interactive"
         })
       });
@@ -290,28 +293,18 @@ export default function CheckoutPage() {
               <div className="relative overflow-hidden px-7 pb-6 pt-7 text-center">
                 <div className="absolute inset-x-0 top-0 h-28 bg-[radial-gradient(circle_at_top,rgba(251,113,133,0.28),transparent_70%)]" />
                 <div className="relative mx-auto flex h-24 w-24 items-center justify-center rounded-full border border-rose-200 bg-white shadow-[0_18px_50px_-24px_rgba(225,29,72,0.45)]">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-rose-500 text-3xl font-black text-white shadow-[0_14px_30px_-18px_rgba(225,29,72,0.55)]">
-                    ×
-                  </div>
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-rose-500 text-3xl font-black text-white shadow-[0_14px_30px_-18px_rgba(225,29,72,0.55)]">{t("×")}</div>
                 </div>
-                <p className="relative mt-6 text-xs font-semibold uppercase tracking-[0.28em] text-rose-500">
-                  Checkout Interrupted
-                </p>
-                <h2 className="relative mt-3 text-[1.9rem] font-semibold tracking-tight text-slate-950">
-                  Sorry, this payment could not continue
-                </h2>
-                <p className="relative mx-auto mt-3 max-w-md text-sm leading-7 text-slate-600">
-                  Another checkout may have reserved the remaining quantity, or your order is still finishing synchronization. We are sending you back to the store safely so you can try again.
-                </p>
+                <p className="relative mt-6 text-xs font-semibold uppercase tracking-[0.28em] text-rose-500">{t("Checkout Interrupted")}</p>
+                <h2 className="relative mt-3 text-[1.9rem] font-semibold tracking-tight text-slate-950">{t("Sorry, this payment could not continue")}</h2>
+                <p className="relative mx-auto mt-3 max-w-md text-sm leading-7 text-slate-600">{t("Another checkout may have reserved the remaining quantity, or your order is still finishing synchronization. We are sending you back to the store safely so you can try again.")}</p>
 
                 <div className="relative mt-6 rounded-[1.5rem] border border-rose-200/80 bg-white/90 p-5 text-left shadow-[0_20px_40px_-30px_rgba(15,23,42,0.35)]">
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-rose-500">What happened</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-rose-500">{t("What happened")}</p>
                   <p className="mt-3 text-sm leading-7 text-slate-700">
-                    {error || "The checkout gate could not keep enough stock reserved for this order."}
+                    {translateLabel(error) || t("The checkout gate could not keep enough stock reserved for this order.")}
                   </p>
-                  <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.2em] text-slate-500">
-                    Returning to store in {redirectCountdown}s
-                  </div>
+                  <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.2em] text-slate-500">{t("Returning to store in")} {redirectCountdown}{t("s")}</div>
                 </div>
 
                 <div className="relative mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
@@ -319,16 +312,12 @@ export default function CheckoutPage() {
                     type="button"
                     onClick={goToStoreHome}
                     className="inline-flex items-center justify-center rounded-full bg-slate-950 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
-                  >
-                    Back To Store Home
-                  </button>
+                  >{t("Back To Store Home")}</button>
                   <button
                     type="button"
                     onClick={resetFailureRedirect}
                     className="inline-flex items-center justify-center rounded-full border border-rose-200 bg-white px-6 py-3 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50"
-                  >
-                    Keep This Message Open
-                  </button>
+                  >{t("Keep This Message Open")}</button>
                 </div>
               </div>
             </div>
@@ -339,14 +328,12 @@ export default function CheckoutPage() {
                   <span className="inline-flex h-10 w-10 animate-spin rounded-full border-[3px] border-slate-300 border-t-sky-500 border-r-cyan-400" />
                 </div>
               </div>
-              <h2 className="mt-6 text-xl font-semibold tracking-tight text-slate-950">Please wait a moment</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-600">
-                Sorry, we are confirming product availability and reserving your checkout slot before redirecting you to payment.
-              </p>
+              <h2 className="mt-6 text-xl font-semibold tracking-tight text-slate-950">{t("Please wait a moment")}</h2>
+              <p className="mt-3 text-sm leading-6 text-slate-600">{t("We are checking availability and reserving your items before payment.")}</p>
               <p className="mt-3 text-sm font-medium text-sky-700">
                 {gateMessage || (isRedirectingToPayment
-                  ? "Completing verification and opening VNPay..."
-                  : "Checking inventory in real-time...")}
+                  ? t("Completing verification and opening VNPay...")
+                  : t("Checking inventory in real-time..."))}
               </p>
             </div>
           )}
@@ -359,15 +346,11 @@ export default function CheckoutPage() {
             isDark ? "border-white/10 bg-white/5 text-white" : "border-slate-200 bg-white text-slate-950"
           }`}
         >
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Checkout</p>
-          <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Checkout with VNPay Sandbox</h1>
-          <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-            Your request is sent to the product gate queue first. You are redirected to VNPay only after the inventory hold is confirmed.
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">{t("Checkout")}</p>
+          <h1 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{t("Checkout with VNPay Sandbox")}</h1>
+          <p className={`mt-4 text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("We confirm availability and reserve your items before redirecting you to VNPay.")}</p>
           {hasHydrated && !session ? (
-            <div className={`mt-6 rounded-[1.5rem] border px-4 py-4 text-sm ${isDark ? "border-amber-500/20 bg-amber-500/10 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
-              You need to sign in before checkout.
-            </div>
+            <div className={`mt-6 rounded-[1.5rem] border px-4 py-4 text-sm ${isDark ? "border-amber-500/20 bg-amber-500/10 text-amber-200" : "border-amber-200 bg-amber-50 text-amber-700"}`}>{t("You need to sign in before checkout.")}</div>
           ) : null}
 
           <div className="mt-8 space-y-4">
@@ -387,7 +370,7 @@ export default function CheckoutPage() {
                     </div>
                     <strong className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{formatCurrency(item.price * item.quantity)}</strong>
                   </div>
-                  <p className={`mt-3 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>Quantity: {item.quantity}</p>
+                  <p className={`mt-3 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Quantity:")} {item.quantity}</p>
                 </div>
               </article>
             ))}
@@ -395,30 +378,30 @@ export default function CheckoutPage() {
         </section>
 
         <aside className="rounded-[2rem] bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white shadow-[0_30px_80px_-40px_rgba(15,23,42,0.5)]">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-300">Order summary</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-300">{t("Order summary")}</p>
           <div className="mt-6 space-y-3 text-sm">
             <div className="flex items-center justify-between">
-              <span>Subtotal</span>
+              <span>{t("Subtotal")}</span>
               <span>{formatCurrency(subtotal)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span>Shipping</span>
-              <span>{shipping === 0 ? "Free" : formatCurrency(shipping)}</span>
+              <span>{t("Shipping")}</span>
+              <span>{shipping === 0 ? t("Free") : formatCurrency(shipping)}</span>
             </div>
             <div className="flex items-center justify-between border-t border-white/15 pt-4 text-lg font-semibold">
-              <span>Total</span>
+              <span>{t("Total")}</span>
               <span>{formatCurrency(total)}</span>
             </div>
           </div>
 
           <div className="mt-8 rounded-[1.5rem] bg-white/8 p-4 text-sm leading-7 text-slate-200">
-            <p>The checkout gate processes conflicting product requests in arrival order.</p>
-            <p className="mt-2">If another request is already holding the product, you will see the block message here immediately.</p>
+            <p>{t("Available stock is checked before payment.")}</p>
+            <p className="mt-2">{t("If an item is reserved by another customer, we will let you know before payment.")}</p>
           </div>
 
           {error ? (
             <div className="mt-6 rounded-2xl border border-rose-300/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-              {error}
+              {translateLabel(error)}
             </div>
           ) : null}
 
@@ -429,10 +412,10 @@ export default function CheckoutPage() {
             className="mt-8 inline-flex w-full items-center justify-center rounded-full bg-white px-5 py-4 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {!hasHydrated
-              ? "Loading checkout..."
+              ? t("Loading checkout...")
               : session
-                ? (isSubmitting ? (isRedirectingToPayment ? "Opening VNPay..." : "Checking inventory queue...") : "Pay now")
-                : "Sign in to pay"}
+                ? (isSubmitting ? (isRedirectingToPayment ? t("Opening VNPay...") : t("Checking inventory queue...")) : t("Pay now"))
+                : t("Sign in to pay")}
           </button>
         </aside>
       </div>

@@ -1,4 +1,6 @@
 "use client";
+import { t, translateLabel } from "../../../src/i18n/language";
+import { useLanguage } from "../../../src/i18n/LanguageProvider";
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -22,6 +24,7 @@ type DefaultAvatarItem = {
 };
 
 function ProfileMetricCard({ label, value, tone = "neutral", isDark }: ProfileMetricCardProps) {
+  useLanguage();
   const toneClassName = isDark
     ? tone === "warm"
       ? "border-orange-500/20 from-orange-500/10 to-rose-500/5"
@@ -36,25 +39,27 @@ function ProfileMetricCard({ label, value, tone = "neutral", isDark }: ProfileMe
 
   return (
     <article className={`rounded-[1.75rem] border bg-gradient-to-br p-5 ${toneClassName}`}>
-      <p className={`text-xs font-semibold uppercase tracking-[0.24em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{label}</p>
+      <p className={`text-xs font-semibold uppercase tracking-[0.24em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{translateLabel(label)}</p>
       <strong className={`mt-3 block text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{value}</strong>
     </article>
   );
 }
 
 function CompactPagination({ page, totalPages, onPageChange, isDark }: { page: number; totalPages: number; onPageChange: (page: number) => void; isDark: boolean }) {
+  useLanguage();
   if (totalPages <= 1) return null;
   const buttonClass = `rounded-full px-3 py-1.5 text-xs font-semibold ${isDark ? "bg-white/10 text-white" : "bg-slate-100 text-slate-700"}`;
   return (
     <div className="mt-4 flex items-center justify-end gap-2">
-      <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1} className={`${buttonClass} disabled:cursor-not-allowed disabled:opacity-40`}>Previous</button>
-      <span className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>Page {page} / {totalPages}</span>
-      <button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages} className={`${buttonClass} disabled:cursor-not-allowed disabled:opacity-40`}>Next</button>
+      <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1} className={`${buttonClass} disabled:cursor-not-allowed disabled:opacity-40`}>{t("Previous")}</button>
+      <span className={`text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Page")} {page} / {totalPages}</span>
+      <button type="button" onClick={() => onPageChange(page + 1)} disabled={page >= totalPages} className={`${buttonClass} disabled:cursor-not-allowed disabled:opacity-40`}>{t("Next")}</button>
     </div>
   );
 }
 
 function ProfileSkeleton({ isDark }: { isDark: boolean }) {
+  useLanguage();
   return (
     <main className="px-4 py-10 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl animate-pulse">
@@ -164,6 +169,7 @@ const profileEndpoint = apiUrl("/api/profile/me");
 const purchaseOrderStatuses = new Set(["paid", "completed", "done", "delivered", "fulfilled", "succeeded", "success", "refund_rejected"]);
 
 export default function StoreProfilePage() {
+  useLanguage();
   const { session, setSession, theme, openAuthModal } = useStorefront();
   const isDark = theme === "dark";
   const [orders, setOrders] = useState<StoreOrder[]>([]);
@@ -430,23 +436,17 @@ export default function StoreProfilePage() {
       <main className="px-4 py-12 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl rounded-[2rem] bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 p-[1px]">
           <div className={`rounded-[calc(2rem-1px)] px-6 py-10 text-center sm:px-8 ${isDark ? "bg-[#101826] text-white" : "bg-white text-slate-950"}`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Personal Profile</p>
-            <h1 className={`mt-4 text-4xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Sign in to open your profile</h1>
-            <p className={`mx-auto mt-4 max-w-2xl text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-              When you sign in, you can view your account details, spending summary, and recent orders directly in the storefront.
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">{t("Personal Profile")}</p>
+            <h1 className={`mt-4 text-4xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{t("Sign in to open your profile")}</h1>
+            <p className={`mx-auto mt-4 max-w-2xl text-sm leading-7 ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("When you sign in, you can view your account details, spending summary, and recent orders directly in the storefront.")}</p>
             <div className="mt-7 flex flex-wrap justify-center gap-3">
-              <button type="button" onClick={() => openAuthModal("/store/profile")} className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-                Sign in now
-              </button>
+              <button type="button" onClick={() => openAuthModal("/store/profile")} className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">{t("Sign in now")}</button>
               <Link
                 href="/store/products"
                 className={`rounded-full px-5 py-3 text-sm font-semibold ${
                   isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
                 }`}
-              >
-                Browse products first
-              </Link>
+              >{t("Browse products first")}</Link>
             </div>
           </div>
         </div>
@@ -467,25 +467,18 @@ export default function StoreProfilePage() {
             }`}
           >
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">Your Profile</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-500">{t("Your Profile")}</p>
               <h1 className={`mt-4 text-4xl font-semibold leading-tight tracking-tight sm:text-5xl ${isDark ? "text-white" : "text-slate-950"}`}>
-                {displayName || session.name || "NovaX user"}, welcome back!
-              </h1>
-              <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>
-                This page aggregates login information from Cognito along with actual purchase statistics from the storefront so you can quickly view the status of your account.
-              </p>
+                {displayName || session.name || t("NovaX user")}{t(", welcome back!")}</h1>
+              <p className={`mt-5 max-w-2xl text-sm leading-7 sm:text-base ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("View your account information, purchase history, and spending summary.")}</p>
               <div className="mt-7 flex flex-wrap gap-3">
-                <Link href="/store/orders" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">
-                  View Order History
-                </Link>
+                <Link href="/store/orders" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">{t("View Order History")}</Link>
                 <Link
                   href="/store/products"
                   className={`rounded-full px-5 py-3 text-sm font-semibold ${
                     isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
                   }`}
-                >
-                  Continue Shopping
-                </Link>
+                >{t("Continue Shopping")}</Link>
               </div>
             </div>
 
@@ -499,7 +492,7 @@ export default function StoreProfilePage() {
               <div className="flex items-center gap-4">
                 <div className="flex shrink-0 flex-col items-center gap-2">
                   <div className="h-28 w-28 overflow-hidden rounded-[2rem] bg-gradient-to-br from-slate-950 via-orange-500 to-pink-500 text-3xl font-bold tracking-[0.18em] text-white shadow-[0_18px_40px_-22px_rgba(249,115,22,0.85)]">
-                    {displayedAvatarUrl ? <img src={displayedAvatarUrl} alt="Avatar" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center">{initials}</div>}
+                    {displayedAvatarUrl ? <img src={displayedAvatarUrl} alt={t("Avatar")} className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center">{initials}</div>}
                   </div>
                 </div>
                 <div className="min-w-0 flex-1">
@@ -516,39 +509,37 @@ export default function StoreProfilePage() {
                           : "bg-orange-100 text-orange-700"
                     }`}
                   >
-                    {session.role === "admin" ? "Admin" : "Customer"}
+                    {session.role === "admin" ? t("Admin") : t("Customer")}
                   </span>
                 </div>
-                <button type="button" onClick={openAddressDialog} disabled={isSavingAddresses} className="shrink-0 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-                  Change information
-                </button>
+                <button type="button" onClick={openAddressDialog} disabled={isSavingAddresses} className="shrink-0 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{t("Change information")}</button>
               </div>
-              {profileError ? <p role="alert" className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">{profileError}</p> : null}
-              {profileNotice ? <p role="status" className="mt-3 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{profileNotice}</p> : null}
+              {profileError ? <p role="alert" className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800">{translateLabel(profileError)}</p> : null}
+              {profileNotice ? <p role="status" className="mt-3 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{translateLabel(profileNotice)}</p> : null}
 
               <div className="mt-6 grid gap-3">
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
-                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Login Source</p>
-                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Cognito Login Session</p>
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Sign-in method")}</p>
+                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>{t("Sign-in session")}</p>
                 </div>
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
-                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Current Session</p>
-                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Expires at {formatDateTime(new Date(session.expiresAt).toISOString())}</p>
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Current Session")}</p>
+                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>{t("Expires at")} {formatDateTime(new Date(session.expiresAt).toISOString())}</p>
                 </div>
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
-                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Status</p>
-                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>Active and ready to place orders</p>
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Status")}</p>
+                  <p className={`mt-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>{t("Active and ready to place orders")}</p>
                 </div>
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
-                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Product Permissions</p>
-                  <p className={`mt-1 break-words text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>{session.permissions.length > 0 ? session.permissions.join(", ") : "No delegated product permissions"}</p>
+                  <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Product Permissions")}</p>
+                  <p className={`mt-1 break-words text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>{session.permissions.length > 0 ? session.permissions.join(", ") : t("No delegated product permissions")}</p>
                 </div>
                 <div className={`rounded-2xl border px-4 py-3 ${isDark ? "border-white/10 bg-white/5" : "border-white/70 bg-white/80"}`}>
                   <div className="flex items-center justify-between gap-3">
-                    <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Location</p>
+                    <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Location")}</p>
                   </div>
                   <div className={`mt-2 space-y-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>
-                    {addresses.length ? addresses.map((address, index) => <p key={`${address.ward}:${address.city}:${address.province}:${index}`} className="break-words">{index + 1}. {addressLabel(address)}</p>) : <p>No saved location</p>}
+                    {addresses.length ? addresses.map((address, index) => <p key={`${address.ward}:${address.city}:${address.province}:${index}`} className="break-words">{index + 1}. {addressLabel(address)}</p>) : <p>{t("No saved location")}</p>}
                   </div>
                 </div>
               </div>
@@ -557,27 +548,27 @@ export default function StoreProfilePage() {
                   <form onSubmit={(event) => { event.preventDefault(); void saveAddressChanges(); }} className={`w-full max-w-2xl rounded-2xl p-5 shadow-xl ${isDark ? "bg-slate-950 text-white" : "bg-white text-slate-950"}`}>
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-500">Change Information</p>
-                        <h3 className="mt-1 text-xl font-semibold">Profile information</h3>
+                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-500">{t("Change Information")}</p>
+                        <h3 className="mt-1 text-xl font-semibold">{t("Profile information")}</h3>
                       </div>
-                      <button type="button" onClick={() => setIsAddressDialogOpen(false)} disabled={isSavingAddresses} className={`rounded-xl px-3 py-2 text-sm font-semibold ${isDark ? "border border-white/10 text-white" : "border border-slate-200 text-slate-700"} disabled:opacity-50`}>Close</button>
+                      <button type="button" onClick={() => setIsAddressDialogOpen(false)} disabled={isSavingAddresses} className={`rounded-xl px-3 py-2 text-sm font-semibold ${isDark ? "border border-white/10 text-white" : "border border-slate-200 text-slate-700"} disabled:opacity-50`}>{t("Close")}</button>
                     </div>
                     <div className="mt-5 grid gap-4">
                       <div className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                        <p className="mb-3 text-sm font-semibold">Basic information</p>
+                        <p className="mb-3 text-sm font-semibold">{t("Basic information")}</p>
                         <div className="grid gap-3 sm:grid-cols-[7rem_1fr]">
                           <div className="flex flex-col items-center gap-2">
                             <div className="h-24 w-24 overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-slate-950 via-orange-500 to-pink-500 text-2xl font-bold tracking-[0.18em] text-white">
-                              {avatarPreviewUrl || selectedDefaultAvatar?.fileUrl || avatarUrl ? <img src={avatarPreviewUrl || selectedDefaultAvatar?.fileUrl || avatarUrl} alt="Avatar preview" className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center">{initials}</div>}
+                              {avatarPreviewUrl || selectedDefaultAvatar?.fileUrl || avatarUrl ? <img src={avatarPreviewUrl || selectedDefaultAvatar?.fileUrl || avatarUrl} alt={t("Avatar preview")} className="h-full w-full object-cover" /> : <div className="grid h-full place-items-center">{initials}</div>}
                             </div>
-                            <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isSavingAddresses} className={`rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${isDark ? "bg-white/10 text-white" : "bg-slate-900 text-white"} disabled:opacity-60`}>Choose photo</button>
+                            <button type="button" onClick={() => avatarInputRef.current?.click()} disabled={isSavingAddresses} className={`rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${isDark ? "bg-white/10 text-white" : "bg-slate-900 text-white"} disabled:opacity-60`}>{t("Choose photo")}</button>
                             <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => selectAvatarFile(event.target.files?.[0])} />
                           </div>
                           <div className="grid gap-3">
-                            <label className="grid gap-1 text-xs font-semibold">Display name<input value={nameDraft} onChange={(event) => { setNameDraft(event.target.value); setProfileNotice(""); }} maxLength={80} required disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                            <label className="grid gap-1 text-xs font-semibold">{t("Display name")}<input value={nameDraft} onChange={(event) => { setNameDraft(event.target.value); setProfileNotice(""); }} maxLength={80} required disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
                             {defaultAvatars.length > 0 ? (
                               <div>
-                                <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>Default Avatars</p>
+                                <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Default Avatars")}</p>
                                 <div className="mt-2 flex flex-wrap gap-2">
                                   {defaultAvatars.map((avatar) => (
                                     <button key={avatar.key} type="button" onClick={() => { setSelectedAvatarKey(avatar.key); setSelectedAvatarFile(null); setProfileError(""); setProfileNotice(""); }} disabled={isSavingAddresses} className={`h-11 w-11 overflow-hidden rounded-2xl border transition ${(selectedAvatarKey ?? avatarKey) === avatar.key && !selectedAvatarFile ? "border-orange-500 ring-2 ring-orange-300" : isDark ? "border-white/10 hover:border-white/30" : "border-slate-200 hover:border-orange-300"}`} title={avatar.fileName}>
@@ -591,17 +582,17 @@ export default function StoreProfilePage() {
                         </div>
                       </div>
                       <div className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
-                        <p className="mb-3 text-sm font-semibold">Location</p>
+                        <p className="mb-3 text-sm font-semibold">{t("Location")}</p>
                         <div className="grid gap-3 sm:grid-cols-3">
-                          <label className="grid gap-1 text-xs font-semibold">Ward<input value={addressDraft[0]?.ward ?? ""} onChange={(event) => updateAddressDraft(0, "ward", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
-                          <label className="grid gap-1 text-xs font-semibold">City<input value={addressDraft[0]?.city ?? ""} onChange={(event) => updateAddressDraft(0, "city", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
-                          <label className="grid gap-1 text-xs font-semibold">Province<input value={addressDraft[0]?.province ?? ""} onChange={(event) => updateAddressDraft(0, "province", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                          <label className="grid gap-1 text-xs font-semibold">{t("Ward")}<input value={addressDraft[0]?.ward ?? ""} onChange={(event) => updateAddressDraft(0, "ward", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                          <label className="grid gap-1 text-xs font-semibold">{t("City")}<input value={addressDraft[0]?.city ?? ""} onChange={(event) => updateAddressDraft(0, "city", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                          <label className="grid gap-1 text-xs font-semibold">{t("Province")}<input value={addressDraft[0]?.province ?? ""} onChange={(event) => updateAddressDraft(0, "province", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
                         </div>
                       </div>
                     </div>
                     <div className="mt-6 flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4">
-                      <button type="button" onClick={() => setIsAddressDialogOpen(false)} disabled={isSavingAddresses} className={`rounded-xl px-4 py-2 text-sm font-semibold ${isDark ? "border border-white/10 text-white" : "border border-slate-200 text-slate-700"} disabled:opacity-50`}>Cancel</button>
-                      <button type="submit" disabled={isSavingAddresses} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSavingAddresses ? "Saving..." : "Save information"}</button>
+                      <button type="button" onClick={() => setIsAddressDialogOpen(false)} disabled={isSavingAddresses} className={`rounded-xl px-4 py-2 text-sm font-semibold ${isDark ? "border border-white/10 text-white" : "border border-slate-200 text-slate-700"} disabled:opacity-50`}>{t("Cancel")}</button>
+                      <button type="submit" disabled={isSavingAddresses} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{isSavingAddresses ? t("Saving...") : t("Save information")}</button>
                     </div>
                   </form>
                 </div>
@@ -611,32 +602,32 @@ export default function StoreProfilePage() {
         </section>
 
         <section className="mt-8 grid gap-4 md:grid-cols-3">
-          <ProfileMetricCard label="Paid Orders" value={String(stats.totalOrders)} tone="warm" isDark={isDark} />
-          <ProfileMetricCard label="Total Spent" value={formatCurrency(stats.totalSpend)} tone="cool" isDark={isDark} />
-          <ProfileMetricCard label="Total Products Purchased" value={String(stats.totalItems)} tone="neutral" isDark={isDark} />
+          <ProfileMetricCard label={t("Paid Orders")} value={String(stats.totalOrders)} tone="warm" isDark={isDark} />
+          <ProfileMetricCard label={t("Total Spent")} value={formatCurrency(stats.totalSpend)} tone="cool" isDark={isDark} />
+          <ProfileMetricCard label={t("Total Products Purchased")} value={String(stats.totalItems)} tone="neutral" isDark={isDark} />
         </section>
 
         <section className="mt-8 grid gap-6 lg:grid-cols-2">
         <section id="my-products" className={`scroll-mt-28 rounded-[1.75rem] border p-6 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.24)] ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">My Products</p>
-              <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Your Products</h2>
-              <p className={`mt-2 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>This list is filtered by the owner of the current account.</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">{t("My Products")}</p>
+              <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{t("Your Products")}</h2>
+              <p className={`mt-2 text-sm ${isDark ? "text-slate-300" : "text-slate-600"}`}>{t("This list is filtered by the owner of the current account.")}</p>
             </div>
             {session.role === "admin" || session.permissions.includes("products:create") ? (
-            <Link href="/store/products?add=1" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">+ Add Product</Link>
+            <Link href="/store/products?add=1" className="rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-3 text-sm font-semibold text-white">{t("+ Add Product")}</Link>
             ) : null}
           </div>
 
           {productsLoading ? (
             <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 3 }).map((_, index) => <div key={index} className={`h-48 animate-pulse rounded-3xl ${isDark ? "bg-white/10" : "bg-slate-100"}`} />)}</div>
           ) : productsError ? (
-            <p role="alert" className="mt-6 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{productsError}</p>
+            <p role="alert" className="mt-6 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{translateLabel(productsError)}</p>
           ) : myProducts.length === 0 ? (
             <div className={`mt-6 rounded-3xl border border-dashed px-6 py-10 text-center ${isDark ? "border-white/10 text-slate-300" : "border-slate-200 text-slate-600"}`}>
-              <p>You have not created any products yet.</p>
-              {session.role === "admin" || session.permissions.includes("products:create") ? <Link href="/store/products?add=1" className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">Create your first product</Link> : null}
+              <p>{t("You have not created any products yet.")}</p>
+              {session.role === "admin" || session.permissions.includes("products:create") ? <Link href="/store/products?add=1" className="mt-4 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white">{t("Create your first product")}</Link> : null}
             </div>
           ) : (<>
             <div className="mt-6 grid gap-3">
@@ -646,11 +637,11 @@ export default function StoreProfilePage() {
                   <article key={item.id} className={`flex items-center gap-3 rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
                     <img src={storefrontProduct.imageUrl} alt={item.name} className="h-16 w-16 shrink-0 rounded-xl object-cover" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-orange-500">{item.category}</p>
+                      <p className="truncate text-sm font-semibold text-orange-500">{translateLabel(item.category)}</p>
                       <h3 className={`truncate text-base font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{item.name}</h3>
-                      <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>Stock {item.stock} / {formatCurrency(item.price)}</p>
+                      <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Stock")} {item.stock} / {formatCurrency(item.price)}</p>
                     </div>
-                    <Link href={buildProductDetailHref(storefrontProduct.slug)} className="shrink-0 rounded-full bg-slate-950 px-3 py-2 text-xs font-semibold text-white">View</Link>
+                    <Link href={buildProductDetailHref(storefrontProduct.slug)} className="shrink-0 rounded-full bg-slate-950 px-3 py-2 text-xs font-semibold text-white">{t("View")}</Link>
                   </article>
                 );
               })}
@@ -662,31 +653,27 @@ export default function StoreProfilePage() {
         <section className={`rounded-[1.75rem] border p-6 shadow-[0_24px_80px_-60px_rgba(15,23,42,0.24)] ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-white"}`}>
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">Recent Orders</p>
-                <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>Latest Purchase Activity</h2>
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-500">{t("Recent Orders")}</p>
+                <h2 className={`mt-3 text-3xl font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-950"}`}>{t("Latest Purchase Activity")}</h2>
               </div>
               <Link
                 href="/store/orders"
                 className={`rounded-full px-5 py-3 text-sm font-semibold ${
                   isDark ? "border border-white/10 bg-white/5 text-white" : "border border-slate-200 text-slate-700"
                 }`}
-              >
-                View Order History
-              </Link>
+              >{t("View Order History")}</Link>
             </div>
 
             {error ? (
               <div className={`mt-6 rounded-[1.5rem] border px-4 py-4 text-sm ${isDark ? "border-rose-500/20 bg-rose-500/10 text-rose-200" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
-                {error}
+                {translateLabel(error)}
               </div>
             ) : paginatedOrders.length === 0 ? (
               <div
                 className={`mt-6 rounded-[1.5rem] border border-dashed px-4 py-8 text-sm ${
                   isDark ? "border-white/10 bg-white/5 text-slate-300" : "border-slate-200 bg-slate-50 text-slate-500"
                 }`}
-              >
-                You have not placed any orders yet.
-              </div>
+              >{t("You have not placed any orders yet.")}</div>
             ) : (<>
               <div className="mt-6 grid gap-3">
                 {paginatedOrders.map((order) => (
@@ -698,12 +685,12 @@ export default function StoreProfilePage() {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-500">Order ID {order.id.slice(0, 8)}</p>
-                        <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>{order.items.length} items / {formatDateTime(order.createdAt)}</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-500">{t("Order ID")} {order.id.slice(0, 8)}</p>
+                        <p className={`mt-1 text-xs ${isDark ? "text-slate-400" : "text-slate-500"}`}>{order.items.length} {t("items /")} {formatDateTime(order.createdAt)}</p>
                       </div>
                       <div className="text-right">
                         <p className={`text-sm font-semibold ${isDark ? "text-white" : "text-slate-950"}`}>{formatCurrency(order.totalAmount)}</p>
-                        <p className={`mt-1 text-xs uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{order.status}</p>
+                        <p className={`mt-1 text-xs uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{translateLabel(order.status)}</p>
                       </div>
                     </div>
                   </article>

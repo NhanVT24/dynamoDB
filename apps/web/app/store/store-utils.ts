@@ -1,7 +1,8 @@
+import { getIntlLocale } from "../../src/i18n/language";
 import type { CartItem } from "./store-types";
 
 export function formatCurrency(value: number) {
-  return new Intl.NumberFormat("vi-VN", {
+  return new Intl.NumberFormat(getIntlLocale(), {
     style: "currency",
     currency: "VND",
     maximumFractionDigits: 0
@@ -9,11 +10,11 @@ export function formatCurrency(value: number) {
 }
 
 export function formatShortDate(value: string) {
-  return new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(new Date(value));
+  return new Intl.DateTimeFormat(getIntlLocale(), { dateStyle: "medium" }).format(new Date(value));
 }
 
 export function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("vi-VN", {
+  return new Intl.DateTimeFormat(getIntlLocale(), {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(new Date(value));
