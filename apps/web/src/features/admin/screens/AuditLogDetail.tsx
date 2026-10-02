@@ -25,10 +25,6 @@ function stableString(value: unknown) {
   return JSON.stringify(value);
 }
 
-function valueChanged(before: unknown, after: unknown) {
-  return stableString(before) !== stableString(after);
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -50,12 +46,12 @@ function ChangedValues({ change }: { change: AuditChange }) {
       const rows = Array.from({ length: count }).flatMap((_, index) => {
         const previous = beforeItems[index];
         const next = afterItems[index];
-        if (!valueChanged(previous, next)) return [];
+        if (!(stableString(before) !== stableString(after))) return [];
         if (isRecord(previous) || isRecord(next)) {
           const previousRecord = isRecord(previous) ? previous : {};
           const nextRecord = isRecord(next) ? next : {};
           const keys = [...new Set([...Object.keys(previousRecord), ...Object.keys(nextRecord)])];
-          return keys.flatMap((key) => valueChanged(previousRecord[key], nextRecord[key])
+          return keys.flatMap((key) => (stableString(before) !== stableString(after))
             ? [{ label: arrayObjectFieldLabel(key, index, count), before: previousRecord[key], after: nextRecord[key] }]
             : []);
         }
@@ -78,7 +74,7 @@ function ChangedValues({ change }: { change: AuditChange }) {
     const previous = before.kind === "object" ? before.value : {};
     const next = after.kind === "object" ? after.value : {};
     const rows = [...new Set([...Object.keys(previous), ...Object.keys(next)])]
-      .flatMap((key) => valueChanged(previous[key], next[key]) ? [{ label: key, before: previous[key], after: next[key] }] : []);
+      .flatMap((key) => (stableString(before) !== stableString(after)) ? [{ label: key, before: previous[key], after: next[key] }] : []);
     return <ChangedRows rows={rows} />;
   }
 
