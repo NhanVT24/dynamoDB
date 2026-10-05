@@ -154,11 +154,15 @@ function formatAddressValue(value: string) {
     const lines = parsed.flatMap((item, index) => {
       if (!item || typeof item !== "object") return [];
       const address = item as Record<string, unknown>;
-      const ward = String(address.ward || "").trim();
+      const ward = address.ward && typeof address.ward === "object" && !Array.isArray(address.ward)
+        ? address.ward as Record<string, unknown> : undefined;
+      const wardParts = ward ? [ward.houseNumber, ward.streetNumber, ward.name] : [address.ward];
+      const wardLabel = wardParts.filter((part): part is string => typeof part === "string")
+        .map((part) => part.trim()).filter(Boolean).join(", ");
       const city = String(address.city || "").trim();
       const province = String(address.province || "").trim();
-      if (!ward && !city && !province) return [];
-      const value = [ward, city, province].filter(Boolean).join(", ");
+      if (!wardLabel && !city && !province) return [];
+      const value = [wardLabel, city, province].filter(Boolean).join(", ");
       return [parsed.length === 1 ? value : t("Address {value1}: {value2}", { value1: index + 1, value2: value })];
     });
     return lines.join("\n") || t("No addresses");

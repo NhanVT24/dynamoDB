@@ -1,3 +1,4 @@
+import { userAddressSchema } from "./user-address.js";
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Put, Req } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -7,11 +8,7 @@ import { AuthorizationService } from "./authorization.service.js";
 
 const accountStatuses = new Set(["ACTIVE", "SUSPENDED", "DISABLED", "BLOCKED"]);
 const addressesSchema = z.object({
-  addresses: z.array(z.object({
-    ward: z.string().trim().min(1).max(120),
-    city: z.string().trim().min(1).max(120),
-    province: z.string().trim().min(1).max(120)
-  }).strict()).max(10)
+  addresses: z.array(userAddressSchema).max(10)
 }).strict();
 
 @Controller("api/admin/authorizations")

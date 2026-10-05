@@ -136,6 +136,8 @@ export const messages = {
   "Removed {value1}": "Đã gỡ {value1}",
   "{value1} locations saved": "Đã lưu {value1} địa điểm",
   "Address {value1}": "Địa chỉ {value1}",
+  "House number": "Số nhà",
+  "Street number": "Số đường",
   "Address {value1}: {value2}": "Địa chỉ {value1}: {value2}",
   "Address {value1} {value2}": "Địa chỉ {value1} {value2}",
   "Language": "Ngôn ngữ",

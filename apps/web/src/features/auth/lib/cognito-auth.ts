@@ -1,4 +1,5 @@
 "use client";
+import type { UserAddress } from "./user-address";
 
 import {
   CognitoIdentityProviderClient,
@@ -48,11 +49,7 @@ type CognitoErrorLike = {
   message?: string;
 };
 
-type SignupAddress = {
-  ward: string;
-  city: string;
-  province: string;
-};
+type SignupAddress = UserAddress;
 
 const sessionStorageKey = "cognito-auth-session";
 const postLoginRedirectStorageKey = "cognito-post-login-redirect";
@@ -78,12 +75,14 @@ function dispatchAuthSessionChanged() {
 }
 
 function addressClientMetadata(address?: SignupAddress) {
-  const ward = address?.ward.trim();
+  const ward = address?.ward.name.trim();
   const city = address?.city.trim();
   const province = address?.province.trim();
   if (!ward || !city || !province) return undefined;
   return {
     addressWard: ward,
+    addressHouseNumber: address?.ward.houseNumber.trim() ?? "",
+    addressStreetNumber: address?.ward.streetNumber.trim() ?? "",
     addressCity: city,
     addressProvince: province
   };

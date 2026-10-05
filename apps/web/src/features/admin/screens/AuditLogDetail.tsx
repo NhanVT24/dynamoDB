@@ -38,6 +38,16 @@ function ChangeTree({ nodes, root = false, parentPart }: { nodes: AuditChangeNod
   })}</div>;
 }
 
+function NestedValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
+  if (!value || typeof value !== "object" || depth >= 32) return <>{displayNestedValue(value)}</>;
+  const entries: Array<[string, unknown]> = Object.entries(value);
+  if (!entries.length) return <>{Array.isArray(value) ? "[]" : "{}"}</>;
+  return <dl className="space-y-2">{entries.map(([key, child]) => <div key={key}>
+    <dt className="font-bold">{Array.isArray(value) ? Number(key) + 1 : translateLabel(key)}</dt>
+    <dd className="ml-2 border-l border-current/20 pl-2"><NestedValue value={child} depth={depth + 1} /></dd>
+  </div>)}</dl>;
+}
+
 function ChangedRows({ rows }: { rows: Array<{ label: string; before: unknown; after: unknown }> }) {
   useLanguage();
   if (!rows.length) return null;
@@ -50,8 +60,8 @@ function ChangedRows({ rows }: { rows: Array<{ label: string; before: unknown; a
     <div className="divide-y divide-slate-100">{rows.map((row) => (
       <div key={`${row.label}:${displayNestedValue(row.before)}:${displayNestedValue(row.after)}`} className="grid gap-2 bg-white px-3 py-3 text-sm md:grid-cols-[12rem_1fr_1fr] md:gap-3">
         <strong className="break-all text-slate-900">{translateLabel(row.label)}</strong>
-        <span className="break-all rounded-md bg-emerald-50 px-3 py-2 text-emerald-800"><span className="mb-1 block text-xs font-bold md:hidden">{t("New")}</span>{displayNestedValue(row.after)}</span>
-        <span className="break-all rounded-md bg-rose-50 px-3 py-2 text-rose-800"><span className="mb-1 block text-xs font-bold md:hidden">{t("Old")}</span>{displayNestedValue(row.before)}</span>
+        <div className="break-all rounded-md bg-emerald-50 px-3 py-2 text-emerald-800"><span className="mb-1 block text-xs font-bold md:hidden">{t("New")}</span><NestedValue value={row.after} /></div>
+        <div className="break-all rounded-md bg-rose-50 px-3 py-2 text-rose-800"><span className="mb-1 block text-xs font-bold md:hidden">{t("Old")}</span><NestedValue value={row.before} /></div>
       </div>
     ))}</div>
   </div>;

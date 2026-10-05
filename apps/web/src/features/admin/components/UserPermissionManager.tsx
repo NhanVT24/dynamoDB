@@ -1,4 +1,5 @@
 "use client";
+import { addressLabel, normalizeAddressDraft, emptyAddress, updateAddressField, type AddressDraftField, type UserAddress } from "../../auth/lib/user-address";
 import { getIntlLocale, t, translateLabel } from "../../../i18n/language";
 
 import { useLanguage } from "../../../i18n/LanguageProvider";
@@ -8,12 +9,6 @@ import { useEffect, useState } from "react";
 import { apiUrl, authenticatedFetch, type ProductPermission } from "../../auth/lib/cognito-auth";
 
 type AccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
-
-type UserAddress = {
-  ward: string;
-  city: string;
-  province: string;
-};
 
 type ManagedUser = {
   subject: string;
@@ -61,18 +56,6 @@ function formatLastLogin(value: string) {
   }).format(date);
 }
 
-function addressLabel(address: UserAddress) {
-  return [address.ward, address.city, address.province].filter(Boolean).join(", ");
-}
-
-function normalizeAddressDraft(addresses: UserAddress[]) {
-  return addresses.map((address) => ({
-    ward: address.ward.trim(),
-    city: address.city.trim(),
-    province: address.province.trim()
-  })).filter((address) => address.ward || address.city || address.province);
-}
-
 export default function UserPermissionManager() {
   useLanguage();
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -115,7 +98,7 @@ export default function UserPermissionManager() {
   }
 
   function openAddressesDialog(user: ManagedUser) {
-    setAddressDraft([user.addresses[0] ?? { ward: "", city: "", province: "" }]);
+    setAddressDraft([user.addresses[0] ?? emptyAddress()]);
     setDialog({ type: "addresses", user });
   }
 
@@ -194,7 +177,7 @@ export default function UserPermissionManager() {
 
   async function updateAddresses(user: ManagedUser, addresses: UserAddress[]) {
     const normalized = normalizeAddressDraft(addresses).slice(0, 1);
-    if (normalized.some((address) => !address.ward || !address.city || !address.province)) {
+    if (normalized.some((address) => !address.ward.name || !address.city || !address.province)) {
       setMessageIsError(true);
       setMessage("Location must include ward, city, and province.");
       return;
@@ -241,8 +224,8 @@ export default function UserPermissionManager() {
       : current.filter((item) => item !== permission));
   }
 
-  function updateAddressDraft(index: number, field: keyof UserAddress, value: string) {
-    setAddressDraft((current) => current.map((address, itemIndex) => itemIndex === index ? { ...address, [field]: value } : address));
+  function updateAddressDraft(index: number, field: AddressDraftField, value: string) {
+    setAddressDraft((current) => current.map((address, itemIndex) => itemIndex === index ? updateAddressField(address, field, value) : address));
   }
 
   return (
@@ -296,7 +279,7 @@ export default function UserPermissionManager() {
                   <button type="button" onClick={() => openAddressesDialog(user)} disabled={Boolean(updating)} className="text-sm font-bold text-cyan-700 disabled:opacity-50">{t("Change")}</button>
                 </div>
                 <div className="mt-2 space-y-1 text-sm text-slate-600">
-                  {user.addresses.length ? user.addresses.map((address, index) => <p key={`${address.ward}:${address.city}:${address.province}:${index}`} className="break-words">{index + 1}. {addressLabel(address)}</p>) : <p>{t("No saved location")}</p>}
+                  {user.addresses.length ? user.addresses.map((address, index) => <p key={`${address.ward.name}:${address.city}:${address.province}:${index}`} className="break-words">{index + 1}. {addressLabel(address)}</p>) : <p>{t("No saved location")}</p>}
                 </div>
               </section>
             </div>
@@ -352,7 +335,9 @@ export default function UserPermissionManager() {
                 <div className="rounded-lg border border-slate-200 p-3">
                   <p className="mb-3 text-sm font-bold text-slate-900">{t("Location")}</p>
                   <div className="grid gap-3 sm:grid-cols-3">
-                    <label className="grid gap-1 text-xs font-bold text-slate-700">{t("Ward")}<input value={addressDraft[0]?.ward ?? ""} onChange={(event) => updateAddressDraft(0, "ward", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">{t("Ward")}<input value={addressDraft[0]?.ward.name ?? ""} onChange={(event) => updateAddressDraft(0, "name", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">{t("House number")}<input maxLength={40} value={addressDraft[0]?.ward.houseNumber ?? ""} onChange={(event) => updateAddressDraft(0, "houseNumber", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
+                    <label className="grid gap-1 text-xs font-bold text-slate-700">{t("Street number")}<input maxLength={120} value={addressDraft[0]?.ward.streetNumber ?? ""} onChange={(event) => updateAddressDraft(0, "streetNumber", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
                     <label className="grid gap-1 text-xs font-bold text-slate-700">{t("City")}<input value={addressDraft[0]?.city ?? ""} onChange={(event) => updateAddressDraft(0, "city", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
                     <label className="grid gap-1 text-xs font-bold text-slate-700">{t("Province")}<input value={addressDraft[0]?.province ?? ""} onChange={(event) => updateAddressDraft(0, "province", event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500 focus:ring-4 focus:ring-cyan-100" /></label>
                   </div>

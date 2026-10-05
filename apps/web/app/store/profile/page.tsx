@@ -1,4 +1,5 @@
 "use client";
+import { addressLabel, normalizeAddressDraft, emptyAddress, updateAddressField, type AddressDraftField, type UserAddress } from "../../../src/features/auth/lib/user-address";
 import { t, translateLabel } from "../../../src/i18n/language";
 import { useLanguage } from "../../../src/i18n/LanguageProvider";
 
@@ -135,7 +136,6 @@ function ProfileSkeleton({ isDark }: { isDark: boolean }) {
   );
 }
 
-type UserAddress = { ward: string; city: string; province: string };
 type EditableProfile = { displayName: string; avatarKey: string; avatarUrl: string; addresses: UserAddress[] };
 
 function makeInitials(name: string, email: string) {
@@ -146,18 +146,6 @@ function makeInitials(name: string, email: string) {
     .slice(0, 2);
 
   return parts.map((part) => part.charAt(0).toUpperCase()).join("") || "NX";
-}
-
-function addressLabel(address: UserAddress) {
-  return [address.ward, address.city, address.province].filter(Boolean).join(", ");
-}
-
-function normalizeAddressDraft(addresses: UserAddress[]) {
-  return addresses.map((address) => ({
-    ward: address.ward.trim(),
-    city: address.city.trim(),
-    province: address.province.trim()
-  })).filter((address) => address.ward || address.city || address.province);
 }
 
 const avatarUploadEndpoint = apiUrl("/api/uploads/avatar/presign");
@@ -350,14 +338,14 @@ export default function StoreProfilePage() {
     setSelectedAvatarKey(null);
     setSelectedAvatarFile(null);
     if (avatarInputRef.current) avatarInputRef.current.value = "";
-    setAddressDraft([addresses[0] ?? { ward: "", city: "", province: "" }]);
+    setAddressDraft([addresses[0] ?? emptyAddress()]);
     setProfileError("");
     setProfileNotice("");
     setIsAddressDialogOpen(true);
   }
 
-  function updateAddressDraft(index: number, field: keyof UserAddress, value: string) {
-    setAddressDraft((current) => current.map((address, itemIndex) => itemIndex === index ? { ...address, [field]: value } : address));
+  function updateAddressDraft(index: number, field: AddressDraftField, value: string) {
+    setAddressDraft((current) => current.map((address, itemIndex) => itemIndex === index ? updateAddressField(address, field, value) : address));
   }
 
   async function saveAddressChanges() {
@@ -368,7 +356,7 @@ export default function StoreProfilePage() {
       return;
     }
     const normalized = normalizeAddressDraft(addressDraft).slice(0, 1);
-    if (normalized.some((address) => !address.ward || !address.city || !address.province)) {
+    if (normalized.some((address) => !address.ward.name || !address.city || !address.province)) {
       setProfileError("Each location must include ward, city, and province.");
       return;
     }
@@ -539,7 +527,7 @@ export default function StoreProfilePage() {
                     <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${isDark ? "text-slate-400" : "text-slate-500"}`}>{t("Location")}</p>
                   </div>
                   <div className={`mt-2 space-y-1 text-sm font-medium ${isDark ? "text-white" : "text-slate-900"}`}>
-                    {addresses.length ? addresses.map((address, index) => <p key={`${address.ward}:${address.city}:${address.province}:${index}`} className="break-words">{index + 1}. {addressLabel(address)}</p>) : <p>{t("No saved location")}</p>}
+                    {addresses.length ? addresses.map((address, index) => <p key={`${address.ward.name}:${address.city}:${address.province}:${index}`} className="break-words">{index + 1}. {addressLabel(address)}</p>) : <p>{t("No saved location")}</p>}
                   </div>
                 </div>
               </div>
@@ -584,7 +572,9 @@ export default function StoreProfilePage() {
                       <div className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
                         <p className="mb-3 text-sm font-semibold">{t("Location")}</p>
                         <div className="grid gap-3 sm:grid-cols-3">
-                          <label className="grid gap-1 text-xs font-semibold">{t("Ward")}<input value={addressDraft[0]?.ward ?? ""} onChange={(event) => updateAddressDraft(0, "ward", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                          <label className="grid gap-1 text-xs font-semibold">{t("Ward")}<input value={addressDraft[0]?.ward.name ?? ""} onChange={(event) => updateAddressDraft(0, "name", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                          <label className="grid gap-1 text-xs font-semibold">{t("House number")}<input maxLength={40} value={addressDraft[0]?.ward.houseNumber ?? ""} onChange={(event) => updateAddressDraft(0, "houseNumber", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
+                          <label className="grid gap-1 text-xs font-semibold">{t("Street number")}<input maxLength={120} value={addressDraft[0]?.ward.streetNumber ?? ""} onChange={(event) => updateAddressDraft(0, "streetNumber", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
                           <label className="grid gap-1 text-xs font-semibold">{t("City")}<input value={addressDraft[0]?.city ?? ""} onChange={(event) => updateAddressDraft(0, "city", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
                           <label className="grid gap-1 text-xs font-semibold">{t("Province")}<input value={addressDraft[0]?.province ?? ""} onChange={(event) => updateAddressDraft(0, "province", event.target.value)} disabled={isSavingAddresses} className="h-10 rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal text-slate-900 disabled:opacity-60" /></label>
                         </div>

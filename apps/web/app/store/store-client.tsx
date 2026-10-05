@@ -1,4 +1,5 @@
 "use client";
+import type { UserAddress } from "../../src/features/auth/lib/user-address";
 import { t, translateLabel } from "../../src/i18n/language";
 import { useLanguage } from "../../src/i18n/LanguageProvider";
 
@@ -35,11 +36,7 @@ import { calculateShipping, calculateSubtotal, formatCurrency, formatShortDate }
 
 type ThemeMode = "light" | "dark";
 type SortMode = "newest" | "oldest" | "price-asc" | "price-desc" | "best-seller";
-type RegisterAddress = {
-  ward: string;
-  city: string;
-  province: string;
-};
+type RegisterAddress = UserAddress;
 
 type StoreContextValue = {
   session: AuthSession | null;
@@ -645,6 +642,8 @@ function StorefrontAuthModal({
   const [registerName, setRegisterName] = useState("");
   const [registerEmail, setRegisterEmail] = useState("");
   const [registerWard, setRegisterWard] = useState("");
+  const [registerHouseNumber, setRegisterHouseNumber] = useState("");
+  const [registerStreetNumber, setRegisterStreetNumber] = useState("");
   const [registerCity, setRegisterCity] = useState("");
   const [registerProvince, setRegisterProvince] = useState("");
   const [registerPassword, setRegisterPassword] = useState("");
@@ -751,7 +750,7 @@ function StorefrontAuthModal({
       }
 
       const address = {
-        ward: registerWard.trim(),
+        ward: { name: registerWard.trim(), houseNumber: registerHouseNumber.trim(), streetNumber: registerStreetNumber.trim() },
         city: registerCity.trim(),
         province: registerProvince.trim()
       };
@@ -1005,6 +1004,22 @@ function StorefrontAuthModal({
                   placeholder={t("Ward")}
                   className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
                   required
+                />
+                <input
+                  value={registerHouseNumber}
+                  onChange={(event) => setRegisterHouseNumber(event.target.value)}
+                  placeholder={t("House number")}
+                  className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                  aria-label={t("House number")}
+                  maxLength={40}
+                />
+                <input
+                  value={registerStreetNumber}
+                  onChange={(event) => setRegisterStreetNumber(event.target.value)}
+                  placeholder={t("Street number")}
+                  className={`h-12 rounded-2xl border px-4 text-sm outline-none ${isDark ? "border-white/10 bg-white/5 text-white placeholder:text-slate-500" : "border-slate-200 bg-slate-50 text-slate-950 placeholder:text-slate-400"}`}
+                  aria-label={t("Street number")}
+                  maxLength={120}
                 />
                 <input
                   value={registerCity}

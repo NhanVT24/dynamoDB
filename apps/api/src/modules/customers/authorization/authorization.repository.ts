@@ -1,3 +1,5 @@
+import { normalizeAddresses, type UserAddress } from "./user-address.js";
+export type { UserAddress } from "./user-address.js";
 import { GetItemCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../../config/env.js";
@@ -7,11 +9,7 @@ import { normalizePermissions, type ProductPermission } from "../../../common/au
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 export type UserAccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
-export type UserAddress = {
-  ward: string;
-  city: string;
-  province: string;
-};
+
 const accountStatuses = new Set<UserAccountStatus>(["ACTIVE", "SUSPENDED", "DISABLED", "BLOCKED"]);
 
 export function normalizeUserAccountStatus(status: unknown): UserAccountStatus {
@@ -47,17 +45,6 @@ export async function getUserAccountStatus(subject: string): Promise<UserAccount
   return normalizeUserAccountStatus(result.Item ? unmarshall(result.Item).status : undefined);
 }
 
-function normalizeAddresses(value: unknown): UserAddress[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const address = item as Record<string, unknown>;
-    const ward = String(address.ward || "").trim();
-    const city = String(address.city || "").trim();
-    const province = String(address.province || "").trim();
-    return ward && city && province ? [{ ward, city, province }] : [];
-  });
-}
 
 export async function getUserProfileSummary(subject: string): Promise<{ accountStatus: UserAccountStatus; lastLoginAt: string; displayName: string; addresses: UserAddress[] }> {
   const result = await rawDb.send(new GetItemCommand({

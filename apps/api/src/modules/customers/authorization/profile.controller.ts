@@ -1,3 +1,4 @@
+import { normalizeAddresses, userAddressSchema } from "./user-address.js";
 import { BadRequestException, Body, Controller, ForbiddenException, Get, InternalServerErrorException, Patch, Req } from "@nestjs/common";
 import { GetItemCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
@@ -12,11 +13,7 @@ import { keys } from "../../../database/dynamodb/keys.js";
 const profilePatchSchema = z.object({
   displayName: z.string().trim().min(1).max(80).optional(),
   avatarKey: z.string().max(500).optional(),
-  addresses: z.array(z.object({
-    ward: z.string().trim().min(1).max(120),
-    city: z.string().trim().min(1).max(120),
-    province: z.string().trim().min(1).max(120)
-  }).strict()).max(10).optional()
+  addresses: z.array(userAddressSchema).max(10).optional()
 }).strict().refine((value) => Object.keys(value).length > 0);
 
 const s3 = new S3Client({
@@ -37,17 +34,6 @@ function avatarUrl(key: string): string {
   return `${base}/${key}`;
 }
 
-function normalizeAddresses(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const address = item as Record<string, unknown>;
-    const ward = String(address.ward || "").trim();
-    const city = String(address.city || "").trim();
-    const province = String(address.province || "").trim();
-    return ward && city && province ? [{ ward, city, province }] : [];
-  });
-}
 
 @Controller("api/profile")
 export class ProfileController {

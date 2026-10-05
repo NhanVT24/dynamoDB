@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { marshall } from "@aws-sdk/util-dynamodb";
+import { normalizeAddresses, type UserAddress } from "../../../../modules/customers/authorization/user-address.js";
 import {
   AdminAddUserToGroupCommand,
   CognitoIdentityProviderClient,
@@ -16,19 +18,19 @@ function addressFromClientMetadata(metadata?: Record<string, string>) {
   const ward = String(metadata?.addressWard || "").trim();
   const city = String(metadata?.addressCity || "").trim();
   const province = String(metadata?.addressProvince || "").trim();
-  return ward && city && province ? [{ ward, city, province }] : [];
+  return normalizeAddresses([{
+    ward: {
+      name: ward,
+      houseNumber: metadata?.addressHouseNumber ?? "",
+      streetNumber: metadata?.addressStreetNumber ?? ""
+    },
+    city,
+    province
+  }]);
 }
 
-function addressAttributeValues(addresses: Array<{ ward: string; city: string; province: string }>) {
-  return {
-    L: addresses.map((address) => ({
-      M: {
-        ward: { S: address.ward },
-        city: { S: address.city },
-        province: { S: address.province }
-      }
-    }))
-  };
+function addressAttributeValues(addresses: UserAddress[]) {
+  return marshall({ addresses }).addresses;
 }
 
 async function persistConfirmedUserProfile(dynamo: DynamoDBClient, event: CognitoTriggerEvent) {
