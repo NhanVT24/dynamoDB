@@ -1,9 +1,9 @@
 import { GetItemCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
-import { env } from "../../config/env.js";
-import { rawDb } from "../../database/dynamodb/client.js";
-import { keys } from "../../database/dynamodb/keys.js";
-import { normalizePermissions, type ProductPermission } from "../../common/auth/permissions.js";
+import { env } from "../../../config/env.js";
+import { rawDb } from "../../../database/dynamodb/client.js";
+import { keys } from "../../../database/dynamodb/keys.js";
+import { normalizePermissions, type ProductPermission } from "../../../common/auth/permissions.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 export type UserAccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";

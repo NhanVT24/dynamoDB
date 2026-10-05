@@ -1,9 +1,11 @@
 import { getIntlLocale, t } from "../../../i18n/language";
+import { buildAuditChangeTree, type AuditChangeNode } from "./audit-change-tree";
 export type AuditResourceType = "ALL" | "ORDER" | "PAYMENT" | "USER" | "PRODUCT" | "SALE_CAMPAIGN" | "NOTIFICATION" | "CHECKOUT" | "EMAIL" | "EMAIL_ROUTE" | "OPERATION";
 
 export type AuditChange = {
   before: string | null;
   after: string | null;
+  path?: Array<string | number>;
 };
 
 export type AuditLogRecord = {
@@ -93,13 +95,22 @@ export function parseAuditValue(value: string | null): ParsedAuditValue {
 }
 
 export function displayNestedValue(value: unknown) {
-  if (value === null || value === undefined) return t("Not present");
+  if (value === undefined) return t("Not present");
+  if (value === null) return "null";
   if (typeof value === "string") return value || t("(empty string)");
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return JSON.stringify(value);
 }
 
 export function summarizeChange(change: AuditChange, field: string) {
+  if (change.path) {
+    const display = (value: string | null) => {
+      if (value === null) return t("Not present");
+      try { const parsed: unknown = JSON.parse(value); return typeof parsed === "number" ? value : displayNestedValue(parsed); }
+      catch { return value; }
+    };
+    return `${display(change.before)} -> ${display(change.after)}`;
+  }
   const before = parseAuditValue(change.before);
   const after = parseAuditValue(change.after);
   if (field === "permissions" && before.kind === "array" && after.kind === "array") {
@@ -112,13 +123,23 @@ export function summarizeChange(change: AuditChange, field: string) {
       removed.length ? t("Removed {value1}", { value1: removed.join(", ") }) : ""
     ].filter(Boolean).join("; ") || t("No visible permission delta");
   }
-  if (field === "addresses" && after.kind === "array") {
-    return after.value.length ? t("{value1} locations saved", { value1: after.value.length }) : t("No saved location");
+  if ([before.kind, after.kind].some((kind) => kind === "object" || kind === "array")) {
+    const summaries: string[] = [];
+    const visit = (nodes: AuditChangeNode[], path: string[] = []) => {
+      for (const node of nodes) {
+        const nextPath = [...path, typeof node.part === "number" ? `[${node.part}]` : node.part];
+        if (node.values) summaries.push(`${nextPath.slice(1).join(" > ") || field}: ${displayNestedValue(node.values.before)} -> ${displayNestedValue(node.values.after)}`);
+        visit(node.children, nextPath);
+      }
+    };
+    visit(buildAuditChangeTree({ [field]: change }));
+    return summaries.join("; ");
   }
   return `${displayValue(change.before, field)} -> ${displayValue(change.after, field)}`;
 }
 
 export function fieldLabel(field: string) {
+  if (field.startsWith("/")) return field.slice(1).split("/").map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~")).join(" > ");
   if (field === "avatarKey") return "Avatar";
   if (field === "displayName") return "Display name";
   if (field === "addresses") return "Addresses";

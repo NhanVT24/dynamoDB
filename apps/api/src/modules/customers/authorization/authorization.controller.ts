@@ -1,8 +1,8 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Put, Req } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
-import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
-import { isProductPermission } from "../../common/auth/permissions.js";
+import { extractCognitoPrincipal } from "../../../common/auth/cognito-principal.js";
+import { isProductPermission } from "../../../common/auth/permissions.js";
 import { AuthorizationService } from "./authorization.service.js";
 
 const accountStatuses = new Set(["ACTIVE", "SUSPENDED", "DISABLED", "BLOCKED"]);

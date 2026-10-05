@@ -13,7 +13,7 @@ import { UploadsModule } from "../../modules/uploads/uploads.module.js";
 import { VnpayModule } from "../../modules/vnpay/vnpay.module.js";
 import { CustomersModule } from "../../modules/customers/customers.module.js";
 import { EmailDeliveriesModule } from "../../modules/email-deliveries/email-deliveries.module.js";
-import { AuthorizationModule } from "../../modules/authorization/authorization.module.js";
+import { AuthorizationModule } from "../../modules/customers/authorization/authorization.module.js";
 import { AuditLogModule } from "../../modules/audit-log/audit-log.module.js";
 
 @Module({

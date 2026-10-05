@@ -4,10 +4,10 @@ import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
-import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
-import { env } from "../../config/env.js";
-import { rawDb } from "../../database/dynamodb/client.js";
-import { keys } from "../../database/dynamodb/keys.js";
+import { extractCognitoPrincipal } from "../../../common/auth/cognito-principal.js";
+import { env } from "../../../config/env.js";
+import { rawDb } from "../../../database/dynamodb/client.js";
+import { keys } from "../../../database/dynamodb/keys.js";
 
 const profilePatchSchema = z.object({
   displayName: z.string().trim().min(1).max(80).optional(),

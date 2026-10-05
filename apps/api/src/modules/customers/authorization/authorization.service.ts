@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { CognitoIdentityProviderClient, ListUsersCommand, type AttributeType } from "@aws-sdk/client-cognito-identity-provider";
-import { env } from "../../config/env.js";
-import type { ProductPermission } from "../../common/auth/permissions.js";
+import { env } from "../../../config/env.js";
+import type { ProductPermission } from "../../../common/auth/permissions.js";
 import {
   addUserPermission,
   getUserAccountStatus,

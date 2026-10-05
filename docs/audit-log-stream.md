@@ -11,7 +11,7 @@ See [audit-log-whitelist.md](audit-log-whitelist.md) for current resources, fiel
 - `PK = AUDIT_LOG#<resourceType>#<resourceId>`
 - `SK = EVENT#<occurredAt>#<eventId>`
 - `action`: CREATED, UPDATED or DELETED.
-- `changes`: map of whitelisted fields to before/after strings or null.
+- `changes`: map of changed whitelisted fields or nested JSON Pointer paths to before/after strings or null. Nested entries include a typed `path` (array indexes are numbers). Only changed leaves are persisted; unchanged siblings are omitted. A null side means missing, while the JSON token `"null"` denotes an explicit null value. Nested scalar strings are JSON-encoded and exact numeric tokens are retained.
 - `actor`: type, ID and optional role.
 - `context`: source, reason, request ID and audit writer.
 - `source`: source PK/SK, event ID and DynamoDB sequence number for Stream events.
@@ -23,6 +23,8 @@ Normal changes use source type DYNAMODB_STREAM. Audited deletion outboxes use AP
 The Pipe forwards raw Stream records and retries delivery failures. Its DLQ is `supermarket-audit-log-pipe-dlq`. The worker computes the whitelist diff; unchanged fields and metadata-only writes are ignored. Failed writes retry through SQS and eventually reach `supermarket-audit-log-worker-dlq.fifo`.
 
 The worker writes with `attribute_not_exists(PK) AND attribute_not_exists(SK)`. Replaying the same event cannot create a duplicate retained record. On FIFO batch failure, the worker returns the failed message and later messages for retry to preserve order. Distinct successful source writes are distinct events.
+
+Lists are ordered and compared by index, including additions/removals. Inserting or reordering elements can change subsequent indexes; indexes do not represent stable item identity. Sets remain unordered. The UI groups changed paths under their parent objects and filters unchanged nested fields in legacy whole-object snapshots without rewriting retained history. Deploy the compatible API/worker and frontend together so path metadata is accepted and displayed.
 
 After fixing the underlying issue, replay valid worker-DLQ messages to AuditLogMainQueue through the Admin Ops UI. During migration, the worker also accepts compact legacy AUDIT_LOG queue messages. Source outboxes/operation ledgers expire after 90 days; retained audit records do not expire.
 

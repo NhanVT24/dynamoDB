@@ -46,6 +46,7 @@ export type AuditContext = {
 export type AuditChange = {
   before: string | null;
   after: string | null;
+  path?: Array<string | number>;
 };
 
 export type AuditLogRecord = {
@@ -102,7 +103,8 @@ const contextSchema = z.object({
 
 const changeSchema = z.object({
   before: z.string().nullable(),
-  after: z.string().nullable()
+  after: z.string().nullable(),
+  path: z.array(z.union([z.string(), z.number().int().nonnegative()])).min(2).optional()
 }).strict();
 
 const auditLogSchema = z.object({
@@ -191,14 +193,48 @@ function buildChanges(
   newImage: AttributeImage | undefined,
   fields: readonly string[]
 ): Record<string, AuditChange> {
-  return Object.fromEntries(fields.flatMap((field) => {
+  const changes: Record<string, AuditChange> = {};
+  for (const field of fields) {
     const oldValue = decodeDynamoAttribute(oldImage?.[field]);
     const newValue = decodeDynamoAttribute(newImage?.[field]);
-    if (areAuditValuesEqual(oldValue, newValue)) return [];
-    const before = auditAttributeValue(oldValue);
-    const after = auditAttributeValue(newValue);
-    return [[field, { before, after }]];
-  }));
+    diffAuditValues(oldValue, newValue, [field], changes);
+  }
+  return changes;
+}
+
+function pathKey(path: Array<string | number>): string {
+  return "/" + path.map((part) => String(part).replaceAll("~", "~0").replaceAll("/", "~1")).join("/");
+}
+
+function diffAuditValues(before: AuditValue, after: AuditValue, path: Array<string | number>, changes: Record<string, AuditChange>): void {
+  if (areAuditValuesEqual(before, after)) return;
+  const beforeObject = isPlainObject(before);
+  const afterObject = isPlainObject(after);
+  if ((beforeObject || before === missingAuditValue) && (afterObject || after === missingAuditValue)) {
+    const previous = beforeObject ? before : {};
+    const next = afterObject ? after : {};
+    const keys = new Set([...Object.keys(previous), ...Object.keys(next)]);
+    if (keys.size) {
+      for (const key of keys) diffAuditValues(Object.hasOwn(previous, key) ? previous[key] : missingAuditValue,
+        Object.hasOwn(next, key) ? next[key] : missingAuditValue, [...path, key], changes);
+      return;
+    }
+  }
+  if ((Array.isArray(before) || before === missingAuditValue) && (Array.isArray(after) || after === missingAuditValue)) {
+    const previous = Array.isArray(before) ? before : [];
+    const next = Array.isArray(after) ? after : [];
+    const count = Math.max(previous.length, next.length);
+    if (count) {
+      for (let index = 0; index < count; index++) diffAuditValues(index < previous.length ? previous[index] : missingAuditValue,
+        index < next.length ? next[index] : missingAuditValue, [...path, index], changes);
+      return;
+    }
+  }
+  const nestedValue = (value: AuditValue): string | null => value === missingAuditValue ? null
+    : typeof value === "string" ? JSON.stringify(value)
+    : value instanceof NumberValueImpl ? value.value : auditAttributeValue(value);
+  if (path.length === 1) changes[path[0] as string] = { before: auditAttributeValue(before), after: auditAttributeValue(after) };
+  else changes[pathKey(path)] = { path, before: nestedValue(before), after: nestedValue(after) };
 }
 
 const missingAuditValue = Symbol("missingAuditValue");
@@ -284,7 +320,13 @@ function assertAuditIdentity(audit: AuditLogRecord) {
     || audit.PK !== `AUDIT_LOG#${audit.resourceType}#${audit.resourceId}`
     || audit.SK !== `EVENT#${audit.occurredAt}#${audit.source.eventId}`
     || changeKeys.length === 0
-    || changeKeys.some((field) => !allowedFields.includes(field) || (auditFieldDenylist as readonly string[]).includes(field))
+    || changeKeys.some((field) => {
+      const path = audit.changes[field]?.path;
+      const root = path ? path[0] : field;
+      return typeof root !== "string" || !allowedFields.includes(root)
+        || (auditFieldDenylist as readonly string[]).includes(root)
+        || (path && field !== pathKey(path));
+    })
     || changeKeys.some((field) => audit.changes[field]?.before === audit.changes[field]?.after)
     || (audit.source.type === "DYNAMODB_STREAM" && !audit.source.sequenceNumber)
     || (audit.resourceType === "PAYMENT" && !audit.paymentTxnRef)) {

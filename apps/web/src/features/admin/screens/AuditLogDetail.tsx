@@ -2,9 +2,10 @@
 import { t, translateLabel } from "../../../i18n/language";
 import { useLanguage } from "../../../i18n/LanguageProvider";
 
+import { buildAuditChangeTree, type AuditChangeNode } from "../components/audit-change-tree";
 import { useEffect, useState } from "react";
 import { apiUrl, authenticatedFetch } from "../../auth/lib/cognito-auth";
-import { type AuditLogRecord, type AuditChange, formatTime, describePart, actionTone, resourceTone, fieldLabel, parseAuditValue, displayNestedValue } from "../components/audit-log-display";
+import { type AuditLogRecord, formatTime, describePart, actionTone, resourceTone, fieldLabel, displayNestedValue } from "../components/audit-log-display";
 
 function Metadata({ entries }: { entries: Array<[string, string | undefined]> }) {
   useLanguage();
@@ -20,69 +21,21 @@ type AuditLogDetailProps = {
   onBack: () => void;
 };
 
-function stableString(value: unknown) {
-  if (value && typeof value === "object") {
-    if (Array.isArray(value)) return JSON.stringify(value.map(stableString));
-    return JSON.stringify(Object.keys(value as Record<string, unknown>).sort().map((key) => [key, stableString((value as Record<string, unknown>)[key])]));
-  }
-  return JSON.stringify(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function arrayObjectFieldLabel(key: string, index: number, total: number) {
-  return total <= 1 ? translateLabel(key) : t("Address {value1} {value2}", { value1: index + 1, value2: translateLabel(key) });
-}
-
-function ChangedValues({ change }: { change: AuditChange }) {
-  useLanguage();
-  const before = parseAuditValue(change.before);
-  const after = parseAuditValue(change.after);
-
-  if (before.kind === "array" || after.kind === "array") {
-    const beforeItems = before.kind === "array" ? before.value : [];
-    const afterItems = after.kind === "array" ? after.value : [];
-    const arrayHasObjects = beforeItems.some(isRecord) || afterItems.some(isRecord);
-    if (arrayHasObjects) {
-      const count = Math.max(beforeItems.length, afterItems.length);
-      const rows = Array.from({ length: count }).flatMap((_, index) => {
-        const previous = beforeItems[index];
-        const next = afterItems[index];
-        if (!(stableString(before) !== stableString(after))) return [];
-        if (isRecord(previous) || isRecord(next)) {
-          const previousRecord = isRecord(previous) ? previous : {};
-          const nextRecord = isRecord(next) ? next : {};
-          const keys = [...new Set([...Object.keys(previousRecord), ...Object.keys(nextRecord)])];
-          return keys.flatMap((key) => (stableString(before) !== stableString(after))
-            ? [{ label: arrayObjectFieldLabel(key, index, count), before: previousRecord[key], after: nextRecord[key] }]
-            : []);
-        }
-        return [{ label: String(index + 1), before: previous, after: next }];
-      });
-      return <ChangedRows rows={rows} />;
+function ChangeTree({ nodes, root = false, parentPart }: { nodes: AuditChangeNode[]; root?: boolean; parentPart?: string | number }) {
+  return <div className="space-y-3">{nodes.map((node) => {
+    if (parentPart === "addresses" && nodes.length === 1 && node.part === 0 && !node.values) {
+      return <ChangeTree key="address-0" nodes={node.children} />;
     }
-
-    const previous = beforeItems.map(String);
-    const next = afterItems.map(String);
-    const added = next.filter((item) => !previous.includes(item));
-    const removed = previous.filter((item) => !next.includes(item));
-    return <ChangedRows rows={[
-      ...added.map((item) => ({ label: item, before: undefined, after: item })),
-      ...removed.map((item) => ({ label: item, before: item, after: undefined }))
-    ]} />;
-  }
-
-  if (before.kind === "object" || after.kind === "object") {
-    const previous = before.kind === "object" ? before.value : {};
-    const next = after.kind === "object" ? after.value : {};
-    const rows = [...new Set([...Object.keys(previous), ...Object.keys(next)])]
-      .flatMap((key) => (stableString(before) !== stableString(after)) ? [{ label: key, before: previous[key], after: next[key] }] : []);
-    return <ChangedRows rows={rows} />;
-  }
-
-  return <ChangedRows rows={[{ label: "Value", before: change.before, after: change.after }]} />;
+    const label = typeof node.part === "number"
+      ? parentPart === "addresses" ? t("Address {value1}", { value1: node.part + 1 }) : `[${node.part}]`
+      : root ? fieldLabel(node.part) : node.part;
+    return <section key={`${typeof node.part}:${node.part}`} className={root ? "min-w-0 rounded-lg border border-slate-200 p-4" : "min-w-0"}>
+      {node.values ? <ChangedRows rows={[{ label, ...node.values }]} /> : <>
+        <p className="mb-2 break-all text-sm font-bold text-slate-950">{translateLabel(label)}</p>
+        <div className="ml-2 border-l-2 border-slate-200 pl-3"><ChangeTree nodes={node.children} parentPart={node.part} /></div>
+      </>}
+    </section>;
+  })}</div>;
 }
 
 function ChangedRows({ rows }: { rows: Array<{ label: string; before: unknown; after: unknown }> }) {
@@ -97,8 +50,8 @@ function ChangedRows({ rows }: { rows: Array<{ label: string; before: unknown; a
     <div className="divide-y divide-slate-100">{rows.map((row) => (
       <div key={`${row.label}:${displayNestedValue(row.before)}:${displayNestedValue(row.after)}`} className="grid gap-2 bg-white px-3 py-3 text-sm md:grid-cols-[12rem_1fr_1fr] md:gap-3">
         <strong className="break-all text-slate-900">{translateLabel(row.label)}</strong>
-        <span className="break-all rounded-md bg-emerald-50 px-3 py-2 text-emerald-800">{displayNestedValue(row.after)}</span>
-        <span className="break-all rounded-md bg-rose-50 px-3 py-2 text-rose-800">{displayNestedValue(row.before)}</span>
+        <span className="break-all rounded-md bg-emerald-50 px-3 py-2 text-emerald-800"><span className="mb-1 block text-xs font-bold md:hidden">{t("New")}</span>{displayNestedValue(row.after)}</span>
+        <span className="break-all rounded-md bg-rose-50 px-3 py-2 text-rose-800"><span className="mb-1 block text-xs font-bold md:hidden">{t("Old")}</span>{displayNestedValue(row.before)}</span>
       </div>
     ))}</div>
   </div>;
@@ -164,10 +117,7 @@ export default function AuditLogDetail({ authToken, pk, sk, initialRecord, onBac
       <section className="rounded-xl border border-slate-200 bg-white p-5">
         <h2 className="mb-4 text-xl font-bold">{t("Changes")}</h2>
         <p className="mb-4 text-sm text-slate-500">{t("Historical values of tracked fields for this event.")}</p>
-        <div className="space-y-4">{Object.entries(record.changes ?? {}).map(([field, change]) => <div key={field} className="rounded-lg border border-slate-200 p-4">
-          <h3 className="mb-3 text-base font-bold text-slate-950">{translateLabel(fieldLabel(field))}</h3>
-          <ChangedValues change={change} />
-        </div>)}</div>
+        <ChangeTree nodes={buildAuditChangeTree(record.changes ?? {})} root />
         {!Object.keys(record.changes ?? {}).length ? <p className="text-sm text-slate-500">{t("No tracked field changes recorded.")}</p> : null}
       </section>
       <section className="rounded-xl border border-slate-200 bg-white p-5">
