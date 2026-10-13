@@ -252,6 +252,15 @@ export class AwsApiStack extends Stack {
       ]
     });
     auditLogTable.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    const idempotencyTable = new dynamodb.Table(this, "WorkerIdempotencyTable", {
+      tableName: "supermarket-worker-idempotency",
+      partitionKey: { name: "PK", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "SK", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: "expiresAt",
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      removalPolicy: RemovalPolicy.RETAIN
+    });
 
     const productImagesBucket = createProductImagesBucket(this);
     const {
@@ -903,6 +912,16 @@ export class AwsApiStack extends Stack {
       "EMAIL_WORKER_TEST_MODE",
       emailWorkerTestMode.valueAsString
     );
+    emailWorkerFunction.addEnvironment("DYNAMODB_IDEMPOTENCY_TABLE_NAME", idempotencyTable.tableName);
+    idempotencyTable.grantReadWriteData(emailWorkerFunction);
+    for (const workerFunction of [
+      orderWorkerFunction,
+      notificationWorkerFunction,
+      paymentWorkerFunction
+    ]) {
+      workerFunction.addEnvironment("DYNAMODB_IDEMPOTENCY_TABLE_NAME", idempotencyTable.tableName);
+      idempotencyTable.grantReadWriteData(workerFunction);
+    }
     const emailRouteTrackerFunction = createApplicationLambda(
       "SupermarketEmailRouteTrackerFunction",
       "supermarket-email-route-tracker-aws",
@@ -1027,6 +1046,8 @@ export class AwsApiStack extends Stack {
       20,
       256
     );
+    imageUploadWorkerFunction.addEnvironment("DYNAMODB_IDEMPOTENCY_TABLE_NAME", idempotencyTable.tableName);
+    idempotencyTable.grantReadWriteData(imageUploadWorkerFunction);
     const auditEventWorkerFunction = createApplicationLambda(
       "SupermarketAuditEventWorkerFunction",
       "supermarket-audit-event-worker-aws",

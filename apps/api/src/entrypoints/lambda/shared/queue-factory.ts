@@ -8,6 +8,7 @@ import { createStandaloneContext } from "../../../core/app/create-standalone-con
 import { NotificationsService } from "../../../modules/notifications/notifications.service.js";
 import { StorefrontService } from "../../../modules/storefront/storefront.service.js";
 import { UploadsService } from "../../../modules/uploads/uploads.service.js";
+import { runIdempotent } from "./sqs-idempotency.js";
 
 type QueueHandlerConfig = {
   lambdaName: string;
@@ -22,6 +23,12 @@ type SqsRecord = {
   eventSourceARN?: string;
 };
 
+type QueueProcessResult = {
+  processed?: number;
+  failedMessageIds?: string[];
+  items?: unknown[];
+};
+
 function normalizeSqsRecords(event: any): SqsRecord[] {
   const candidates = Array.isArray(event)
     ? event
@@ -30,6 +37,18 @@ function normalizeSqsRecords(event: any): SqsRecord[] {
       : [];
 
   return candidates.filter((record: any) => record?.eventSource === "aws:sqs");
+}
+
+function idempotencyKey(record: SqsRecord) {
+  try {
+    const envelope = JSON.parse(String(record.body ?? "")) as { id?: unknown };
+    const eventId = typeof envelope.id === "string" ? envelope.id.trim() : "";
+    if (eventId) return `eventbridge:${eventId}`;
+  } catch {
+    // The service validates malformed payloads and decides whether to retry it.
+  }
+  const messageId = String(record.messageId ?? "").trim();
+  return messageId ? `sqs:${messageId}` : undefined;
 }
 
 export function createQueueHandler(config: QueueHandlerConfig) {
@@ -77,23 +96,59 @@ export function createQueueHandler(config: QueueHandlerConfig) {
     const appContext = await appContextPromise;
 
     try {
-      const result = config.worker === "storefront"
-          ? await appContext.get(StorefrontService).processQueueRecords(records, {
+      const processRecord = async (record: SqsRecord): Promise<QueueProcessResult> => {
+        const process = () => config.worker === "storefront"
+          ? appContext.get(StorefrontService).processQueueRecords([record], {
             queueName: config.queueName,
             workerName: config.lambdaName
           })
-        : config.worker === "uploads"
-            ? await appContext.get(UploadsService).processQueueRecords(records, {
+          : config.worker === "uploads"
+            ? appContext.get(UploadsService).processQueueRecords([record], {
               queueName: config.queueName,
               workerName: config.lambdaName
             })
-            : await appContext.get(NotificationsService).processQueueRecords(records, {
+            : appContext.get(NotificationsService).processQueueRecords([record], {
               queueName: config.queueName,
               workerName: config.lambdaName
             });
-      const batchItemFailures = Array.isArray(result?.failedMessageIds)
-        ? result.failedMessageIds.map((messageId: string) => ({ itemIdentifier: messageId }))
-        : [];
+
+        const key = idempotencyKey(record);
+        if (!key) return process();
+
+        let result: QueueProcessResult | undefined;
+        const outcome = await runIdempotent({
+          worker: config.lambdaName,
+          id: key,
+          execute: async () => {
+            result = await process();
+            if (result.failedMessageIds?.length) {
+              throw new Error(`Worker ${config.lambdaName} reported a failed queue record.`);
+            }
+            return "completed";
+          }
+        });
+        if (outcome === "busy") {
+          throw new Error(`Queue record ${key} is already being processed by ${config.lambdaName}.`);
+        }
+        if (outcome === "duplicate" || outcome === "unknown") {
+          logQueueSummary(logger, {
+            queue: config.queueName,
+            worker: config.lambdaName,
+            status: "processed",
+            itemIds: [key],
+            details: { idempotency: outcome }
+          });
+          return { processed: 1, items: [{ idempotencyKey: key, idempotency: outcome }] };
+        }
+        return result ?? { processed: 1 };
+      };
+
+      const settled = await Promise.allSettled(records.map(processRecord));
+      const batchItemFailures = settled.flatMap((item, index) => item.status === "rejected" && records[index]?.messageId
+        ? [{ itemIdentifier: records[index].messageId! }]
+        : []);
+      const processedItems = settled.flatMap((item) => item.status === "fulfilled" ? item.value.items ?? [] : []);
+      const processed = settled.reduce((total, item) => total + (item.status === "fulfilled" ? item.value.processed ?? 0 : 0), 0);
 
       logQueueSummary(logger, {
         queue: config.queueName,
@@ -101,11 +156,14 @@ export function createQueueHandler(config: QueueHandlerConfig) {
         status: "processed",
         requestId: correlationId,
         recordCount: records.length,
-        processed: result?.processed ?? 0,
+        processed,
         failed: batchItemFailures.length,
-        itemIds: (result?.items ?? [])
-          .flatMap((item: any) => [item?.txnRef, item?.orderId, item?.notificationId, item?.productId, item?.requestId])
-          .filter(Boolean)
+        itemIds: processedItems
+          .flatMap((item) => {
+            const value = item as Record<string, unknown>;
+            return [value.txnRef, value.orderId, value.notificationId, value.productId, value.requestId];
+          })
+          .filter((value): value is string => typeof value === "string" && value.length > 0)
           .slice(0, 5)
       });
 

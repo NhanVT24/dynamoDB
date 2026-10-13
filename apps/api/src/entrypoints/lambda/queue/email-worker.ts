@@ -3,6 +3,7 @@ import { z } from "zod";
 import { sendBulkSaleEmailBatch } from "../../../integrations/ses/bulk-mailer.js";
 import { sendWelcomeEmail } from "../../../integrations/ses/welcome-mailer.js";
 import { markEmailRouteProcessing } from "../../../modules/email-deliveries/email-route.repository.js";
+import { runIdempotent } from "../shared/sqs-idempotency.js";
 
 const saleCampaignEmailJobSchema = z.object({
   type: z.literal("email.sale_campaign.requested"),
@@ -93,6 +94,11 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
       const testOnly = getTestOnlyDirective(record);
       const currentReceiveCount = receiveCount(record);
 
+      const idempotency = await runIdempotent({
+        worker: "email-worker",
+        id: job.emailJobId,
+        execute: async () => {
+
       if (job.type === "email.account_welcome.requested") {
         console.log(JSON.stringify({
           flow: "account_welcome_email",
@@ -121,7 +127,7 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
           emailJobId: result.emailId,
           status: result.status
         }));
-        continue;
+        return "completed";
       }
 
       const routeAdvanced = await markEmailRouteProcessing(job.emailJobId);
@@ -152,7 +158,7 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
           receiveCount: currentReceiveCount,
           sqsMessageId: record.messageId ?? ""
         }));
-        continue;
+        return "completed";
       }
 
       const result = await sendBulkSaleEmailBatch({
@@ -185,6 +191,15 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
         status: result.status,
         failureReason: result.failureReason ?? ""
       }));
+      return result.status === "unknown" ? "unknown" : "completed";
+        }
+      });
+      if (idempotency === "busy") {
+        throw new Error(`Email job ${job.emailJobId} is already being processed.`);
+      }
+      if (idempotency === "duplicate" || idempotency === "unknown") {
+        console.log(JSON.stringify({ flow: "email_campaign", stage: `email_worker_${idempotency}`, emailJobId: job.emailJobId }));
+      }
     } catch (error) {
       console.error(JSON.stringify({
         flow: "email_campaign",
