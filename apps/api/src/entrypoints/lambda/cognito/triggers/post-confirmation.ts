@@ -130,11 +130,10 @@ export async function TriggerPostConfirmation(dynamo: DynamoDBClient, event: Cog
     await dynamo.send(new UpdateItemCommand({
       TableName: process.env.DYNAMODB_TABLE_NAME,
       Key: { PK: { S: `USER#${subject}` }, SK: { S: "PROFILE" } },
-      UpdateExpression: "SET #entityType = if_not_exists(#entityType, :entityType), #subject = if_not_exists(#subject, :actor), passwordResetAt = :now, auditActorType = :type, auditActorId = :actor, auditActorRole = :role, auditSource = :source, auditReason = :reason",
+      UpdateExpression: "SET #entityType = if_not_exists(#entityType, :entityType), #subject = if_not_exists(#subject, :subject), passwordResetAt = :now",
       ExpressionAttributeNames: { "#entityType": "entityType", "#subject": "subject" },
       ExpressionAttributeValues: {
-        ":now": { S: new Date().toISOString() }, ":entityType": { S: "USER_PROFILE" }, ":type": { S: "USER" }, ":actor": { S: subject },
-        ":role": { S: "ACCOUNT_OWNER" }, ":source": { S: "COGNITO_POST_CONFIRMATION" }, ":reason": { S: "password_reset_completed" }
+        ":now": { S: new Date().toISOString() }, ":entityType": { S: "USER_PROFILE" }, ":subject": { S: subject }
       }
     }));
     return event;

@@ -34,7 +34,7 @@ Run from the repository root:
 
 ~~~powershell
 npm run typecheck --workspace apps/api
-npx tsx apps/api/tests/audit-log.test.ts
+npm run test:audit -w @supermarket/api
 npm run typecheck --workspace apps/web
 npx tsc --noEmit -p infra/tsconfig.json
 npm run cdk:aws:synth

@@ -7,7 +7,7 @@ import { marshall } from "@aws-sdk/util-dynamodb";
 import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
 import { rawDb } from "../../database/dynamodb/client.js";
 import { env } from "../../config/env.js";
-import { auditContext, principalAuditContext } from "./audit-context.js";
+import { auditContext, principalAuditContext, serviceAuditContext } from "./audit-context.js";
 
 @Injectable()
 export class AuditMutationInterceptor implements NestInterceptor {
@@ -15,12 +15,18 @@ export class AuditMutationInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) return next.handle();
     const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal) return next.handle();
     // Generate the ID server-side; correlation headers are supplied by clients.
     const requestId = crypto.randomUUID();
     const route = request.routeOptions.url ?? request.url.split("?")[0]!;
     const needsOperation = route.startsWith("/api/admin/ops") || route.startsWith("/api/uploads") || route.startsWith("/api/admin/email-deliveries");
-    const metadata = principalAuditContext(principal, requestId, `${request.method} ${route}`);
+    const metadata = principal
+      ? principalAuditContext(principal, requestId, `${request.method} ${route}`)
+      : serviceAuditContext({
+        actorId: "service:http-api",
+        source: `${request.method} ${route}`,
+        reason: "unauthenticated_mutation",
+        requestId
+      });
     return new Observable((subscriber) => {
       let subscription: { unsubscribe(): void } | undefined;
       void auditContext.run(metadata, async () => {

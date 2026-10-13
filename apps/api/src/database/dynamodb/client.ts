@@ -1,5 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { stampAuditWrite } from "../../modules/audit-log/audit-write.js";
+import { attachAuditWriteMiddleware } from "../../modules/audit-log/audit-write.js";
 import { env } from "../../config/env.js";
 
 const client = new DynamoDBClient({
@@ -10,9 +10,6 @@ const client = new DynamoDBClient({
     : undefined
 });
 
-client.middlewareStack.add((next, context) => async (args) => {
-  stampAuditWrite(context.commandName, args.input, env.DYNAMODB_TABLE_NAME);
-  return next(args);
-}, { step: "initialize", name: "auditWriteMetadata" });
+attachAuditWriteMiddleware(client, () => env.DYNAMODB_TABLE_NAME);
 
 export { client as rawDb };

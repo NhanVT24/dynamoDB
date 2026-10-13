@@ -80,12 +80,11 @@ export class ProfileController {
       }
     }
 
-    const names: Record<string, string> = { "#updatedAt": "updatedAt", "#actor": "auditActorId", "#actorType": "auditActorType", "#source": "auditSource" };
+    const names: Record<string, string> = { "#updatedAt": "updatedAt" };
     const values: Record<string, unknown> = {
-      ":updatedAt": new Date().toISOString(), ":actor": principal.subject,
-      ":actorType": principal.role === "admin" ? "ADMIN" : "USER", ":source": "PROFILE_API"
+      ":updatedAt": new Date().toISOString()
     };
-    const changes = ["#updatedAt = :updatedAt", "#actor = :actor", "#actorType = :actorType", "#source = :source"];
+    const changes = ["#updatedAt = :updatedAt"];
     if (displayName !== undefined) {
       names["#displayName"] = "displayName";
       values[":displayName"] = displayName;

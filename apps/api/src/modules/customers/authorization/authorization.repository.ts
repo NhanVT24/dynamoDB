@@ -74,32 +74,21 @@ export async function updateUserAccountStatus(subject: string, status: UserAccou
   await rawDb.send(new UpdateItemCommand({
     TableName,
     Key: marshall(keys.userProfile(subject)),
-    UpdateExpression: "SET #entityType = if_not_exists(#entityType, :entityType), #subject = if_not_exists(#subject, :subject), #status = :status, #updatedAt = :updatedAt, #statusUpdatedAt = :updatedAt, #statusUpdatedBy = :updatedBy, #auditActorId = :updatedBy, #auditActorType = :auditActorType, #auditActorRole = :auditActorRole, #auditSource = :auditSource, #auditReason = :auditReason, #auditRequestId = :auditRequestId",
+    UpdateExpression: "SET #entityType = if_not_exists(#entityType, :entityType), #subject = if_not_exists(#subject, :subject), #status = :status, #updatedAt = :updatedAt, #statusUpdatedAt = :updatedAt, #statusUpdatedBy = :updatedBy",
     ExpressionAttributeNames: {
       "#entityType": "entityType",
       "#subject": "subject",
       "#status": "status",
       "#updatedAt": "updatedAt",
       "#statusUpdatedAt": "statusUpdatedAt",
-      "#statusUpdatedBy": "statusUpdatedBy",
-      "#auditActorId": "auditActorId",
-      "#auditActorType": "auditActorType",
-      "#auditActorRole": "auditActorRole",
-      "#auditSource": "auditSource",
-      "#auditReason": "auditReason",
-      "#auditRequestId": "auditRequestId"
+      "#statusUpdatedBy": "statusUpdatedBy"
     },
     ExpressionAttributeValues: marshall({
       ":entityType": "USER_PROFILE",
       ":subject": subject,
       ":status": status,
       ":updatedAt": now,
-      ":updatedBy": updatedBy,
-      ":auditActorType": "ADMIN",
-      ":auditActorRole": "admin",
-      ":auditSource": "ADMIN_AUTHORIZATION_API",
-      ":auditReason": "account_status_updated",
-      ":auditRequestId": `${subject}:status:${now}`
+      ":updatedBy": updatedBy
     })
   }));
 
@@ -111,31 +100,20 @@ export async function updateUserAddresses(subject: string, addresses: UserAddres
   await rawDb.send(new UpdateItemCommand({
     TableName,
     Key: marshall(keys.userProfile(subject)),
-    UpdateExpression: "SET #entityType = if_not_exists(#entityType, :entityType), #subject = if_not_exists(#subject, :subject), #addresses = :addresses, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #auditActorId = :updatedBy, #auditActorType = :auditActorType, #auditActorRole = :auditActorRole, #auditSource = :auditSource, #auditReason = :auditReason, #auditRequestId = :auditRequestId",
+    UpdateExpression: "SET #entityType = if_not_exists(#entityType, :entityType), #subject = if_not_exists(#subject, :subject), #addresses = :addresses, #updatedAt = :updatedAt, #updatedBy = :updatedBy",
     ExpressionAttributeNames: {
       "#entityType": "entityType",
       "#subject": "subject",
       "#addresses": "addresses",
       "#updatedAt": "updatedAt",
-      "#updatedBy": "updatedBy",
-      "#auditActorId": "auditActorId",
-      "#auditActorType": "auditActorType",
-      "#auditActorRole": "auditActorRole",
-      "#auditSource": "auditSource",
-      "#auditReason": "auditReason",
-      "#auditRequestId": "auditRequestId"
+      "#updatedBy": "updatedBy"
     },
     ExpressionAttributeValues: marshall({
       ":entityType": "USER_PROFILE",
       ":subject": subject,
       ":addresses": addresses,
       ":updatedAt": now,
-      ":updatedBy": updatedBy,
-      ":auditActorType": "ADMIN",
-      ":auditActorRole": "admin",
-      ":auditSource": "ADMIN_PROFILE_API",
-      ":auditReason": "addresses_updated",
-      ":auditRequestId": `${subject}:addresses:${now}`
+      ":updatedBy": updatedBy
     })
   }));
 
@@ -148,31 +126,20 @@ export async function addUserPermission(subject: string, permission: ProductPerm
   await rawDb.send(new UpdateItemCommand({
     TableName,
     Key: marshall(key),
-    UpdateExpression: "SET #entityType = :entityType, #subject = :subject, #updatedAt = :updatedAt, #updatedBy = :updatedBy, #auditActorId = :updatedBy, #auditActorType = :auditActorType, #auditActorRole = :auditActorRole, #auditSource = :auditSource, #auditReason = :auditReason, #auditRequestId = :auditRequestId ADD #permissions :permission",
+    UpdateExpression: "SET #entityType = :entityType, #subject = :subject, #updatedAt = :updatedAt, #updatedBy = :updatedBy ADD #permissions :permission",
     ExpressionAttributeNames: {
       "#entityType": "entityType",
       "#subject": "subject",
       "#updatedAt": "updatedAt",
       "#updatedBy": "updatedBy",
-      "#permissions": "permissions",
-      "#auditActorId": "auditActorId",
-      "#auditActorType": "auditActorType",
-      "#auditActorRole": "auditActorRole",
-      "#auditSource": "auditSource",
-      "#auditReason": "auditReason",
-      "#auditRequestId": "auditRequestId"
+      "#permissions": "permissions"
     },
     ExpressionAttributeValues: marshall({
       ":entityType": "USER_AUTHORIZATION",
       ":subject": subject,
       ":updatedAt": now,
       ":updatedBy": updatedBy,
-      ":permission": new Set([permission]),
-      ":auditActorType": "ADMIN",
-      ":auditActorRole": "admin",
-      ":auditSource": "ADMIN_AUTHORIZATION_API",
-      ":auditReason": "permission_granted",
-      ":auditRequestId": `${subject}:${permission}:${now}`
+      ":permission": new Set([permission])
     }),
     ReturnValues: "ALL_NEW"
   }));
@@ -186,28 +153,17 @@ export async function removeUserPermission(subject: string, permission: ProductP
   await rawDb.send(new UpdateItemCommand({
     TableName,
     Key: marshall(key),
-    UpdateExpression: "SET #updatedAt = :updatedAt, #updatedBy = :updatedBy, #auditActorId = :updatedBy, #auditActorType = :auditActorType, #auditActorRole = :auditActorRole, #auditSource = :auditSource, #auditReason = :auditReason, #auditRequestId = :auditRequestId DELETE #permissions :permission",
+    UpdateExpression: "SET #updatedAt = :updatedAt, #updatedBy = :updatedBy DELETE #permissions :permission",
     ConditionExpression: "attribute_exists(PK)",
     ExpressionAttributeNames: {
       "#updatedAt": "updatedAt",
       "#updatedBy": "updatedBy",
-      "#permissions": "permissions",
-      "#auditActorId": "auditActorId",
-      "#auditActorType": "auditActorType",
-      "#auditActorRole": "auditActorRole",
-      "#auditSource": "auditSource",
-      "#auditReason": "auditReason",
-      "#auditRequestId": "auditRequestId"
+      "#permissions": "permissions"
     },
     ExpressionAttributeValues: marshall({
       ":updatedAt": now,
       ":updatedBy": updatedBy,
-      ":permission": new Set([permission]),
-      ":auditActorType": "ADMIN",
-      ":auditActorRole": "admin",
-      ":auditSource": "ADMIN_AUTHORIZATION_API",
-      ":auditReason": "permission_revoked",
-      ":auditRequestId": `${subject}:${permission}:${now}`
+      ":permission": new Set([permission])
     })
   })).catch((error: { name?: string }) => {
     if (error.name !== "ConditionalCheckFailedException") throw error;

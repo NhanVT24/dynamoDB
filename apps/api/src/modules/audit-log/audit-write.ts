@@ -1,4 +1,4 @@
-import type { PutItemCommandInput, UpdateItemCommandInput, TransactWriteItemsCommandInput } from "@aws-sdk/client-dynamodb";
+import type { DynamoDBClient, PutItemCommandInput, UpdateItemCommandInput, TransactWriteItemsCommandInput } from "@aws-sdk/client-dynamodb";
 import { marshall } from "@aws-sdk/util-dynamodb";
 import { auditTarget } from "./audit-resources.js";
 import { auditContext, currentAuditContext } from "./audit-context.js";
@@ -9,9 +9,9 @@ export function stampAuditWrite(commandName: string, input: unknown, tableName: 
   function put(write: PutItemCommandInput) {
     if (write.TableName !== tableName || !auditTarget(write.Item?.PK?.S ?? "", write.Item?.SK?.S ?? "")) return;
     const metadata = marshall(currentAuditContext());
-    // Authenticated requests win over legacy service metadata. Background jobs
-    // retain their explicit source/reason where provided by the repository.
-    write.Item = auditContext.getStore() ? { ...write.Item, ...metadata } : { ...metadata, ...write.Item };
+    // The execution context is authoritative. Never retain actor fields that
+    // arrived from a DTO or were manually supplied by a repository.
+    write.Item = { ...write.Item, ...metadata };
   }
   function update(write: UpdateItemCommandInput) {
     if (write.TableName !== tableName || !auditTarget(write.Key?.PK?.S ?? "", write.Key?.SK?.S ?? "")) return;
@@ -24,7 +24,7 @@ export function stampAuditWrite(commandName: string, input: unknown, tableName: 
       const escapedToken = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const existing = write.UpdateExpression?.match(new RegExp(`(?:^|[\\s,])${escapedToken}\\s*=\\s*(:[A-Za-z0-9_]+)`));
       if (existing) {
-        if (auditContext.getStore()) values[existing[1]!] = { S: value };
+        values[existing[1]!] = { S: value };
         continue;
       }
       const alias = `#_audit_${field}`;
@@ -47,4 +47,15 @@ export function stampAuditWrite(commandName: string, input: unknown, tableName: 
       if (item.Update) update(item.Update);
     }
   }
+}
+
+// Keep every runtime DynamoDB client on the same write contract. The audit
+// worker intentionally does not install this middleware because it writes the
+// separate audit table, not business resources.
+export function attachAuditWriteMiddleware(client: DynamoDBClient, resolveTableName: () => string | undefined): void {
+  client.middlewareStack.add((next, context) => async (args) => {
+    const tableName = resolveTableName();
+    if (tableName) stampAuditWrite(context.commandName, args.input, tableName);
+    return next(args);
+  }, { step: "initialize", name: "auditWriteMetadata" });
 }
