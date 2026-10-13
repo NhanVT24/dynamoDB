@@ -9,8 +9,9 @@ import {
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { sqsClient } from "../../integrations/sqs/client.js";
-import { sendOrderConfirmationEmail, sendOrderFailureEmail, sendRefundStatusEmail, type RefundEmailStatus } from "../../integrations/ses/order-mailer.js";
+import { sendOrderFailureEmail, sendRefundStatusEmail, type RefundEmailStatus } from "../../integrations/ses/order-mailer.js";
 import { ordersSenderEmail } from "../../integrations/ses/sender-config.js";
+import { queueOrderConfirmationEmail } from "../email-deliveries/order-confirmation-email-route.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import { resolveSalePrice } from "../sales/sale-pricing.js";
 import { listActiveSaleCampaigns } from "../sales/sales.repository.js";
@@ -561,16 +562,20 @@ export class StorefrontService {
         }
       });
 
-      await this.notificationsService.createPendingNotification({
-        email,
-        channel: "email",
-        title: "Email confirmation is pending",
-        message: `The system has queued the confirmation email for order ${order.id}. The order will be marked as done once the email is sent.`,
-        metadata: {
-          orderId: order.id,
-          template: "order-confirmation"
-        }
+      const emailRoute = await queueOrderConfirmationEmail({
+        toEmail: email,
+        orderId: order.id,
+        totalAmount: order.totalAmount,
+        createdAt: order.createdAt,
+        items: order.items.map((item) => ({
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.price,
+          originalUnitPrice: item.originalUnitPrice,
+          lineTotal: item.lineTotal
+        }))
       });
+      this.logger.log(`[email-route] order_confirmation_${emailRoute.status} orderId=${order.id} emailJobId=${emailRoute.emailJobId}`);
 
       await this.notificationsService.publishAuditLog({
         eventType: "storefront.order.created",
@@ -583,29 +588,6 @@ export class StorefrontService {
           requestId: requestId ?? ""
         }
       });
-
-      if (ordersSenderEmail()) {
-        try {
-          await sendOrderConfirmationEmail({
-            toEmail: email,
-            orderId: order.id,
-            totalAmount: order.totalAmount,
-            createdAt: order.createdAt,
-            items: order.items.map((item) => ({
-              productName: item.productName,
-              quantity: item.quantity,
-              unitPrice: item.price,
-              originalUnitPrice: item.originalUnitPrice,
-              lineTotal: item.lineTotal
-            }))
-          });
-          this.logger.log(`[mail-ses] order_success_sent orderId=${order.id} requestId=${requestId ?? ""} to=${email}`);
-        } catch (error) {
-          this.logger.warn(`[mail-ses] order_success_failed orderId=${order.id} requestId=${requestId ?? ""} to=${email} error=${error instanceof Error ? error.message : "unknown"}`);
-        }
-      } else {
-        this.logger.warn(`[mail-ses] order_success_skipped orderId=${order.id} requestId=${requestId ?? ""} reason=ses_not_configured`);
-      }
 
       await this.publishCommerceLifecycleEvent({
         detailType: "storefront.order.succeeded",

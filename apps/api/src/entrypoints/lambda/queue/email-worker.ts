@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { z } from "zod";
 import { sendBulkSaleEmailBatch } from "../../../integrations/ses/bulk-mailer.js";
+import { sendOrderConfirmationEmail } from "../../../integrations/ses/order-mailer.js";
 import { sendWelcomeEmail } from "../../../integrations/ses/welcome-mailer.js";
 import { markEmailRouteProcessing } from "../../../modules/email-deliveries/email-route.repository.js";
 import { runIdempotent } from "../shared/sqs-idempotency.js";
@@ -26,9 +27,30 @@ const welcomeEmailJobSchema = z.object({
   displayName: z.string().optional()
 });
 
+const orderConfirmationEmailJobSchema = z.object({
+  type: z.literal("email.order_confirmation.requested"),
+  campaignId: z.string().min(1),
+  emailJobId: z.string().length(64),
+  batchIndex: z.literal(0),
+  batchCount: z.literal(1),
+  toEmail: z.string().email(),
+  orderId: z.string().min(1),
+  totalAmount: z.number().nonnegative(),
+  createdAt: z.string().datetime(),
+  paymentConfirmedAt: z.string().datetime().optional(),
+  items: z.array(z.object({
+    productName: z.string().min(1),
+    quantity: z.number().int().positive(),
+    unitPrice: z.number().nonnegative(),
+    originalUnitPrice: z.number().nonnegative().optional(),
+    lineTotal: z.number().nonnegative()
+  })).min(1)
+});
+
 const emailJobSchema = z.discriminatedUnion("type", [
   saleCampaignEmailJobSchema,
-  welcomeEmailJobSchema
+  welcomeEmailJobSchema,
+  orderConfirmationEmailJobSchema
 ]);
 
 type SqsRecord = {
@@ -126,6 +148,27 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
                 : "ses_rejected",
           emailJobId: result.emailId,
           status: result.status
+        }));
+        return "completed";
+      }
+
+      if (job.type === "email.order_confirmation.requested") {
+        const routeAdvanced = await markEmailRouteProcessing(job.emailJobId);
+        const result = await sendOrderConfirmationEmail({
+          toEmail: job.toEmail,
+          orderId: job.orderId,
+          totalAmount: job.totalAmount,
+          createdAt: job.createdAt,
+          paymentConfirmedAt: job.paymentConfirmedAt,
+          items: job.items
+        });
+        console.log(JSON.stringify({
+          flow: "order_confirmation_email",
+          stage: "ses_accepted",
+          emailJobId: job.emailJobId,
+          orderId: job.orderId,
+          emailId: result.emailId,
+          routeTracked: routeAdvanced
         }));
         return "completed";
       }

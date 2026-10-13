@@ -11,7 +11,7 @@ const eventSchema = z.union([
   z.object({
     id: z.string().optional(),
     source: z.literal("supermarket.email"),
-    "detail-type": z.literal("email.sale_campaign.requested"),
+    "detail-type": z.enum(["email.sale_campaign.requested", "email.order_confirmation.requested"]),
     detail: routeDetailSchema
   }),
   // Isolated infrastructure test event. No production email Rule matches this

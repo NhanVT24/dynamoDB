@@ -11,8 +11,6 @@ import {
   Stack,
   StackProps
 } from "aws-cdk-lib";
-import * as acm from "aws-cdk-lib/aws-certificatemanager";
-import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cloudwatchActions from "aws-cdk-lib/aws-cloudwatch-actions";
@@ -39,8 +37,9 @@ import { Construct } from "constructs";
 import { createProductImagesDistribution } from "../module/cloudfront";
 import { createMarketplaceTable } from "../module/dynamodb";
 import { createQueues, createSesFeedbackDlq } from "../module/sqs";
-import { createApiAliases, createProductImagesAliases } from "../module/route53";
+import { createProductImagesAliases } from "../module/route53";
 import { createProductImagesBucket } from "../module/s3";
+import { createHttpApi } from "./http-api";
 
 export interface AwsApiStackProps extends StackProps {
   // API Gateway REGIONAL custom domain: api.truyenmasinhvien.com.
@@ -1572,7 +1571,7 @@ export class AwsApiStack extends Stack {
       ruleName: "supermarket-platform-sale-campaign-email-rule",
       eventPattern: {
         source: ["supermarket.email"],
-        detailType: ["email.sale_campaign.requested"]
+        detailType: ["email.sale_campaign.requested", "email.order_confirmation.requested"]
       },
       targets: [
         new eventsTargets.SqsQueue(emailJobsQueue, {
@@ -1930,121 +1929,11 @@ export class AwsApiStack extends Stack {
     createDlqAlarm("ImageUploadsDlqAlarm", imageUploadsDlq, "supermarket-image-uploads-dlq");
     createDlqAlarm("EventBridgeTargetDlqAlarm", eventBridgeTargetDlq, "supermarket-eventbridge-target-dlq");
 
-    const api = new apigateway.RestApi(this, "SupermarketApiGateway", {
-      defaultCorsPreflightOptions: {
-        allowOrigins: apigateway.Cors.ALL_ORIGINS,
-        allowMethods: apigateway.Cors.ALL_METHODS,
-        allowHeaders: ["Authorization", "Content-Type"]
-      }
+    const api = createHttpApi(this, {
+      config: props,
+      handler: httpApiFunction,
+      userPool
     });
-
-    const httpIntegration = new apigateway.LambdaIntegration(httpApiFunction);
-    const cognitoAuthorizer = new apigateway.CognitoUserPoolsAuthorizer(this, "SupermarketApiAuthorizer", {
-      cognitoUserPools: [userPool]
-    });
-
-    api.root.addMethod("GET", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-
-    const healthResource = api.root.addResource("health");
-    healthResource.addMethod("GET", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-
-    const apiResource = api.root.addResource("api");
-    const productsResource = apiResource.addResource("products");
-    productsResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-    const productsProxyResource = productsResource.addResource("{proxy+}");
-    productsProxyResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-
-    const storefrontResource = apiResource.addResource("storefront");
-    const storefrontProductsResource = storefrontResource.addResource("products");
-    storefrontProductsResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-    const storefrontProductsProxyResource = storefrontProductsResource.addResource("{proxy+}");
-    storefrontProductsProxyResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-    const storefrontOrdersResource = storefrontResource.addResource("orders");
-    storefrontOrdersResource.addMethod("POST", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-    const storefrontOrdersMeResource = storefrontOrdersResource.addResource("me");
-    storefrontOrdersMeResource.addMethod("GET", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-    const storefrontProxyResource = storefrontResource.addResource("{proxy+}");
-    storefrontProxyResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-
-    const notificationsResource = apiResource.addResource("notifications");
-    notificationsResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-    const notificationsProxyResource = notificationsResource.addResource("{proxy+}");
-    notificationsProxyResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-
-    const uploadsResource = apiResource.addResource("uploads");
-    uploadsResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-    const uploadsProxyResource = uploadsResource.addResource("{proxy+}");
-    uploadsProxyResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-
-    const paymentsResource = apiResource.addResource("payments");
-    const vnpayResource = paymentsResource.addResource("vnpay");
-    vnpayResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-    const vnpayProxyResource = vnpayResource.addResource("{proxy+}");
-    vnpayProxyResource.addMethod("ANY", httpIntegration, {
-      authorizationType: apigateway.AuthorizationType.NONE
-    });
-
-    const proxyResource = api.root.addResource("{proxy+}");
-    proxyResource.addMethod("ANY", httpIntegration, {
-      authorizer: cognitoAuthorizer,
-      authorizationType: apigateway.AuthorizationType.COGNITO,
-      authorizationScopes: ["supermarket-api/access"]
-    });
-    // API custom domain flow:
-    // browser/frontend -> api.truyenmasinhvien.com -> Route53 Alias -> API Gateway -> Lambda.
-    const apiCertificate = props.apiCertificateArn
-      ? acm.Certificate.fromCertificateArn(this, "ApiCertificate", props.apiCertificateArn)
-      : undefined;
-    const apiCustomDomain = props.apiCustomDomainName && apiCertificate
-      ? new apigateway.DomainName(this, "ApiCustomDomain", {
-        domainName: props.apiCustomDomainName,
-        certificate: apiCertificate,
-        endpointType: apigateway.EndpointType.REGIONAL,
-        securityPolicy: apigateway.SecurityPolicy.TLS_1_2
-      })
-      : undefined;
-
-    if (apiCustomDomain) {
-      // Empty base path maps https://api.truyenmasinhvien.com directly to the
-      // deployed API stage, so callers do not need to include /prod.
-      new apigateway.BasePathMapping(this, "ApiCustomDomainBasePathMapping", {
-        domainName: apiCustomDomain,
-        restApi: api,
-        stage: api.deploymentStage
-      });
-
-      if (props.apiHostedZoneDomainName && props.apiCustomDomainName) {
-        createApiAliases(this, apiCustomDomain, props.apiCustomDomainName, props.apiHostedZoneDomainName);
-      }
-    }
 
     new CfnOutput(this, "TableName", {
       value: table.tableName ?? dynamoTableName.valueAsString

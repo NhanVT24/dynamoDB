@@ -150,8 +150,7 @@ export class NotificationsService {
     metadata?: Record<string, unknown>;
   }) {
     if (input.channel === "email") {
-      this.logger.log(`[queue-notification] skipped channel=email email=${input.email}`);
-      return null;
+      throw new Error("Email delivery must be queued through the email route, not createPendingNotification.");
     }
 
     const notification = await createNotification({
