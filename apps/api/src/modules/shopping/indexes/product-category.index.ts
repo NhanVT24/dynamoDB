@@ -1,4 +1,6 @@
-export type ProductCategoryIndexProduct = Record<string, any>;
+import type { ProductRecord } from "../product.types.js";
+
+export type ProductCategoryIndexProduct = ProductRecord;
 
 export type ProductCategoryIndexRecord = {
   PK: string;
@@ -48,6 +50,6 @@ export function toProductCategoryIndexRecord(product: ProductCategoryIndexProduc
   };
 }
 
-export function isProductCategoryIndexRecord(item: Record<string, any> | null): item is ProductCategoryIndexRecord {
+export function isProductCategoryIndexRecord(item: Record<string, unknown> | null): item is ProductCategoryIndexRecord {
   return item?.entityType === "PRODUCT_CATEGORY_INDEX" && Boolean((item as ProductCategoryIndexRecord).product);
 }

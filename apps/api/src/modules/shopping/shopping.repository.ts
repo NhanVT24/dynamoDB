@@ -20,24 +20,13 @@ import {
   isProductCategoryIndexRecord,
   toProductCategoryIndexRecord
 } from "./indexes/product-category.index.js";
+import type { ProductRecord } from "./product.types.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
 const INCREMENTABLE_FIELDS = new Set(["stock", "soldCount"]);
 
 type DynamoKey = Record<string, AttributeValue>;
-type ProductRecord = Record<string, any>;
-type ProductInput = ProductRecord & {
-  id?: string;
-  name?: string;
-  updatedAt?: string;
-  createdAt?: string;
-  searchField?: string;
-  searchName?: string;
-  originalPrice?: number;
-  stock?: number;
-  status?: string;
-  version?: number;
-};
+type ProductInput = ProductRecord;
 type ShoppingFilters = {
   category?: string;
   status?: string;
@@ -90,7 +79,7 @@ function fromDynamoItem(item?: Record<string, AttributeValue>) {
   return item ? (unmarshall(item) as ProductRecord) : null;
 }
 
-function isProductItem(item: ProductRecord | null) {
+function isProductItem(item: ProductRecord | null): item is ProductRecord {
   if (!item) return false;
   if (item.entityType === "PRODUCT") return true;
   return String(item.PK ?? "").startsWith("PRODUCT#") && String(item.SK ?? "") === "DETAIL";
@@ -285,7 +274,7 @@ async function queryCategoryIndexUntilEnough(limit: number, cursor?: string, fil
     }));
 
     for (const rawItem of result.Items ?? []) {
-      const indexItem = fromDynamoItem(rawItem);
+      const indexItem = unmarshall(rawItem) as Record<string, unknown>;
       if (!isProductCategoryIndexRecord(indexItem)) continue;
       if (!matchesFilters(indexItem.product, filters)) continue;
 
@@ -757,7 +746,7 @@ export async function listInventoryReportProducts(): Promise<InventoryReportProd
           name: String(item?.name ?? ""),
           sku: item?.sku ? String(item.sku) : undefined,
           stock: Number(item?.stock ?? 0),
-          status: String(item?.status ?? status),
+          status: item.status ?? status,
           updatedAt: String(item?.updatedAt ?? item?.createdAt ?? ""),
           inventoryAlertSent: item?.inventoryAlertSent === true
         })));

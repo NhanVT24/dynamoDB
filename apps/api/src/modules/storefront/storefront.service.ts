@@ -16,6 +16,7 @@ import { resolveSalePrice } from "../sales/sale-pricing.js";
 import { listActiveSaleCampaigns } from "../sales/sales.repository.js";
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
 import { getShoppingItem } from "../shopping/shopping.repository.js";
+import type { ProductRecord } from "../shopping/product.types.js";
 import { VnpayService } from "../vnpay/vnpay.service.js";
 import {
   createAwaitingPaymentOrder,
@@ -44,7 +45,6 @@ import type { CreateStorefrontOrderInput, PrepareStorefrontCheckoutInput } from 
 import { getPaymentSessionByTxnRef } from "../vnpay/vnpay.repository.js";
 import { queryVnpayRefund, sendVnpayRefund } from "../vnpay/vnpay-refund.js";
 
-type ProductRecord = Record<string, any>;
 type PublicProductListResponse = {
   items: PublicProductSummary[];
   pageInfo: {

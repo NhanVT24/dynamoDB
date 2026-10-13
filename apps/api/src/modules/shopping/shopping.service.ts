@@ -18,6 +18,7 @@ import {
   shoppingCategories,
   shoppingStatuses
 } from "./shopping.schema.js";
+import type { ProductRecord } from "./product.types.js";
 
 @Injectable()
 export class ShoppingService {
@@ -79,7 +80,7 @@ export class ShoppingService {
     return getShoppingItem(id);
   }
 
-  createShoppingItem(input: Record<string, any>, ownerSub: string) {
+  createShoppingItem(input: ProductRecord, ownerSub: string) {
     return createShoppingItem(input, ownerSub);
   }
 
@@ -93,7 +94,7 @@ export class ShoppingService {
     };
   }
 
-  async updateShoppingItem(id: string, patch: Record<string, any>, version: number, principal: CognitoPrincipal) {
+  async updateShoppingItem(id: string, patch: ProductRecord, version: number, principal: CognitoPrincipal) {
     const current = await getShoppingItem(id);
     this.assertCanManageProduct(current, principal);
     const updated = await updateShoppingItem(id, patch, version, principal.role === "admin" ? undefined : principal.subject);
@@ -115,7 +116,7 @@ export class ShoppingService {
     return deleteShoppingItem(id, principal.role === "admin" ? undefined : principal.subject);
   }
 
-  private assertCanManageProduct(product: Record<string, any> | null, principal: CognitoPrincipal) {
+  private assertCanManageProduct(product: ProductRecord | null, principal: CognitoPrincipal) {
     if (!product) throw new NotFoundException("Product not found");
     if (principal.role !== "admin" && String(product.ownerSub ?? "") !== principal.subject) {
       throw new ForbiddenException("You can only modify products that you created.");
@@ -123,8 +124,8 @@ export class ShoppingService {
   }
 
   private async publishInventoryAlertIfNeeded(
-    current: Record<string, any> | null,
-    updated: Record<string, any> | null,
+    current: ProductRecord | null,
+    updated: ProductRecord | null,
     source: "admin.update" | "admin.increment"
   ) {
     if (!updated) {
