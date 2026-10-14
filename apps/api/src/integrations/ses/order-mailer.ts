@@ -1,4 +1,5 @@
 import { SendEmailCommand } from "@aws-sdk/client-sesv2";
+import crypto from "node:crypto";
 import { env } from "../../config/env.js";
 import {
   createPendingEmailDelivery,
@@ -67,16 +68,29 @@ async function sendTrackedOrderEmail(input: {
   html: string;
   text?: string;
   relatedId?: string;
+  /** Stable only when this is a retryable, one-per-business-action email. */
+  emailId?: string;
 }) {
   assertSesConfigured();
   if (!env.SES_INVENTORY_REPORT_CONFIGURATION_SET_NAME) throw new Error("Missing SES feedback configuration set.");
-  const email = await createPendingEmailDelivery({
-    emailType: input.emailType,
-    recipientEmail: input.toEmail,
-    senderEmail: ordersSenderEmail() ?? "",
-    subject: input.subject,
-    relatedId: input.relatedId
-  });
+  let email: Awaited<ReturnType<typeof createPendingEmailDelivery>>;
+  try {
+    email = await createPendingEmailDelivery({
+      emailType: input.emailType,
+      recipientEmail: input.toEmail,
+      senderEmail: ordersSenderEmail() ?? "",
+      subject: input.subject,
+      relatedId: input.relatedId,
+      emailId: input.emailId
+    });
+  } catch (error) {
+    // A stable id was already claimed by an earlier attempt. Never issue a
+    // second SES request: the previous outcome is either durable or unknown.
+    if (input.emailId && (error as { name?: string } | undefined)?.name === "TransactionCanceledException") {
+      return { emailId: input.emailId, alreadyProcessed: true as const };
+    }
+    throw error;
+  }
 
   try {
     const result = await sesClient.send(new SendEmailCommand({
@@ -223,7 +237,10 @@ export async function sendOrderConfirmationEmail(input: OrderConfirmationInput) 
     subject: content.subject,
     html: content.html,
     text: content.text,
-    relatedId: input.orderId
+    relatedId: input.orderId,
+    // Retried queue deliveries must reuse this claim. A deliberate resend
+    // should use a separate explicit operation, not this function.
+    emailId: crypto.createHash("sha256").update(`order-confirmation:${input.orderId}`).digest("hex")
   });
 }
 

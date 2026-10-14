@@ -93,9 +93,9 @@ export async function createPendingEmailDeliveryBatch(input: {
 
 // Existing transactional email callers keep their API. Its emailId and recipientId are deliberately equal.
 export async function createPendingEmailDelivery(input: {
-  emailType: EmailType; recipientEmail: string; senderEmail: string; subject: string; reportId?: string; relatedId?: string;
+  emailType: EmailType; recipientEmail: string; senderEmail: string; subject: string; reportId?: string; relatedId?: string; emailId?: string;
 }) {
-  const emailId = crypto.randomUUID();
+  const emailId = input.emailId ?? crypto.randomUUID();
   const now = new Date().toISOString();
   const meta: EmailDeliveryMeta = {
     ...metaKey(emailId), entityType: "EMAIL", id: emailId, emailType: input.emailType, senderEmail: input.senderEmail,

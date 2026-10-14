@@ -1164,10 +1164,12 @@ export async function releaseExpiredAwaitingPaymentOrders() {
   const now = new Date().toISOString();
 
   do {
-    const result = await rawDb.send(new ScanCommand({
+    const result = await rawDb.send(new QueryCommand({
       TableName,
+      IndexName: "StatusTimelineIndex",
       ExclusiveStartKey: exclusiveStartKey,
-      FilterExpression: "entityType = :entityType AND #status = :status AND attribute_exists(lockedUntil) AND lockedUntil <= :now",
+      KeyConditionExpression: "#status = :status",
+      FilterExpression: "entityType = :entityType AND attribute_exists(lockedUntil) AND lockedUntil <= :now",
       ExpressionAttributeNames: { "#status": "status" },
       ExpressionAttributeValues: toDynamoItem({
         ":entityType": "ORDER",
@@ -1311,6 +1313,21 @@ export async function getAwaitingPaymentOrder(orderId: string) {
     ConsistentRead: true
   }));
   return result.Item ? unmarshall(result.Item) as StorefrontAwaitingPaymentOrderRecord : null;
+}
+
+/** Bounded reconciliation read; avoids scanning the full marketplace table. */
+export async function listPendingRefundOrders(limit = 50) {
+  const result = await rawDb.send(new QueryCommand({
+    TableName,
+    IndexName: "StatusTimelineIndex",
+    KeyConditionExpression: "#status = :status",
+    FilterExpression: "entityType = :entityType AND attribute_exists(refundRequestId) AND attribute_exists(paymentTxnRef)",
+    ExpressionAttributeNames: { "#status": "status" },
+    ExpressionAttributeValues: toDynamoItem({ ":status": "refund_pending", ":entityType": "ORDER" }),
+    ScanIndexForward: true,
+    Limit: Math.min(Math.max(Math.trunc(limit), 1), 100)
+  }));
+  return (result.Items ?? []).map((item) => unmarshall(item) as StorefrontAwaitingPaymentOrderRecord);
 }
 
 export async function attachPaymentTxnRef(orderId: string, txnRef: string) {

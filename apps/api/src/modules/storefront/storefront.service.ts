@@ -35,6 +35,7 @@ import {
   listCheckoutReservationsByRequestId,
   listOrderItems,
   listOrdersByCustomer,
+  listPendingRefundOrders,
   transitionAwaitingPaymentOrder,
   listStorefrontProducts,
   type CheckoutGateQueuePayload,
@@ -478,6 +479,45 @@ export class StorefrontService {
     }
     const current = await getAwaitingPaymentOrder(orderId);
     return { orderId, status: current?.status ?? "refund_pending", refundStatus: current?.refundStatus ?? order.refundStatus };
+  }
+
+  /** Server-side fallback for when the customer closes the browser while a
+   * VNPay refund remains pending. Terminal transitions remain conditional on
+   * refundRequestId, so concurrent browser polling is safe. */
+  async reconcilePendingRefunds(limit = 50) {
+    const orders = await listPendingRefundOrders(limit);
+    let resolved = 0;
+    let failed = 0;
+    const config = this.vnpayService.getPaymentConfig();
+
+    for (const order of orders) {
+      try {
+        if (!order.refundRequestId || !order.paymentTxnRef) continue;
+        const session = await getPaymentSessionByTxnRef(order.paymentTxnRef);
+        if (!session || session.status !== "success") {
+          failed += 1;
+          this.logger.warn(`[refund-reconcile] missing_payment orderId=${order.PK}`);
+          continue;
+        }
+        const result = await queryVnpayRefund({
+          session, refundTransactionNo: order.refundTransactionNo,
+          secret: config.vnpayHashSecret, tmnCode: config.vnpayTmnCode,
+          paymentUrl: config.vnpayPaymentUrl, transactionUrl: config.vnpayTransactionUrl,
+          merchantIp: config.vnpayMerchantIp
+        });
+        if (result?.transactionStatus !== "06" && result?.transactionStatus !== "09") continue;
+        const orderId = order.PK.replace(/^ORDER#/, "");
+        const status = result.transactionStatus === "06" ? "refund_sent" : "refund_rejected";
+        await updateOrderRefund({ orderId, requestId: order.refundRequestId, status,
+          gatewayStatus: result.transactionStatus, transactionNo: result.transactionNo });
+        await this.notifyRefundStatus({ email: order.customerEmail, orderId, totalAmount: order.totalAmount, status });
+        resolved += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(`[refund-reconcile] query_failed orderId=${order.PK} error=${error instanceof Error ? error.message : "unknown"}`);
+      }
+    }
+    return { checked: orders.length, resolved, failed };
   }
 
   async processQueueRecords(

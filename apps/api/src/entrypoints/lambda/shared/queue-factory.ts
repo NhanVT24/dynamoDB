@@ -39,9 +39,18 @@ function normalizeSqsRecords(event: any): SqsRecord[] {
   return candidates.filter((record: any) => record?.eventSource === "aws:sqs");
 }
 
-function idempotencyKey(record: SqsRecord) {
+function idempotencyKey(record: SqsRecord, worker: QueueHandlerConfig["worker"]) {
   try {
-    const envelope = JSON.parse(String(record.body ?? "")) as { id?: unknown };
+    const envelope = JSON.parse(String(record.body ?? "")) as { id?: unknown; detail?: unknown };
+    const detail = envelope.detail && typeof envelope.detail === "object"
+      ? envelope.detail as { type?: unknown; txnRef?: unknown }
+      : envelope as { type?: unknown; txnRef?: unknown };
+    // EventBridge assigns a fresh id to every publish attempt. Payment
+    // completion is instead one business action per txnRef, so dedup at that
+    // boundary before any notification/email side effect can run.
+    if (worker === "payments" && typeof detail.txnRef === "string" && typeof detail.type === "string") {
+      return `payment:${detail.type}:${detail.txnRef}`;
+    }
     const eventId = typeof envelope.id === "string" ? envelope.id.trim() : "";
     if (eventId) return `eventbridge:${eventId}`;
   } catch {
@@ -112,7 +121,7 @@ export function createQueueHandler(config: QueueHandlerConfig) {
               workerName: config.lambdaName
             });
 
-        const key = idempotencyKey(record);
+        const key = idempotencyKey(record, config.worker);
         if (!key) return process();
 
         let result: QueueProcessResult | undefined;

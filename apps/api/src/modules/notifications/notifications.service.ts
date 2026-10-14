@@ -6,8 +6,8 @@ import {
 import { env } from "../../config/env.js";
 import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
 import { publishAdminAlert } from "../../integrations/sns/publisher.js";
-import { sendOrderConfirmationEmail, sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
-import { ordersSenderEmail } from "../../integrations/ses/sender-config.js";
+import { sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
+import { queueOrderConfirmationEmail } from "../email-deliveries/order-confirmation-email-route.js";
 import { commitCheckoutReservationsToOrder, getAwaitingPaymentOrder, transitionAwaitingPaymentOrder, getOrderById, markOrderAsDone, type InventoryStockChange } from "../storefront/storefront.repository.js";
 import {
   createNotification,
@@ -111,7 +111,12 @@ export class NotificationsService {
     }
   }
 
-  private async sendOrderConfirmationEmailSafely(input: {
+  /**
+   * Payment events are at-least-once. Never call SES directly here: a
+   * duplicate EventBridge event can have a new event id, while this route is
+   * claimed by the deterministic order-confirmation:<orderId> email job id.
+   */
+  private async queueOrderConfirmationEmailSafely(input: {
     toEmail: string;
     orderId: string;
     totalAmount: number;
@@ -125,20 +130,15 @@ export class NotificationsService {
       lineTotal: number;
     }>;
   }) {
-    if (!ordersSenderEmail()) {
-      this.logger.warn(`[mail-ses] order_success_skipped orderId=${input.orderId} reason=ses_not_configured`);
-      return { sent: false };
-    }
-
     try {
-      await sendOrderConfirmationEmail(input);
-      this.logger.log(`[mail-ses] order_success_sent orderId=${input.orderId} to=${input.toEmail}`);
-      return { sent: true };
+      const route = await queueOrderConfirmationEmail(input);
+      this.logger.log(`[email-route] order_confirmation_${route.status} orderId=${input.orderId} emailJobId=${route.emailJobId}`);
+      return route;
     } catch (error) {
       this.logger.warn(
-        `[mail-ses] order_success_failed orderId=${input.orderId} to=${input.toEmail} error=${error instanceof Error ? error.message : "unknown"}`
+        `[email-route] order_confirmation_queue_failed orderId=${input.orderId} to=${input.toEmail} error=${error instanceof Error ? error.message : "unknown"}`
       );
-      return { sent: false };
+      return null;
     }
   }
 
@@ -700,7 +700,7 @@ export class NotificationsService {
     });
 
     if (committed.order) {
-      await this.sendOrderConfirmationEmailSafely({
+      await this.queueOrderConfirmationEmailSafely({
         toEmail: email,
         orderId: committed.order.id,
         totalAmount: committed.order.totalAmount,

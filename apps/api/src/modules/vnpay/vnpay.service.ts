@@ -237,32 +237,14 @@ export class VnpayService {
     if (!this.isValidCallback(result)) {
       return { ...result, transactionStatus: "failed", message: "Invalid VNPay callback data." };
     }
-    let session = await getPaymentSessionByTxnRef(result.txnRef);
+    const session = await getPaymentSessionByTxnRef(result.txnRef);
     if (!session || session.amount * 100 !== Number(result.amountMinor)) {
       return { ...result, transactionStatus: "failed", message: "Payment session or amount does not match." };
     }
 
-    if (session.status === "pending") {
-      try {
-        session = await updatePaymentSessionStatus({
-          txnRef: result.txnRef,
-          status: result.transactionStatus === "success" ? "success" : "failed",
-          responseCode: result.responseCode,
-          transactionStatus: result.gatewayTransactionStatus,
-          transactionNo: result.transactionNo,
-          bankCode: result.bankCode,
-          payDate: result.payDate
-        });
-      } catch (error) {
-        if (!isConditionalCheckFailedError(error)) throw error;
-        session = await getPaymentSessionByTxnRef(result.txnRef);
-      }
-
-      if (session) {
-        await this.dispatchPaymentEvent(session, "return");
-      }
-    }
-
+    // Return is browser-to-server. It may be abandoned or replayed, so only
+    // the server-to-server IPN (or a reconciliation worker) may change money
+    // state and publish the payment event.
     return {
       ...result, transactionStatus: session.status,
       amount: session.amount, orderInfo: session.orderInfo,
