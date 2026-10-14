@@ -15,6 +15,7 @@ import {
 import {
   createPaymentSession,
   getPaymentSessionByTxnRef,
+  listUnenqueuedFinalizedPaymentSessions,
   markPaymentEventEnqueued,
   updatePaymentSessionStatus,
   type PaymentSessionRecord
@@ -303,7 +304,27 @@ export class VnpayService {
     }
   }
 
-  private async dispatchPaymentEvent(session: PaymentSessionRecord, source: "return" | "ipn") {
+  async reconcileUnenqueuedPaymentEvents(limit = 50) {
+    const sessions = await listUnenqueuedFinalizedPaymentSessions(limit);
+    let enqueued = 0;
+    let failed = 0;
+    for (const session of sessions) {
+      try {
+        await this.dispatchPaymentEvent(session, "reconciliation");
+        enqueued += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.error(JSON.stringify({
+          event: "vnpay.payment_event_reconciliation_failed",
+          txnRef: session.txnRef,
+          error: error instanceof Error ? error.message : "unknown"
+        }));
+      }
+    }
+    return { checked: sessions.length, enqueued, failed };
+  }
+
+  private async dispatchPaymentEvent(session: PaymentSessionRecord, source: "return" | "ipn" | "reconciliation") {
     if (session.paymentEventEnqueuedAt) return;
     const requestId = session.orderId ?? extractOrderId(session.orderInfo);
     const input = {
@@ -404,7 +425,7 @@ export class VnpayService {
       payDate: string;
       failureReason: string;
     },
-    source: "return" | "ipn"
+    source: "return" | "ipn" | "reconciliation"
   ) {
     try {
       this.logger.log(
@@ -444,7 +465,7 @@ export class VnpayService {
       bankCode: string;
       payDate: string;
   },
-    source: "return" | "ipn"
+    source: "return" | "ipn" | "reconciliation"
   ) {
     const published = await this.notificationsService.publishPaymentCompletedEvent(input);
     if (!published.queued) throw new Error("Payment event publishing is disabled");
@@ -470,7 +491,7 @@ export class VnpayService {
     }
   }
 
-  private async markPaymentEventEnqueuedSafely(txnRef: string, source: "return" | "ipn") {
+  private async markPaymentEventEnqueuedSafely(txnRef: string, source: "return" | "ipn" | "reconciliation") {
     try {
       await markPaymentEventEnqueued(txnRef);
     } catch (error) {

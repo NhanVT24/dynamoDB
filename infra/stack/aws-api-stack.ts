@@ -1068,6 +1068,13 @@ export class AwsApiStack extends Stack {
       60,
       512
     );
+    const reconcilePaymentEventsFunction = createApplicationLambda(
+      "SupermarketReconcilePaymentEventsFunction",
+      "supermarket-reconcile-payment-events-aws",
+      "src/entrypoints/lambda/jobs/reconcile-payment-events.handler",
+      60,
+      512
+    );
     const dataCleanupFunction = createApplicationLambda(
       "SupermarketDataCleanupFunction",
       "supermarket-data-cleanup-aws",
@@ -1508,6 +1515,10 @@ export class AwsApiStack extends Stack {
       assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
       description: "Allows EventBridge Scheduler to reconcile pending VNPay refunds"
     });
+    const reconcilePaymentEventsSchedulerRole = new iam.Role(this, "ReconcilePaymentEventsSchedulerRole", {
+      assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
+      description: "Allows EventBridge Scheduler to recover payment events after an interrupted hand-off"
+    });
 
     const emailRoutingWatchdogSchedulerRole = new iam.Role(this, "EmailRoutingWatchdogSchedulerRole", {
       assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
@@ -1730,6 +1741,29 @@ export class AwsApiStack extends Stack {
       }
     });
 
+    reconcilePaymentEventsSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["lambda:InvokeFunction"],
+      resources: [reconcilePaymentEventsFunction.functionArn]
+    }));
+    reconcilePaymentEventsSchedulerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["sqs:SendMessage"],
+      resources: [eventBridgeTargetDlq.queueArn]
+    }));
+    new scheduler.CfnSchedule(this, "ReconcilePaymentEventsSchedule", {
+      name: "supermarket-reconcile-payment-events",
+      description: "Publishes payment events that were finalized before EventBridge hand-off completed.",
+      groupName: "default",
+      scheduleExpression: "rate(1 minute)",
+      flexibleTimeWindow: { mode: "OFF" },
+      target: {
+        arn: reconcilePaymentEventsFunction.functionArn,
+        roleArn: reconcilePaymentEventsSchedulerRole.roleArn,
+        deadLetterConfig: { arn: eventBridgeTargetDlq.queueArn },
+        retryPolicy: { maximumEventAgeInSeconds: 300, maximumRetryAttempts: 2 },
+        input: JSON.stringify({ source: "scheduler.reconcile-payment-events" })
+      }
+    });
+
     const dataCleanupSchedulerRole = new iam.Role(this, "DataCleanupSchedulerRole", {
       assumedBy: new iam.ServicePrincipal("scheduler.amazonaws.com"),
       description: "Allows EventBridge Scheduler to invoke the scheduled data cleanup Lambda"
@@ -1790,6 +1824,7 @@ export class AwsApiStack extends Stack {
       auditEventWorkerFunction.functionName,
       releaseExpiredOrdersFunction.functionName,
       reconcilePendingRefundsFunction.functionName,
+      reconcilePaymentEventsFunction.functionName,
       dataCleanupFunction.functionName,
       saleCampaignWorkerFunction.functionName
     ];

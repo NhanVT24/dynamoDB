@@ -1,4 +1,4 @@
-import { GetItemCommand, PutItemCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
+import { GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
@@ -93,6 +93,27 @@ export async function getPaymentSessionByTxnRef(txnRef: string) {
   }));
 
   return result.Item ? (unmarshall(result.Item) as PaymentSessionRecord) : null;
+}
+
+/** Payment outbox recovery: finalized sessions that have not completed their
+ * EventBridge hand-off yet. */
+export async function listUnenqueuedFinalizedPaymentSessions(limit = 50) {
+  const sessions: PaymentSessionRecord[] = [];
+  for (const status of ["success", "failed"] as const) {
+    const result = await rawDb.send(new QueryCommand({
+      TableName,
+      IndexName: "StatusTimelineIndex",
+      KeyConditionExpression: "#status = :status",
+      FilterExpression: "entityType = :entityType AND attribute_not_exists(paymentEventEnqueuedAt)",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: toDynamoItem({ ":status": status, ":entityType": "PAYMENT_SESSION" }),
+      ScanIndexForward: true,
+      Limit: Math.min(Math.max(Math.trunc(limit), 1), 100)
+    }));
+    sessions.push(...(result.Items ?? []).map((item) => unmarshall(item) as PaymentSessionRecord));
+    if (sessions.length >= limit) break;
+  }
+  return sessions.slice(0, limit);
 }
 
 export async function updatePaymentSessionStatus(input: {
