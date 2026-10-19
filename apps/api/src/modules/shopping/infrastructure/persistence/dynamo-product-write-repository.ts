@@ -1,0 +1,151 @@
+import { GetItemCommand, TransactWriteItemsCommand } from "@aws-sdk/client-dynamodb";
+import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
+import { env } from "../../../../config/env.js";
+import { rawDb } from "../../../../database/dynamodb/client.js";
+import { keys } from "../../../../database/dynamodb/keys.js";
+import { buildProductCategoryIndexKey, toProductCategoryIndexRecord } from "../../indexes/product-category.index.js";
+import type { ProductRecord } from "../../product.types.js";
+import type { ProductStatus } from "../../domain/product.js";
+import type { ProductWriteRepository } from "../../application/ports/product-write-repository.js";
+import { ProductUpdateError } from "../../application/update-product/product-update.error.js";
+import { normalizeText, toProductRecord, toProduct } from "./product.mapper.js";
+
+const TableName = env.DYNAMODB_TABLE_NAME;
+const toDynamoItem = (item: Record<string, unknown>) => marshall(item, { removeUndefinedValues: true });
+
+async function readProductRecord(id: string): Promise<ProductRecord | null> {
+  const result = await rawDb.send(new GetItemCommand({
+    TableName, Key: toDynamoItem(keys.product(id)), ConsistentRead: true
+  }));
+  return result.Item ? unmarshall(result.Item) as ProductRecord : null;
+}
+
+export async function updateProductRecord(id: string, patch: ProductRecord, version: number, expectedOwnerSub?: string, status?: ProductStatus) {
+  const current = await readProductRecord(id);
+  if (!current) {
+    const error = new Error("Product not found");
+    error.name = "ConditionalCheckFailedException";
+    throw error;
+  }
+
+  const merged = toProductRecord(
+    { ...patch, updatedAt: new Date().toISOString() },
+    current
+  );
+  if (status !== undefined) merged.status = status;
+  const names: Record<string, string> = {
+    "#version": "version",
+    "#status": "status",
+    "#searchName": "searchName",
+    "#searchField": "searchField"
+  };
+  const values: Record<string, unknown> = {
+    ":expectedVersion": version,
+    ":one": 1,
+    ":updatedAt": merged.updatedAt,
+    ":status": merged.status,
+    ":searchName": normalizeText(merged.name),
+    ":searchField": merged.searchField ?? "name"
+  };
+  const setters = [
+    "updatedAt = :updatedAt",
+    "#version = #version + :one",
+    "#status = :status",
+    "#searchName = :searchName",
+    "#searchField = :searchField"
+  ];
+  const stockChanged = Object.hasOwn(patch, "stock") && Number(merged.stock ?? 0) !== Number(current.stock ?? 0);
+
+  for (const [field, value] of Object.entries(patch)) {
+    names[`#${field}`] = field;
+    values[`:${field}`] = value;
+    setters.push(`#${field} = :${field}`);
+  }
+
+  if (!Object.hasOwn(patch, "originalPrice")) {
+    names["#originalPrice"] = "originalPrice";
+    values[":originalPrice"] = merged.originalPrice;
+    setters.push("#originalPrice = :originalPrice");
+  }
+
+  if (stockChanged) {
+    names["#inventoryAlertSent"] = "inventoryAlertSent";
+    values[":inventoryAlertSent"] = false;
+    setters.push("#inventoryAlertSent = :inventoryAlertSent");
+  }
+
+  const nextVersion = Number(current.version ?? version) + 1;
+  const mergedRecord: ProductRecord = {
+    ...merged,
+    version: nextVersion,
+    searchName: normalizeText(merged.name),
+    searchField: merged.searchField ?? "name",
+    ...(stockChanged ? { inventoryAlertSent: false } : {})
+  };
+  if (stockChanged) {
+    delete mergedRecord.inventoryAlertSentAt;
+  }
+
+  await rawDb.send(new TransactWriteItemsCommand({
+    TransactItems: [
+      {
+        Update: {
+          TableName,
+          Key: toDynamoItem(keys.product(id)),
+          UpdateExpression: `SET ${setters.join(", ")}${stockChanged ? " REMOVE inventoryAlertSentAt" : ""}`,
+          ConditionExpression: expectedOwnerSub
+            ? "attribute_exists(PK) AND #version = :expectedVersion AND ownerSub = :expectedOwnerSub"
+            : "attribute_exists(PK) AND #version = :expectedVersion",
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: toDynamoItem({ ...values, ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}) })
+        }
+      },
+      {
+        Delete: {
+          TableName,
+          Key: toDynamoItem(buildProductCategoryIndexKey(current.category, current.id, current.updatedAt ?? current.createdAt))
+        }
+      },
+      {
+        Put: {
+          TableName,
+          Item: toDynamoItem(toProductCategoryIndexRecord({ ...keys.product(id), ...mergedRecord }))
+        }
+      }
+    ]
+  }));
+
+  return mergedRecord;
+}
+
+
+function isConditionalConflict(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const failure = error as { name?: string; CancellationReasons?: Array<{ Code?: string }> };
+  if (failure.name === "ConditionalCheckFailedException") return true;
+  // This transaction has one conditional operation, at position zero. Never
+  // turn throttling, transaction contention or validation errors into a 409.
+  return failure.name === "TransactionCanceledException" &&
+    failure.CancellationReasons?.[0]?.Code === "ConditionalCheckFailed";
+}
+
+export class DynamoProductWriteRepository implements ProductWriteRepository<ProductRecord> {
+  async findById(id: string) {
+    const record = await readProductRecord(id);
+    return record ? toProduct(record) : null;
+  }
+
+  async update(input: Parameters<ProductWriteRepository<ProductRecord>["update"]>[0]) {
+    try {
+      const record = await updateProductRecord(
+        input.id, { ...input.changes }, input.expectedVersion, input.expectedOwnerId, input.status
+      );
+      return { product: toProduct(record), representation: record };
+    } catch (error) {
+      if (isConditionalConflict(error)) {
+        throw new ProductUpdateError("CONFLICT", "Record changed, missing, or condition failed");
+      }
+      throw error;
+    }
+  }
+}

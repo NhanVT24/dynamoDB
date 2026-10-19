@@ -7,6 +7,7 @@ import {
   Logger
 } from "@nestjs/common";
 import { ZodError } from "zod";
+import { ProductUpdateError } from "../../modules/shopping/application/update-product/product-update.error.js";
 
 @Catch()
 export class AppExceptionFilter implements ExceptionFilter {
@@ -60,6 +61,23 @@ export class AppExceptionFilter implements ExceptionFilter {
         correlationId,
         message: "Invalid request",
         issues: (exception as ZodError).issues ?? (exception as { issues?: unknown[] }).issues
+      });
+    }
+
+    if (exception instanceof ProductUpdateError) {
+      if (exception.code === "CONFLICT") {
+        return response.status(HttpStatus.CONFLICT).send({
+          correlationId, message: "Record changed, missing, or condition failed"
+        });
+      }
+      const mapping = {
+        NOT_FOUND: { statusCode: HttpStatus.NOT_FOUND, error: "Not Found" },
+        FORBIDDEN: { statusCode: HttpStatus.FORBIDDEN, error: "Forbidden" },
+        INVALID_INPUT: { statusCode: HttpStatus.BAD_REQUEST, error: "Bad Request" }
+      } as const;
+      const mapped = mapping[exception.code];
+      return response.status(mapped.statusCode).send({
+        message: exception.message, error: mapped.error, statusCode: mapped.statusCode
       });
     }
 

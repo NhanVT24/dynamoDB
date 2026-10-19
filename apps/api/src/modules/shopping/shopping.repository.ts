@@ -1,3 +1,5 @@
+import { normalizeText, toProductRecord } from "./infrastructure/persistence/product.mapper.js";
+import { updateProductRecord } from "./infrastructure/persistence/dynamo-product-write-repository.js";
 import crypto from "node:crypto";
 import {
   DeleteItemCommand,
@@ -26,7 +28,6 @@ const TableName = env.DYNAMODB_TABLE_NAME;
 const INCREMENTABLE_FIELDS = new Set(["stock", "soldCount"]);
 
 type DynamoKey = Record<string, AttributeValue>;
-type ProductInput = ProductRecord;
 type ShoppingFilters = {
   category?: string;
   status?: string;
@@ -40,36 +41,6 @@ type ShoppingFilters = {
 export type InventoryReportProduct = Pick<ProductRecord,
   "id" | "name" | "sku" | "stock" | "status" | "updatedAt" | "inventoryAlertSent"
 >;
-
-function normalizeText(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[đĐ]/g, "d")
-    .replace(/Ä‘/g, "d");
-}
-
-function deriveStatus(stock: number) {
-  if (stock <= 0) return "out_of_stock";
-  if (stock <= 10) return "low_stock";
-  return "active";
-}
-
-function toProductRecord(input: ProductInput, current: ProductRecord | null): ProductInput {
-  const stock = input.stock ?? current?.stock ?? 0;
-  const status = deriveStatus(stock);
-  return {
-    ...current,
-    ...input,
-    stock,
-    status,
-    searchField: input.searchField ?? current?.searchField ?? "name",
-    searchName: normalizeText(input.name ?? current?.name ?? ""),
-    originalPrice: input.originalPrice ?? current?.originalPrice ?? input.price ?? current?.price ?? 0
-  };
-}
 
 function toDynamoItem(item: Record<string, unknown>) {
   return marshall(item, { removeUndefinedValues: true });
@@ -813,101 +784,10 @@ async function listAllShoppingItemsBase(pageLimit = 50, maxPages = 20, filters: 
   };
 }
 
+// Compatibility entry point for maintenance scripts; the HTTP update uses
+// UpdateProduct and the typed adapter. Keep one implementation of the transaction.
 export async function updateShoppingItem(id: string, patch: ProductRecord, version: number, expectedOwnerSub?: string) {
-  const current = await getShoppingItem(id);
-  if (!current) {
-    const error = new Error("Product not found");
-    error.name = "ConditionalCheckFailedException";
-    throw error;
-  }
-
-  const merged = toProductRecord(
-    { ...patch, updatedAt: new Date().toISOString() },
-    current
-  );
-  const names: Record<string, string> = {
-    "#version": "version",
-    "#status": "status",
-    "#searchName": "searchName",
-    "#searchField": "searchField"
-  };
-  const values: Record<string, unknown> = {
-    ":expectedVersion": version,
-    ":one": 1,
-    ":updatedAt": merged.updatedAt,
-    ":status": merged.status,
-    ":searchName": normalizeText(merged.name),
-    ":searchField": merged.searchField ?? "name"
-  };
-  const setters = [
-    "updatedAt = :updatedAt",
-    "#version = #version + :one",
-    "#status = :status",
-    "#searchName = :searchName",
-    "#searchField = :searchField"
-  ];
-  const stockChanged = Object.hasOwn(patch, "stock") && Number(merged.stock ?? 0) !== Number(current.stock ?? 0);
-
-  for (const [field, value] of Object.entries(patch)) {
-    names[`#${field}`] = field;
-    values[`:${field}`] = value;
-    setters.push(`#${field} = :${field}`);
-  }
-
-  if (!Object.hasOwn(patch, "originalPrice")) {
-    names["#originalPrice"] = "originalPrice";
-    values[":originalPrice"] = merged.originalPrice;
-    setters.push("#originalPrice = :originalPrice");
-  }
-
-  if (stockChanged) {
-    names["#inventoryAlertSent"] = "inventoryAlertSent";
-    values[":inventoryAlertSent"] = false;
-    setters.push("#inventoryAlertSent = :inventoryAlertSent");
-  }
-
-  const nextVersion = Number(current.version ?? version) + 1;
-  const mergedRecord: ProductRecord = {
-    ...merged,
-    version: nextVersion,
-    searchName: normalizeText(merged.name),
-    searchField: merged.searchField ?? "name",
-    ...(stockChanged ? { inventoryAlertSent: false } : {})
-  };
-  if (stockChanged) {
-    delete mergedRecord.inventoryAlertSentAt;
-  }
-
-  await rawDb.send(new TransactWriteItemsCommand({
-    TransactItems: [
-      {
-        Update: {
-          TableName,
-          Key: toDynamoItem(keys.product(id)),
-          UpdateExpression: `SET ${setters.join(", ")}${stockChanged ? " REMOVE inventoryAlertSentAt" : ""}`,
-          ConditionExpression: expectedOwnerSub
-            ? "attribute_exists(PK) AND #version = :expectedVersion AND ownerSub = :expectedOwnerSub"
-            : "attribute_exists(PK) AND #version = :expectedVersion",
-          ExpressionAttributeNames: names,
-          ExpressionAttributeValues: toDynamoItem({ ...values, ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}) })
-        }
-      },
-      {
-        Delete: {
-          TableName,
-          Key: toDynamoItem(buildProductCategoryIndexKey(current.category, current.id, current.updatedAt ?? current.createdAt))
-        }
-      },
-      {
-        Put: {
-          TableName,
-          Item: toDynamoItem(toProductCategoryIndexRecord({ ...keys.product(id), ...mergedRecord }))
-        }
-      }
-    ]
-  }));
-
-  return mergedRecord;
+  return updateProductRecord(id, patch, version, expectedOwnerSub);
 }
 
 export async function deleteShoppingItem(id: string, expectedOwnerSub?: string) {

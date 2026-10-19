@@ -1,5 +1,6 @@
-export const productStatuses = ["active", "low_stock", "out_of_stock"] as const;
-export type ProductStatus = typeof productStatuses[number];
+import type { ProductStatus } from "./domain/product.js";
+export { productStatuses } from "./domain/product.js";
+export type { ProductStatus } from "./domain/product.js";
 
 // A DynamoDB product can carry operational metadata (audit fields, secondary
 // index helpers, alert timestamps). Keep that extension space explicit as
