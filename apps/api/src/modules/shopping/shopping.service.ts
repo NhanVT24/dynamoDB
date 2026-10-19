@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { CognitoPrincipal } from "../../common/auth/cognito-principal.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import {
@@ -10,8 +10,7 @@ import {
   listAllShoppingItems,
   incrementItemValue,
   listMockShoppingItems,
-  listShoppingItems,
-  updateShoppingItem
+  listShoppingItems
 } from "./shopping.repository.js";
 import {
   normalizeCategory,
@@ -19,10 +18,15 @@ import {
   shoppingStatuses
 } from "./shopping.schema.js";
 import type { ProductRecord } from "./product.types.js";
+import type { ProductChanges } from "./domain/product.js";
+import { UpdateProduct } from "./application/update-product/update-product.js";
 
 @Injectable()
 export class ShoppingService {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    @Inject(UpdateProduct) private readonly updateProduct: UpdateProduct<ProductRecord>
+  ) {}
 
   listDemoShoppingItems() {
     return listMockShoppingItems();
@@ -94,12 +98,11 @@ export class ShoppingService {
     };
   }
 
-  async updateShoppingItem(id: string, patch: ProductRecord, version: number, principal: CognitoPrincipal) {
-    const current = await getShoppingItem(id);
-    this.assertCanManageProduct(current, principal);
-    const updated = await updateShoppingItem(id, patch, version, principal.role === "admin" ? undefined : principal.subject);
-    await this.publishInventoryAlertIfNeeded(current, updated, "admin.update");
-    return updated;
+  async updateShoppingItem(id: string, patch: ProductChanges, version: number, principal: CognitoPrincipal) {
+    return this.updateProduct.execute({
+      productId: id, changes: patch, expectedVersion: version,
+      actor: { subject: principal.subject, isAdmin: principal.role === "admin" }
+    });
   }
 
   async incrementShoppingItemField(id: string, field: string, incrementBy: number, principal: CognitoPrincipal) {
