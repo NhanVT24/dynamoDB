@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ConfirmOrderPayment } from "../storefront/application/confirm-order-payment/confirm-order-payment.js";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
   logQueueBusinessEvent,
   logQueueWarn
@@ -8,7 +9,7 @@ import { publishEventBridgeEvent } from "../../integrations/eventbridge/publishe
 import { publishAdminAlert } from "../../integrations/sns/publisher.js";
 import { sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
 import { queueOrderConfirmationEmail } from "../email-deliveries/order-confirmation-email-route.js";
-import { commitCheckoutReservationsToOrder, getAwaitingPaymentOrder, transitionAwaitingPaymentOrder, getOrderById, markOrderAsDone, type InventoryStockChange } from "../storefront/storefront.repository.js";
+import { getAwaitingPaymentOrder, getOrderById, markOrderAsDone } from "../storefront/storefront.repository.js";
 import {
   createNotification,
   deleteNotification,
@@ -27,23 +28,11 @@ function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T):
     : payload;
 }
 
-function parseVnpayPaymentDate(value: string | undefined): string | undefined {
-  if (!value || !/^\d{14}$/.test(value)) return undefined;
-  const year = Number(value.slice(0, 4));
-  const month = Number(value.slice(4, 6));
-  const day = Number(value.slice(6, 8));
-  const hour = Number(value.slice(8, 10));
-  const minute = Number(value.slice(10, 12));
-  const second = Number(value.slice(12, 14));
-  const timestamp = Date.UTC(year, month - 1, day, hour - 7, minute, second);
-  const date = new Date(timestamp);
-  if (!Number.isFinite(timestamp) || date.getTime() > Date.now() + 60000) return undefined;
-  return date.toISOString();
-}
-
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
+
+  constructor(@Inject(ConfirmOrderPayment) private readonly confirmOrderPayment: ConfirmOrderPayment) {}
 
   private resolveQueueContext(queueName?: string, fallbackEventType?: string) {
     if (queueName) {
@@ -593,7 +582,6 @@ export class NotificationsService {
     let committed: {
       order: Awaited<ReturnType<typeof getOrderById>> | null;
       orderId: string;
-      stockChanges: InventoryStockChange[];
       paymentConfirmedAt?: string;
     };
 
@@ -603,18 +591,17 @@ export class NotificationsService {
         if (awaitingOrder.customerEmail !== email || awaitingOrder.totalAmount !== amount) {
           throw new Error("Payment customer or amount does not match held order");
         }
-        const outcome = await transitionAwaitingPaymentOrder({
-          orderId: requestId, expectedCustomerEmail: email, status: "paid",
-          paymentConfirmedAt: parseVnpayPaymentDate(payload.payDate)
+        const outcome = await this.confirmOrderPayment.execute({
+          orderId: requestId, email, amount, txnRef: payload.txnRef
         });
         committed = {
           orderId: requestId,
-          stockChanges: [],
-          paymentConfirmedAt: outcome.order.updatedAt,
+          paymentConfirmedAt: outcome.order.paymentConfirmedAt,
           order: {
             ...outcome.order,
             id: requestId,
-            SK: "DETAIL",
+            PK: "ORDER#" + requestId, SK: "DETAIL", entityType: "ORDER",
+            createdAt: awaitingOrder.createdAt, updatedAt: awaitingOrder.updatedAt,
             status: "pending",
             items: outcome.items.map((item) => ({
               productId: item.productId, productName: item.productName,
@@ -625,7 +612,7 @@ export class NotificationsService {
         };
       } else {
         if (requestId) throw new Error("ORDER not found; payment reconciliation required");
-        committed = { order: null, orderId: payload.orderId?.trim() || "", stockChanges: [] };
+        committed = { order: null, orderId: payload.orderId?.trim() || "" };
       }
     } catch (error) {
       const syncErrorMessage = error instanceof Error ? error.message : "unknown";
