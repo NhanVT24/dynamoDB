@@ -12,7 +12,7 @@ export function inventoryTransaction(product: ProductRecord, delta: { stock: num
   const stock = Number(product.stock ?? 0) + delta.stock;
   const sold = Number(product.soldCount ?? 0) + delta.sold;
   const version = Number(product.version ?? 0);
-  if (![stock, sold, version].every(Number.isSafeInteger) || stock < 0 || sold < 0 ||
+  if (!product.id || ![stock, sold, version, version + 1].every(Number.isSafeInteger) || stock < 0 || sold < 0 || version < 0 ||
     stock < Number(product.reservedStock ?? 0)) throw new Error(`Invalid inventory transition for ${product.id}`);
   // A different timestamp prevents deleting and putting the same index item
   // twice in one Dynamo transaction, including rapid sequential writes.

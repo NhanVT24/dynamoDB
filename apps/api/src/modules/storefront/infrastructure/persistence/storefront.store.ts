@@ -7,7 +7,7 @@ import { getAwaitingPaymentOrder, listOrderItems } from "./order-record.store.js
 import type { OrderLifecycleStatus } from "../../domain/order-refund.js";
 export { getAwaitingPaymentOrder, listOrderItems } from "./order-record.store.js";
 import crypto from "node:crypto";
-import { GetItemCommand, PutItemCommand, QueryCommand, ScanCommand, TransactWriteItemsCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import { GetItemCommand, PutItemCommand, ScanCommand, TransactWriteItemsCommand, UpdateItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../../../config/env.js";
 import { rawDb } from "../../../../database/dynamodb/client.js";
