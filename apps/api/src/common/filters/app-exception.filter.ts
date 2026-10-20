@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import { ZodError } from "zod";
 import { ProductMutationError } from "../../modules/shopping/application/product-mutation.error.js";
+import { OrderActionError } from "../../modules/storefront/application/order-action.error.js";
 
 @Catch()
 export class AppExceptionFilter implements ExceptionFilter {
@@ -62,6 +63,16 @@ export class AppExceptionFilter implements ExceptionFilter {
         message: "Invalid request",
         issues: (exception as ZodError).issues ?? (exception as { issues?: unknown[] }).issues
       });
+    }
+
+    if (exception instanceof OrderActionError) {
+      const mapping = {
+        NOT_FOUND: { statusCode: HttpStatus.NOT_FOUND, error: "Not Found" },
+        CONFLICT: { statusCode: HttpStatus.CONFLICT, error: "Conflict" },
+        INVALID_INPUT: { statusCode: HttpStatus.BAD_REQUEST, error: "Bad Request" }
+      } as const;
+      const mapped = mapping[exception.code];
+      return response.status(mapped.statusCode).send({ message: exception.message, error: mapped.error, statusCode: mapped.statusCode });
     }
 
     if (exception instanceof ProductMutationError) {

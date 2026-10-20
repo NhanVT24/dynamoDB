@@ -193,8 +193,8 @@ GET /api/storefront/products[/id]
 | File | Function chính | Công dụng |
 | --- | --- | --- |
 | `modules/storefront/products-public.controller.ts` | `listProducts`, `getProductById` | Public product endpoints. |
-| `modules/storefront/storefront.controller.ts` | `listProducts`, `getProductById` | Storefront HTTP endpoints. |
-| `modules/storefront/storefront.service.ts` | `listProducts`, `getProductById` | Parse public query, shape product data và ghép sale campaign đang active. |
+| `modules/storefront/storefront.controller.ts` | `createOrder`, `cancelOrder`, `refundOrder`, `refreshRefundStatus`, `listMyOrders` | HTTP API order/refund; use cases Phase 3 x? l? cancel/refund. |
+| `modules/storefront/storefront.service.ts` | `createOrder`, `processQueueRecords`, `finalizeWorkflowOrder`, `cancelOrder`, `refundOrder`, `refreshRefundStatus` | Gi? checkout/queue orchestration; cancel/refund l? facade g?i application use cases. |
 | `modules/storefront/storefront.repository.ts` | `listStorefrontProducts`, `getStorefrontProductById` | Lớp truy cập product dành cho storefront. |
 | `modules/sales/sales.repository.ts` | `listActiveSaleCampaigns` | Lấy campaign còn hiệu lực để tính giá hiển thị. |
 
@@ -213,7 +213,8 @@ POST /checkout/prepare
 | `modules/storefront/storefront.controller.ts` | `prepareCheckout`, `getCheckoutStatus`, `createCheckoutPaymentSession`, `cancelCheckout`, `createOrder`, `listMyOrders` | HTTP API checkout và order. |
 | `modules/storefront/storefront.service.ts` | `prepareCheckout`, `getCheckoutGateStatus`, `processCheckoutGateRecords`, `resolveCheckoutGate`, `finalizeQueuedOrder`, `precheckProducts`, `cancelCheckout` | Điều phối checkout, kiểm tra product, reserve stock, xử lý queue và finalization. |
 | `modules/storefront/storefront.repository.ts` | `createCheckoutGateRequest`, `createCheckoutReservations`, `createStorefrontOrder`, `updateCheckoutGateRequestStatus`, `listOrdersByCustomer` | Persist checkout gate, reservation và order trong DynamoDB. |
-| `entrypoints/lambda/queue/checkout-gate-worker.ts` | `handler` | AWS Lambda entrypoint cho SQS FIFO checkout queue. |
+| `entrypoints/lambda/queue/order-worker.ts` | `handler` | Lambda entrypoint cho order queue. |
+| `modules/storefront/application/` | `CancelOrder`, `RequestRefund`, `RefreshRefundStatus`, `ReconcilePendingRefunds` | Business orchestration ??c l?p HTTP/SDK; xem `docs/clean-architecture-phase-3.md`. |
 | `entrypoints/lambda/shared/queue-factory.ts` | `createQueueHandler` | Bootstrap Nest context và route SQS records đến Service tương ứng. |
 
 Checkout dùng queue để serialize các request tranh cùng tồn kho. Vì SQS có thể retry, các bước phải idempotent: cùng một message chạy lại không được tạo order hoặc trừ stock lần hai.

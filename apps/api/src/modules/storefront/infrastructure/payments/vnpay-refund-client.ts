@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { PaymentSessionRecord } from "./vnpay.repository.js";
+import type { PaymentSessionRecord } from "../../../vnpay/vnpay.repository.js";
 
 const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
 
