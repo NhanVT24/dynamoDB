@@ -38,3 +38,11 @@ export interface ProductChanges {
   weightGrams?: number;
   expiryDate?: string;
 }
+
+export interface ProductCounters extends Product {
+  readonly soldCount: number;
+}
+
+export type NewProductDetails = ProductChanges & Required<Pick<ProductChanges,
+  "name" | "category" | "brand" | "sku" | "stock" | "price" | "imageUrl" | "location" | "description"
+>>;

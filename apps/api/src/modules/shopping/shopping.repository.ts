@@ -1,31 +1,27 @@
-import { normalizeText, toProductRecord } from "./infrastructure/persistence/product.mapper.js";
+import { createProductRecord } from "./infrastructure/persistence/dynamo-product-creator.js";
+import { incrementProductRecord } from "./infrastructure/persistence/dynamo-product-counter-repository.js";
+import { deleteProductRecord } from "./infrastructure/persistence/dynamo-product-deleter.js";
+import { normalizeText } from "./infrastructure/persistence/product.mapper.js";
 import { updateProductRecord } from "./infrastructure/persistence/dynamo-product-write-repository.js";
-import crypto from "node:crypto";
 import {
-  DeleteItemCommand,
   GetItemCommand,
   QueryCommand,
   ScanCommand,
-  TransactWriteItemsCommand,
   UpdateItemCommand,
   type AttributeValue
 } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
-import { deletionAuditPut } from "../audit-log/audit-delete.js";
 import { keys } from "../../database/dynamodb/keys.js";
 import { getMockShoppingItem, listMockShoppingItems } from "./shopping.mock.js";
 import {
-  buildProductCategoryIndexKey,
   buildProductCategoryIndexPartitionKey,
-  isProductCategoryIndexRecord,
-  toProductCategoryIndexRecord
+  isProductCategoryIndexRecord
 } from "./indexes/product-category.index.js";
 import type { ProductRecord } from "./product.types.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
-const INCREMENTABLE_FIELDS = new Set(["stock", "soldCount"]);
 
 type DynamoKey = Record<string, AttributeValue>;
 type ShoppingFilters = {
@@ -443,45 +439,9 @@ async function querySearchUntilEnough(limit: number, cursor?: string, filters: S
   return { items: results, nextCursor: null };
 }
 
+// Compatibility for seed scripts; HTTP mutations use application use cases.
 export async function createShoppingItem(input: ProductRecord, ownerSub: string) {
-  const now = new Date().toISOString();
-  const item = toProductRecord(
-    {
-      ...input,
-      id: crypto.randomUUID(),
-      entityType: "PRODUCT",
-      ownerSub,
-      searchName: normalizeText(input.name),
-      // A new low-stock product has not been included in an inventory alert yet.
-      inventoryAlertSent: false,
-      version: 1,
-      createdAt: input.createdAt ?? now,
-      updatedAt: input.updatedAt ?? now
-    },
-    null
-  );
-
-  const productRecord = { ...keys.product(item.id), ...item };
-  await rawDb.send(new TransactWriteItemsCommand({
-    TransactItems: [
-      {
-        Put: {
-          TableName,
-          Item: toDynamoItem(productRecord),
-          ConditionExpression: "attribute_not_exists(PK)"
-        }
-      },
-      {
-        Put: {
-          TableName,
-          Item: toDynamoItem(toProductCategoryIndexRecord(productRecord)),
-          ConditionExpression: "attribute_not_exists(PK) AND attribute_not_exists(SK)"
-        }
-      }
-    ]
-  }));
-
-  return item;
+  return createProductRecord(input, ownerSub);
 }
 
 export async function getShoppingItem(id: string) {
@@ -495,89 +455,7 @@ export async function getShoppingItem(id: string) {
 }
 
 export async function incrementItemValue(id: string, field: string, incrementBy = 1, expectedOwnerSub?: string) {
-  if (!INCREMENTABLE_FIELDS.has(field)) {
-    throw new Error(`Field "${field}" is not allowed for increment.`);
-  }
-
-  const current = await getShoppingItem(id);
-  if (!current) {
-    const error = new Error("Product not found");
-    error.name = "ConditionalCheckFailedException";
-    throw error;
-  }
-
-  const nextValue = Math.max(0, Number(current[field] ?? 0) + incrementBy);
-  const nextRecord = toProductRecord(
-    {
-      [field]: nextValue,
-      updatedAt: new Date().toISOString()
-    },
-    current
-  );
-
-  const mergedRecord: ProductRecord = {
-    ...current,
-    [field]: nextValue,
-    status: nextRecord.status,
-    searchName: nextRecord.searchName,
-    updatedAt: nextRecord.updatedAt,
-    version: Number(current.version ?? 0) + 1,
-    ...(field === "stock" ? { inventoryAlertSent: false } : {})
-  };
-  delete mergedRecord.inventoryAlertSentAt;
-
-  await rawDb.send(new TransactWriteItemsCommand({
-    TransactItems: [
-      {
-        Update: {
-          TableName,
-          Key: toDynamoItem(keys.product(id)),
-          UpdateExpression: [
-            "SET #field = :fieldValue",
-            "#status = :status",
-            "#searchName = :searchName",
-            "updatedAt = :updatedAt",
-            "#version = #version + :one",
-            ...(field === "stock" ? ["#inventoryAlertSent = :inventoryAlertSent"] : [])
-          ].join(", ") + (field === "stock" ? " REMOVE inventoryAlertSentAt" : ""),
-          ConditionExpression: expectedOwnerSub
-            ? "attribute_exists(PK) AND #version = :expectedVersion AND ownerSub = :expectedOwnerSub"
-            : "attribute_exists(PK) AND #version = :expectedVersion",
-          ExpressionAttributeNames: {
-            "#field": field,
-            "#status": "status",
-            "#searchName": "searchName",
-            "#version": "version",
-            ...(field === "stock" ? { "#inventoryAlertSent": "inventoryAlertSent" } : {})
-          },
-          ExpressionAttributeValues: toDynamoItem({
-            ":fieldValue": nextValue,
-            ":status": nextRecord.status,
-            ":searchName": nextRecord.searchName,
-            ":updatedAt": nextRecord.updatedAt,
-            ":one": 1,
-            ":expectedVersion": current.version,
-            ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}),
-            ...(field === "stock" ? { ":inventoryAlertSent": false } : {})
-          })
-        }
-      },
-      {
-        Delete: {
-          TableName,
-          Key: toDynamoItem(buildProductCategoryIndexKey(current.category, current.id, current.updatedAt ?? current.createdAt))
-        }
-      },
-      {
-        Put: {
-          TableName,
-          Item: toDynamoItem(toProductCategoryIndexRecord({ ...keys.product(id), ...mergedRecord }))
-        }
-      }
-    ]
-  }));
-
-  return mergedRecord;
+  return incrementProductRecord(id, field, incrementBy, expectedOwnerSub);
 }
 
 export async function listShoppingItems(limit = 12, cursor?: string, filters: ShoppingFilters = {}) {
@@ -790,42 +668,7 @@ export async function updateShoppingItem(id: string, patch: ProductRecord, versi
   return updateProductRecord(id, patch, version, expectedOwnerSub);
 }
 
+// Compatibility for reseed scripts and audit callers.
 export async function deleteShoppingItem(id: string, expectedOwnerSub?: string) {
-  const current = await getShoppingItem(id);
-  if (!current) {
-    const error = new Error("Product not found");
-    error.name = "ConditionalCheckFailedException";
-    throw error;
-  }
-
-  const deleteCondition = expectedOwnerSub
-    ? "attribute_exists(PK) AND #version = :deleteVersion AND ownerSub = :expectedOwnerSub"
-    : "attribute_exists(PK) AND #version = :deleteVersion";
-  const deleteValues = toDynamoItem({ ":deleteVersion": current.version, ...(expectedOwnerSub ? { ":expectedOwnerSub": expectedOwnerSub } : {}) });
-  // The metadata-only marker suppresses the raw REMOVE; the transaction below
-  // emits the authoritative delete audit with its actor and exact snapshot.
-  await rawDb.send(new UpdateItemCommand({ TableName, Key: toDynamoItem(keys.product(id)),
-    UpdateExpression: "SET auditDeleteOutbox = :auditDeleteOutbox", ConditionExpression: deleteCondition,
-    ExpressionAttributeNames: { "#version": "version" },
-    ExpressionAttributeValues: { ...deleteValues, ":auditDeleteOutbox": { BOOL: true } } }));
-  await rawDb.send(new TransactWriteItemsCommand({
-    TransactItems: [
-      deletionAuditPut(TableName, toDynamoItem({ ...current, ...keys.product(id) })),
-      {
-        Delete: {
-          TableName,
-          Key: toDynamoItem(keys.product(id)),
-          ConditionExpression: deleteCondition,
-          ExpressionAttributeNames: { "#version": "version" },
-          ExpressionAttributeValues: deleteValues
-        }
-      },
-      {
-        Delete: {
-          TableName,
-          Key: toDynamoItem(buildProductCategoryIndexKey(current.category, current.id, current.updatedAt ?? current.createdAt))
-        }
-      }
-    ]
-  }));
+  return deleteProductRecord(id, expectedOwnerSub);
 }

@@ -1,5 +1,5 @@
-import { GetItemCommand, TransactWriteItemsCommand } from "@aws-sdk/client-dynamodb";
-import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
+import { readProductRecord, toDynamoItem, rethrowProductConflict } from "./product-record.store.js";
+import { TransactWriteItemsCommand } from "@aws-sdk/client-dynamodb";
 import { env } from "../../../../config/env.js";
 import { rawDb } from "../../../../database/dynamodb/client.js";
 import { keys } from "../../../../database/dynamodb/keys.js";
@@ -7,18 +7,9 @@ import { buildProductCategoryIndexKey, toProductCategoryIndexRecord } from "../.
 import type { ProductRecord } from "../../product.types.js";
 import type { ProductStatus } from "../../domain/product.js";
 import type { ProductWriteRepository } from "../../application/ports/product-write-repository.js";
-import { ProductUpdateError } from "../../application/update-product/product-update.error.js";
 import { normalizeText, toProductRecord, toProduct } from "./product.mapper.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
-const toDynamoItem = (item: Record<string, unknown>) => marshall(item, { removeUndefinedValues: true });
-
-async function readProductRecord(id: string): Promise<ProductRecord | null> {
-  const result = await rawDb.send(new GetItemCommand({
-    TableName, Key: toDynamoItem(keys.product(id)), ConsistentRead: true
-  }));
-  return result.Item ? unmarshall(result.Item) as ProductRecord : null;
-}
 
 export async function updateProductRecord(id: string, patch: ProductRecord, version: number, expectedOwnerSub?: string, status?: ProductStatus) {
   const current = await readProductRecord(id);
@@ -119,16 +110,6 @@ export async function updateProductRecord(id: string, patch: ProductRecord, vers
 }
 
 
-function isConditionalConflict(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const failure = error as { name?: string; CancellationReasons?: Array<{ Code?: string }> };
-  if (failure.name === "ConditionalCheckFailedException") return true;
-  // This transaction has one conditional operation, at position zero. Never
-  // turn throttling, transaction contention or validation errors into a 409.
-  return failure.name === "TransactionCanceledException" &&
-    failure.CancellationReasons?.[0]?.Code === "ConditionalCheckFailed";
-}
-
 export class DynamoProductWriteRepository implements ProductWriteRepository<ProductRecord> {
   async findById(id: string) {
     const record = await readProductRecord(id);
@@ -142,10 +123,7 @@ export class DynamoProductWriteRepository implements ProductWriteRepository<Prod
       );
       return { product: toProduct(record), representation: record };
     } catch (error) {
-      if (isConditionalConflict(error)) {
-        throw new ProductUpdateError("CONFLICT", "Record changed, missing, or condition failed");
-      }
-      throw error;
+      rethrowProductConflict(error, [0]);
     }
   }
 }

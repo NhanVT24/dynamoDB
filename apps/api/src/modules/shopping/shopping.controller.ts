@@ -98,7 +98,9 @@ export class ShoppingController {
       throw new ForbiddenException("Missing permission: products:create");
     }
     const input = createShoppingItemSchema.parse(rawBody);
-    return this.shoppingService.createShoppingItem(input, principal.subject);
+    // The preprocess schema requires category at runtime; make its presence
+    // explicit for Zod's inferred type under the project's strict:false config.
+    return this.shoppingService.createShoppingItem({ ...input, category: input.category }, principal);
   }
 
   @Patch(":id")
