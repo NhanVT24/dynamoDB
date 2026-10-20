@@ -7,7 +7,7 @@ import {
   Logger
 } from "@nestjs/common";
 import { ZodError } from "zod";
-import { ProductUpdateError } from "../../modules/shopping/application/update-product/product-update.error.js";
+import { ProductMutationError } from "../../modules/shopping/application/product-mutation.error.js";
 
 @Catch()
 export class AppExceptionFilter implements ExceptionFilter {
@@ -64,7 +64,7 @@ export class AppExceptionFilter implements ExceptionFilter {
       });
     }
 
-    if (exception instanceof ProductUpdateError) {
+    if (exception instanceof ProductMutationError) {
       if (exception.code === "CONFLICT") {
         return response.status(HttpStatus.CONFLICT).send({
           correlationId, message: "Record changed, missing, or condition failed"
