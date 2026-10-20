@@ -57,6 +57,15 @@ test("payments without an order still have an audit", () => {
   assert.equal(audit?.resourceType, "PAYMENT");
   assert.equal(audit?.parentResourceId, undefined);
 });
+
+test("order audit excludes stored signed payment links while preserving payment state", () => {
+  const audit = buildAuditLogRecord(event("ORDER#o1", "ORDER", { status: "awaiting_payment" },
+    { status: "paid", paymentUrl: "https://gateway.test/pay?vnp_SecureHash=private" }));
+  assert.ok(audit);
+  assert.equal(audit.changes.paymentUrl, undefined);
+  assert.ok(audit.changes.status);
+  assert.equal(JSON.stringify(audit).includes("vnp_SecureHash"), false);
+});
 test("raw deletes cannot inherit the last editor's identity", () => {
   const audit = buildAuditLogRecord(event("PRODUCT#p1", "DETAIL", { stock: 10, ...actor }));
   assert.equal(audit?.actor.id, "unknown");
