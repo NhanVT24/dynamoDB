@@ -4,7 +4,7 @@ import { test } from "node:test";
 import type { DynamoDBClient, TransactWriteItemsCommandInput } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { UpdateProduct } from "../src/modules/shopping/application/update-product/update-product.js";
-import { ProductUpdateError } from "../src/modules/shopping/application/update-product/product-update.error.js";
+import { ProductMutationError } from "../src/modules/shopping/application/product-mutation.error.js";
 import type { ProductWriteRepository } from "../src/modules/shopping/application/ports/product-write-repository.js";
 import type { InventoryStockAlert } from "../src/modules/shopping/application/ports/inventory-alert-publisher.js";
 import { deriveStockStatus } from "../src/modules/shopping/domain/stock-policy.js";
@@ -17,7 +17,7 @@ import { auditContext } from "../src/modules/audit-log/audit-context.js";
 const id = "10000000-0000-4000-8000-000000000001";
 const product: Product = { id, ownerId: "owner", name: "Product", sku: "SKU-1", stock: 20, status: "active", version: 1 };
 const command = { productId: id, changes: { stock: 5 }, expectedVersion: 1, actor: { subject: "owner", isAdmin: false } };
-const hasCode = (code: string) => (error: unknown) => error instanceof ProductUpdateError && error.code === code;
+const hasCode = (code: string) => (error: unknown) => error instanceof ProductMutationError && error.code === code;
 
 function fixture(current: Product | null = product) {
   const alerts: InventoryStockAlert[] = [];
