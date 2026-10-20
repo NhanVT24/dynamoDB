@@ -40,7 +40,7 @@ Mũi tên gọi runtime có thể đi ra adapter. Source dependency của applic
 | `apps/api/src/modules/shopping/domain/product.ts` | Projection nghiệp vụ cần cho update, editable fields và status types; không chứa PK/SK hoặc Cognito principal |
 | `domain/stock-policy.ts` | Suy ra `out_of_stock` khi stock <= 0, `low_stock` khi <= 10, còn lại `active` |
 | `application/update-product/update-product.ts` | Use case và command; owner/admin, version, stock validation, write và chuyển trạng thái cảnh báo |
-| `application/update-product/product-update.error.ts` | Lỗi application độc lập HTTP/AWS |
+| `application/product-mutation.error.ts` | Error model dùng chung từ Phase 2; alias Phase 1 đã được dọn trong Phase 3 |
 | `application/ports/product-write-repository.ts` | Contract đọc/ghi, atomicity, ownership, version, index và failure semantics |
 | `application/ports/inventory-alert-publisher.ts` | Contract phát inventory alert cho update |
 | `infrastructure/persistence/dynamo-product-write-repository.ts` | Strongly consistent read, transaction và chuyển conditional failure thành application conflict |
