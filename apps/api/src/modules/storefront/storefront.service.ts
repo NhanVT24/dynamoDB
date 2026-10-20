@@ -1,61 +1,27 @@
-import crypto from "node:crypto";
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { GetCheckoutStatus } from "./application/get-checkout-status/get-checkout-status.js";
+import { FinalizeOrder } from "./application/finalize-order/finalize-order.js";
+import { CreateCheckout } from "./application/create-checkout/create-checkout.js";
+import { CancelOrder } from "./application/cancel-order/cancel-order.js";
+import { RequestRefund } from "./application/request-refund/request-refund.js";
+import { RefreshRefundStatus } from "./application/refresh-refund-status/refresh-refund-status.js";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
-  logQueueBusinessEvent,
-  logQueueError,
   logQueueWarn
 } from "../../common/logging/queue-logger.js";
-import { env } from "../../config/env.js";
-import { publishEventBridgeEvent } from "../../integrations/eventbridge/publisher.js";
-import { sqsClient } from "../../integrations/sqs/client.js";
-import { sendOrderFailureEmail, sendRefundStatusEmail, type RefundEmailStatus } from "../../integrations/ses/order-mailer.js";
-import { ordersSenderEmail } from "../../integrations/ses/sender-config.js";
-import { queueOrderConfirmationEmail } from "../email-deliveries/order-confirmation-email-route.js";
-import { NotificationsService } from "../notifications/notifications.service.js";
 import { resolveSalePrice } from "../sales/sale-pricing.js";
 import { listActiveSaleCampaigns } from "../sales/sales.repository.js";
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
 import { getShoppingItem } from "../shopping/shopping.repository.js";
 import type { ProductRecord } from "../shopping/product.types.js";
-import { VnpayService } from "../vnpay/vnpay.service.js";
 import {
-  createAwaitingPaymentOrder,
-  attachPaymentTxnRef,
-  beginOrderRefund,
-  updateOrderRefund,
-  createStorefrontOrder,
   getAwaitingPaymentOrder,
   getOrderById,
-  getCheckoutGateRequestById,
-  isDynamoConditionalConflict,
-  releaseCheckoutGateReservation,
-  releaseReservedInventory,
-  type InventoryStockChange,
-  listCheckoutReservationsByRequestId,
   listOrderItems,
   listOrdersByCustomer,
-  listPendingRefundOrders,
-  transitionAwaitingPaymentOrder,
   listStorefrontProducts,
-  type CheckoutGateQueuePayload,
   type StorefrontOrderQueuePayload,
-  updateCheckoutGateRequestStatus,
-  waitForCheckoutRaceBarrier
 } from "./storefront.repository.js";
-import type { CreateStorefrontOrderInput, PrepareStorefrontCheckoutInput } from "./storefront.schema.js";
-import { getPaymentSessionByTxnRef } from "../vnpay/vnpay.repository.js";
-import { queryVnpayRefund, sendVnpayRefund } from "../vnpay/vnpay-refund.js";
-
-type PublicProductListResponse = {
-  items: PublicProductSummary[];
-  pageInfo: {
-    limit: number;
-    cursor: string | null;
-    nextCursor: string | null;
-    hasNextPage: boolean;
-  };
-};
+import type { CreateStorefrontOrderInput } from "./storefront.schema.js";
 
 type PublicProductSummary = {
   id: string;
@@ -107,25 +73,6 @@ type StorefrontQueueResult =
       itemCount: number;
       failureReason: string;
     };
-
-function normalizeOrderItems(items: Array<{ productId?: string; quantity: number }>) {
-  const merged = new Map<string, number>();
-
-  for (const item of items) {
-    const productId = String(item.productId ?? "").trim().replace(/^PRODUCT#/i, "");
-    const quantity = Number(item.quantity ?? 0);
-    if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
-      continue;
-    }
-
-    merged.set(productId, (merged.get(productId) ?? 0) + quantity);
-  }
-
-  return [...merged.entries()].map(([productId, quantity]): { productId: string; quantity: number } => ({
-    productId,
-    quantity
-  }));
-}
 
 function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T): T {
   const detail = payload.detail;
@@ -206,20 +153,8 @@ function toPublicProductDetail(item: ProductRecord, saleCampaigns = [] as Awaite
   };
 }
 
-function isInsufficientStockError(error: unknown) {
-  return error instanceof Error && error.message.startsWith("Insufficient stock for ");
-}
-
 function hasPhysicalStock(item: Record<string, unknown>) {
   return Number(item.stock ?? 0) > 0;
-}
-
-function shouldProcessCommerceQueuesInline() {
-  if (env.STOREFRONT_SYNC_QUEUE_PROCESSING) {
-    return true;
-  }
-
-  return Boolean(env.DYNAMODB_ENDPOINT) && process.env.NODE_ENV !== "production";
 }
 
 @Injectable()
@@ -227,27 +162,13 @@ export class StorefrontService {
   private readonly logger = new Logger(StorefrontService.name);
 
   constructor(
-    private readonly notificationsService: NotificationsService,
-    private readonly vnpayService: VnpayService
+    @Inject(CancelOrder) private readonly cancelOrderUseCase: CancelOrder,
+    @Inject(RequestRefund) private readonly requestRefundUseCase: RequestRefund,
+    @Inject(RefreshRefundStatus) private readonly refreshRefundUseCase: RefreshRefundStatus,
+    @Inject(CreateCheckout) private readonly createCheckout: CreateCheckout,
+    @Inject(FinalizeOrder) private readonly finalizeOrder: FinalizeOrder,
+    @Inject(GetCheckoutStatus) private readonly checkoutStatus: GetCheckoutStatus
   ) {}
-
-  private async notifyRefundStatus(input: { email: string; orderId: string; totalAmount: number; status: RefundEmailStatus }) {
-    if (!ordersSenderEmail()) {
-      this.logger.warn(`[refund-email] skipped orderId=${input.orderId} status=${input.status} reason=ses_not_configured`);
-      return;
-    }
-    try {
-      await sendRefundStatusEmail({
-        toEmail: input.email,
-        orderId: input.orderId,
-        totalAmount: input.totalAmount,
-        status: input.status
-      });
-      this.logger.log(`[refund-email] sent orderId=${input.orderId} status=${input.status}`);
-    } catch (error) {
-      this.logger.warn(`[refund-email] failed orderId=${input.orderId} status=${input.status} error=${error instanceof Error ? error.message : "unknown"}`);
-    }
-  }
 
   async listProducts(rawQuery: Record<string, unknown>) {
     const query = shoppingListQuerySchema.parse(rawQuery);
@@ -278,19 +199,7 @@ export class StorefrontService {
     return shaped;
   }
 
-  async getOrderStatus(email: string, orderId: string) {
-    let order = await getAwaitingPaymentOrder(orderId);
-    if (!order || order.customerEmail !== email) throw new NotFoundException("Order not found.");
-    if (order.status === "awaiting_payment" && order.lockedUntil && order.lockedUntil <= new Date().toISOString()) {
-      const outcome = await transitionAwaitingPaymentOrder({
-        orderId,
-        expectedCustomerEmail: email,
-        status: "expired"
-      });
-      order = outcome.order;
-    }
-    return { orderId, status: order.status, lockedUntil: order.lockedUntil };
-  }
+  getOrderStatus(email: string, orderId: string) { return this.checkoutStatus.execute(email, orderId); }
 
   async getOrderDetails(email: string, orderId: string) {
     const normalizedOrderId = orderId.trim();
@@ -336,193 +245,20 @@ export class StorefrontService {
     };
   }
 
-  async createOrder(email: string, input: CreateStorefrontOrderInput) {
-    const normalizedItems = normalizeOrderItems(input.items);
-    const orderId = input.requestId?.trim() || crypto.randomUUID();
-    const created = await createAwaitingPaymentOrder({
-      orderId,
-      email,
-      items: normalizedItems,
-      holdSeconds: 5 * 60
-    });
-
-    let payment: Awaited<ReturnType<VnpayService["createWorkflowPaymentUrl"]>>;
-    try {
-      payment = await this.vnpayService.createWorkflowPaymentUrl({
-        email,
-        items: created.items.map((item) => ({ productId: item.productId, quantity: item.quantity })),
-        orderId,
-        orderDescription: `Payment for order ${orderId}`,
-        bankCode: input.bankCode,
-        locale: input.locale,
-        skipStockValidation: true,
-        expiresAt: created.order.lockedUntil,
-        amount: created.order.totalAmount
-      });
-    } catch (error) {
-      await transitionAwaitingPaymentOrder({
-        orderId,
-        expectedCustomerEmail: email,
-        status: "payment_failed"
-      });
-      throw error;
-    }
-
-    await attachPaymentTxnRef(orderId, payment.txnRef);
-
-    this.logger.log(`[order] created orderId=${orderId} customer=${email} status=awaiting_payment itemCount=${created.items.length}`);
-    return {
-      success: true,
-      orderId,
-      status: created.order.status,
-      lockedUntil: created.order.lockedUntil,
-      totalAmount: created.order.totalAmount,
-      items: created.items,
-      paymentUrl: payment.paymentUrl
-    };
+  createOrder(email: string, input: CreateStorefrontOrderInput) {
+    return this.createCheckout.execute(email, { ...input,
+      items: input.items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity })) });
   }
 
-  async cancelOrder(email: string, orderId: string) {
-    const order = await getAwaitingPaymentOrder(orderId);
-    if (!order || order.customerEmail !== email) {
-      throw new NotFoundException("Order not found.");
-    }
+  cancelOrder(email: string, orderId: string) { return this.cancelOrderUseCase.execute(email, orderId); }
 
-    const outcome = await transitionAwaitingPaymentOrder({
-      orderId,
-      expectedCustomerEmail: email,
-      status: "cancelled"
-    });
-    return {
-      success: true,
-      orderId,
-      status: outcome.order.status,
-      released: outcome.changed
-    };
-  }
+  refundOrder(email: string, orderId: string) { return this.requestRefundUseCase.execute(email, orderId); }
 
-  async refundOrder(email: string, orderId: string) {
-    const order = await getAwaitingPaymentOrder(orderId);
-    if (!order || order.customerEmail !== email) throw new NotFoundException("Order not found.");
-    if (order.refundRequestId) {
-      return { orderId, status: order.status, refundStatus: order.refundStatus };
-    }
-    const paidAt = order.paymentConfirmedAt ? Date.parse(order.paymentConfirmedAt) : NaN;
-    if (order.status !== "paid" || !order.paymentTxnRef || !Number.isFinite(paidAt)
-      || Date.now() >= paidAt + 5 * 60 * 1000) {
-      throw new ConflictException("Refund is available for 5 minutes after confirmed payment.");
-    }
-    const session = await getPaymentSessionByTxnRef(order.paymentTxnRef);
-    if (!session || session.status !== "success" || session.amount !== order.totalAmount) {
-      throw new ConflictException("Payment details are not ready for refund.");
-    }
-    const requestId = crypto.randomBytes(16).toString("hex");
-    const config = this.vnpayService.getPaymentConfig();
-    if (new URL(config.vnpayPaymentUrl).hostname !== "sandbox.vnpayment.vn"
-      && (!config.vnpayTransactionUrl || !config.vnpayMerchantIp)) {
-      throw new ConflictException("VNPAY refund endpoint is not configured.");
-    }
-    try {
-      await beginOrderRefund(orderId, order.paymentConfirmedAt!, requestId);
-    } catch (error) {
-      if (isDynamoConditionalConflict(error)) throw new ConflictException("Refund already requested or order changed.");
-      throw error;
-    }
-    try {
-      const result = await sendVnpayRefund({
-        session, requestId, orderId, secret: config.vnpayHashSecret,
-        tmnCode: config.vnpayTmnCode, paymentUrl: config.vnpayPaymentUrl,
-        transactionUrl: config.vnpayTransactionUrl, merchantIp: config.vnpayMerchantIp
-      });
-      const status = result.responseCode === "00" && result.transactionStatus === "06"
-        ? "refund_sent"
-        : result.transactionStatus === "09" || ["91", "95"].includes(result.responseCode)
-          ? "refund_rejected" : "refund_pending";
-      await updateOrderRefund({ orderId, requestId, status, gatewayStatus: result.transactionStatus,
-        transactionNo: result.transactionNo });
-      await this.notifyRefundStatus({ email, orderId, totalAmount: order.totalAmount, status });
-      return { orderId, status, refundStatus: result.transactionStatus };
-    } catch (error) {
-      this.logger.error(`[refund] status_unknown orderId=${orderId} requestId=${requestId} error=${error instanceof Error ? error.message : "unknown"}`);
-      const current = await getAwaitingPaymentOrder(orderId);
-      if (current?.status === "refund_pending") {
-        await this.notifyRefundStatus({ email, orderId, totalAmount: order.totalAmount, status: "refund_pending" });
-      }
-      return { orderId, status: current?.status ?? "refund_pending", refundStatus: current?.refundStatus ?? "unknown" };
-    }
-  }
-
-  async refreshRefundStatus(email: string, orderId: string) {
-    const order = await getAwaitingPaymentOrder(orderId);
-    if (!order || order.customerEmail !== email) throw new NotFoundException("Order not found.");
-    if (!order.refundRequestId || !order.paymentTxnRef) throw new ConflictException("No refund request for this order.");
-    if (order.status === "refund_sent" || order.status === "refund_rejected") {
-      return { orderId, status: order.status, refundStatus: order.refundStatus };
-    }
-    const session = await getPaymentSessionByTxnRef(order.paymentTxnRef);
-    if (!session || session.status !== "success") throw new ConflictException("Payment session not found.");
-    try {
-      const config = this.vnpayService.getPaymentConfig();
-      const result = await queryVnpayRefund({ session, refundTransactionNo: order.refundTransactionNo,
-        secret: config.vnpayHashSecret,
-        tmnCode: config.vnpayTmnCode, paymentUrl: config.vnpayPaymentUrl,
-        transactionUrl: config.vnpayTransactionUrl, merchantIp: config.vnpayMerchantIp });
-      if (result?.transactionStatus === "06" || result?.transactionStatus === "09") {
-        const status = result.transactionStatus === "06" ? "refund_sent" : "refund_rejected";
-        await updateOrderRefund({ orderId, requestId: order.refundRequestId, status,
-          gatewayStatus: result.transactionStatus, transactionNo: result.transactionNo });
-        await this.notifyRefundStatus({ email, orderId, totalAmount: order.totalAmount, status });
-        return { orderId, status, refundStatus: result.transactionStatus };
-      }
-    } catch (error) {
-      this.logger.warn(`[refund] query_failed orderId=${orderId} error=${error instanceof Error ? error.message : "unknown"}`);
-    }
-    const current = await getAwaitingPaymentOrder(orderId);
-    return { orderId, status: current?.status ?? "refund_pending", refundStatus: current?.refundStatus ?? order.refundStatus };
-  }
-
-  /** Server-side fallback for when the customer closes the browser while a
-   * VNPay refund remains pending. Terminal transitions remain conditional on
-   * refundRequestId, so concurrent browser polling is safe. */
-  async reconcilePendingRefunds(limit = 50) {
-    const orders = await listPendingRefundOrders(limit);
-    let resolved = 0;
-    let failed = 0;
-    const config = this.vnpayService.getPaymentConfig();
-
-    for (const order of orders) {
-      try {
-        if (!order.refundRequestId || !order.paymentTxnRef) continue;
-        const session = await getPaymentSessionByTxnRef(order.paymentTxnRef);
-        if (!session || session.status !== "success") {
-          failed += 1;
-          this.logger.warn(`[refund-reconcile] missing_payment orderId=${order.PK}`);
-          continue;
-        }
-        const result = await queryVnpayRefund({
-          session, refundTransactionNo: order.refundTransactionNo,
-          secret: config.vnpayHashSecret, tmnCode: config.vnpayTmnCode,
-          paymentUrl: config.vnpayPaymentUrl, transactionUrl: config.vnpayTransactionUrl,
-          merchantIp: config.vnpayMerchantIp
-        });
-        if (result?.transactionStatus !== "06" && result?.transactionStatus !== "09") continue;
-        const orderId = order.PK.replace(/^ORDER#/, "");
-        const status = result.transactionStatus === "06" ? "refund_sent" : "refund_rejected";
-        await updateOrderRefund({ orderId, requestId: order.refundRequestId, status,
-          gatewayStatus: result.transactionStatus, transactionNo: result.transactionNo });
-        await this.notifyRefundStatus({ email: order.customerEmail, orderId, totalAmount: order.totalAmount, status });
-        resolved += 1;
-      } catch (error) {
-        failed += 1;
-        this.logger.warn(`[refund-reconcile] query_failed orderId=${order.PK} error=${error instanceof Error ? error.message : "unknown"}`);
-      }
-    }
-    return { checked: orders.length, resolved, failed };
-  }
+  refreshRefundStatus(email: string, orderId: string) { return this.refreshRefundUseCase.execute(email, orderId); }
 
   async processQueueRecords(
     records: Array<{ body?: string; messageId?: string }>,
-    options?: { queueName?: string; workerName?: string }
+    _options?: { queueName?: string; workerName?: string }
   ) {
     const settled = await Promise.allSettled(records.map(async (record) => ({
       messageId: String(record.messageId ?? ""),
@@ -578,263 +314,7 @@ export class StorefrontService {
     return this.finalizeQueuedOrder(payload.email, payload.items, payload.requestId);
   }
 
-  private async finalizeQueuedOrder(
-    email: string,
-    items: CreateStorefrontOrderInput["items"],
-    requestId?: string
-  ): Promise<StorefrontQueueResult> {
-    const normalizedItems = normalizeOrderItems(items);
-    try {
-      const { order, stockChanges } = await createStorefrontOrder({ email, items: normalizedItems });
-      this.logger.log(`[dynamo-order] created orderId=${order.id} requestId=${requestId ?? ""} customer=${email} status=${order.status} totalAmount=${order.totalAmount} itemCount=${order.items.length}`);
-      await this.publishInventoryAlertsFromOrder(stockChanges, email);
-
-      await this.notificationsService.createPendingNotification({
-        email,
-        channel: "system",
-        title: "order is queued for processing",
-        message: `order ${order.id} has been added to the processing queue.`,
-        metadata: {
-          requestId: requestId ?? "",
-          orderId: order.id,
-          totalAmount: order.totalAmount,
-          itemCount: order.items.length
-        }
-      });
-
-      const emailRoute = await queueOrderConfirmationEmail({
-        toEmail: email,
-        orderId: order.id,
-        totalAmount: order.totalAmount,
-        createdAt: order.createdAt,
-        items: order.items.map((item) => ({
-          productName: item.productName,
-          quantity: item.quantity,
-          unitPrice: item.price,
-          originalUnitPrice: item.originalUnitPrice,
-          lineTotal: item.lineTotal
-        }))
-      });
-      this.logger.log(`[email-route] order_confirmation_${emailRoute.status} orderId=${order.id} emailJobId=${emailRoute.emailJobId}`);
-
-      await this.notificationsService.publishAuditLog({
-        eventType: "storefront.order.created",
-        email,
-        resourceId: order.id,
-        metadata: {
-          totalAmount: order.totalAmount,
-          itemCount: order.items.length,
-          status: order.status,
-          requestId: requestId ?? ""
-        }
-      });
-
-      await this.publishCommerceLifecycleEvent({
-        detailType: "storefront.order.succeeded",
-        detail: {
-          type: "storefront.order.succeeded",
-          requestId: requestId ?? "",
-          orderId: order.id,
-          customer: email,
-          totalAmount: order.totalAmount,
-          itemCount: order.items.length,
-          status: order.status,
-          createdAt: order.createdAt
-        }
-      });
-      logQueueBusinessEvent(this.logger, {
-        queue: "storefrontOrders",
-        eventType: "storefront.order.requested",
-        status: "processed",
-        requestId: requestId ?? "",
-        orderId: order.id
-      });
-      return {
-        type: "storefront.order.succeeded",
-        outcome: "success",
-        requestId: requestId ?? "",
-        orderId: order.id,
-        customer: email,
-        status: "pending",
-        totalAmount: order.totalAmount,
-        itemCount: order.items.length
-      };
-    } catch (error) {
-      if (isInsufficientStockError(error)) {
-        const failureReason = "Payment is failed due to insufficient stock for one or more items in your order. Please review your cart and try again.";
-        this.logger.warn(
-          `[dynamo-stock] insufficient_after_queue requestId=${requestId ?? ""} customer=${email} reason=insufficient_stock error=${error.message}`
-        );
-
-        if (ordersSenderEmail()) {
-          try {
-            await sendOrderFailureEmail({
-              toEmail: email,
-              requestId,
-              failureReason,
-              items: await Promise.all(normalizedItems.map(async (item) => {
-                const product = await getShoppingItem(item.productId);
-                return {
-                  productId: item.productId,
-                  productName: product?.name ? String(product.name) : undefined,
-                  quantity: item.quantity
-                };
-              }))
-            });
-            this.logger.log(`[mail-ses] order_failure_sent requestId=${requestId ?? ""} customer=${email}`);
-          } catch (mailError) {
-            this.logger.warn(
-              `[mail-ses] order_failure_failed requestId=${requestId ?? ""} customer=${email} error=${mailError instanceof Error ? mailError.message : "unknown"}`
-            );
-          }
-        }
-
-        await this.notificationsService.createPendingNotification({
-          email,
-          channel: "system",
-          title: "Payment Failed",
-          message: failureReason,
-          metadata: {
-            requestId: requestId ?? "",
-            itemCount: normalizedItems.length,
-            failureCode: "insufficient_stock",
-            failureReason
-          }
-        });
-
-        await this.notificationsService.publishAuditLog({
-          eventType: "storefront.order.failed",
-          email,
-          resourceId: requestId ?? "",
-          metadata: {
-            status: "failed",
-            itemCount: normalizedItems.length,
-            requestId: requestId ?? "",
-            failureCode: "insufficient_stock",
-            failureReason
-          }
-        });
-
-        await this.publishCommerceLifecycleEvent({
-          detailType: "storefront.order.failed",
-          detail: {
-            type: "storefront.order.failed",
-            requestId: requestId ?? "",
-            customer: email,
-            itemCount: normalizedItems.length,
-            failureReason,
-            failureCode: "insufficient_stock",
-            createdAt: new Date().toISOString()
-          }
-        });
-
-        return {
-          type: "storefront.order.failed",
-          outcome: "failed",
-          requestId: requestId ?? "",
-          orderId: "",
-          customer: email,
-          status: "failed",
-          totalAmount: 0,
-          itemCount: normalizedItems.length,
-          failureReason
-        };
-      }
-
-      throw error;
-    }
-  }
-
-  private async ensureCheckoutGateCanProceedToPayment(gate: NonNullable<Awaited<ReturnType<typeof getCheckoutGateRequestById>>>) {
-    const lockedUntilMs = new Date(String(gate.lockedUntil ?? "")).getTime();
-    if (!Number.isFinite(lockedUntilMs) || lockedUntilMs <= Date.now()) {
-      await releaseCheckoutGateReservation({
-        requestId: gate.requestId,
-        message: "Checkout reservation expired before payment could start.",
-        failureCode: "checkout_reservation_expired",
-        status: "expired"
-      });
-      throw new ConflictException("Checkout reservation expired. Please start checkout again.");
-    }
-
-    const reservations = (await listCheckoutReservationsByRequestId(gate.requestId))
-      .filter((reservation) => reservation.status === "reserved");
-    const reservationByProductId = new Map(reservations.map((reservation) => [reservation.productId, reservation]));
-
-    for (const item of normalizeOrderItems(gate.items)) {
-      const reservation = reservationByProductId.get(item.productId);
-      if (!reservation || Number(reservation.quantity ?? 0) < item.quantity) {
-        await releaseCheckoutGateReservation({
-          requestId: gate.requestId,
-          message: "Checkout reservation is no longer available.",
-          failureCode: "checkout_reservation_lost"
-        });
-        throw new ConflictException("Checkout reservation is no longer available. Please start checkout again.");
-      }
-
-      const product = await getShoppingItem(item.productId);
-      const stock = Number(product?.stock ?? 0);
-      const reservedStock = Number(product?.reservedStock ?? 0);
-      if (!product || stock < item.quantity || reservedStock < item.quantity) {
-        await releaseCheckoutGateReservation({
-          requestId: gate.requestId,
-          message: "Product stock changed before payment could start.",
-          failureCode: "checkout_stock_changed"
-        });
-        throw new ConflictException("Product stock changed before payment could start. Please review your cart.");
-      }
-    }
-  }
-
-  private async precheckProducts(email: string, items: CreateStorefrontOrderInput["items"]) {
-    for (const item of items) {
-      this.logger.log(`[dynamo-product] precheck_begin customer=${email} productId=${item.productId} quantity=${item.quantity}`);
-      const product = await getShoppingItem(item.productId);
-
-      if (!product) {
-        this.logger.warn(`[dynamo-product] missing customer=${email} productId=${item.productId}`);
-        throw new NotFoundException(`Không tìm thấy sản phẩm ${item.productId}.`);
-      }
-      this.logger.log(`[dynamo-product] precheck_found customer=${email} productId=${item.productId} quantity=${item.quantity} stock=${Number(product.stock ?? 0)} status=${String(product.status ?? "")} version=${Number(product.version ?? 0)}`);
-    }
-  }
-
-  private async publishCommerceLifecycleEvent(input: {
-    detailType: "storefront.order.succeeded" | "storefront.order.failed";
-    detail: Record<string, unknown>;
-  }) {
-    if (!env.EVENTBRIDGE_COMMERCE_BUS_NAME) {
-      this.logger.warn(`[eventbridge-commerce] lifecycle_disabled detailType=${input.detailType}`);
-      return;
-    }
-
-    const published = await publishEventBridgeEvent({
-      busName: env.EVENTBRIDGE_COMMERCE_BUS_NAME,
-      source: "supermarket.commerce",
-      detailType: input.detailType,
-      detail: input.detail
-    });
-
-    this.logger.log(`[eventbridge-commerce] lifecycle_published detailType=${input.detailType} bus=${published.eventBusName} eventId=${published.eventId}`);
-  }
-
-  private async publishInventoryAlertsFromOrder(changes: InventoryStockChange[], email: string) {
-    for (const change of changes) {
-      if ((change.status !== "low_stock" && change.status !== "out_of_stock") || change.previousStatus === change.status) {
-        continue;
-      }
-
-      await this.notificationsService.publishInventoryStockAlert({
-        productId: change.productId,
-        productName: change.productName,
-        sku: change.sku,
-        stock: change.stock,
-        previousStock: change.previousStock,
-        status: change.status,
-        previousStatus: change.previousStatus,
-        source: "storefront.order",
-        changedBy: email
-      });
-    }
+  private finalizeQueuedOrder(email: string, items: CreateStorefrontOrderInput["items"], requestId?: string): Promise<StorefrontQueueResult> {
+    return this.finalizeOrder.execute(email, items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity })), requestId);
   }
 }

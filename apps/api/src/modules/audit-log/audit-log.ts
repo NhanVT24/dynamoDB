@@ -79,6 +79,7 @@ export const auditFieldDenylist = [
   "refreshToken",
   "accessToken",
   "idToken",
+  "paymentUrl",
   "otpSecret",
   "secret",
   "hash",
