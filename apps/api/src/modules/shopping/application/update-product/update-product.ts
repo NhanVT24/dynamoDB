@@ -3,13 +3,14 @@ import { deriveStockStatus } from "../../domain/stock-policy.js";
 import type { InventoryAlertPublisher } from "../ports/inventory-alert-publisher.js";
 import type { ProductWriteRepository } from "../ports/product-write-repository.js";
 import { ProductUpdateError } from "./product-update.error.js";
+import { assertCanManageProduct, type ProductActor } from "../product-access.js";
 
 export interface UpdateProductCommand {
   readonly productId: string;
   readonly changes: ProductChanges;
   readonly expectedVersion: number;
   // This actor must be constructed from an authenticated principal by the caller.
-  readonly actor: { readonly subject: string; readonly isAdmin: boolean };
+  readonly actor: ProductActor;
 }
 
 export class UpdateProduct<TResult> {
@@ -28,10 +29,7 @@ export class UpdateProduct<TResult> {
     }
 
     const current = await this.products.findById(productId);
-    if (!current) throw new ProductUpdateError("NOT_FOUND", "Product not found");
-    if (!actor.isAdmin && current.ownerId !== actor.subject) {
-      throw new ProductUpdateError("FORBIDDEN", "You can only modify products that you created.");
-    }
+    assertCanManageProduct(current, actor);
     if (current.version !== expectedVersion) {
       throw new ProductUpdateError("CONFLICT", "Record changed, missing, or condition failed");
     }

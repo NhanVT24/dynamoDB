@@ -6,7 +6,7 @@ export interface InventoryStockAlert {
   previousStock: number;
   status: "low_stock" | "out_of_stock";
   previousStatus: string;
-  source: "admin.update";
+  source: "admin.update" | "admin.increment";
 }
 
 export interface InventoryAlertPublisher {

@@ -1,14 +1,10 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type { CognitoPrincipal } from "../../common/auth/cognito-principal.js";
-import { NotificationsService } from "../notifications/notifications.service.js";
 import {
-  createShoppingItem,
-  deleteShoppingItem,
   getShoppingItemsPageCursor,
   getMockShoppingItem,
   getShoppingItem,
   listAllShoppingItems,
-  incrementItemValue,
   listMockShoppingItems,
   listShoppingItems
 } from "./shopping.repository.js";
@@ -20,12 +16,19 @@ import {
 import type { ProductRecord } from "./product.types.js";
 import type { ProductChanges } from "./domain/product.js";
 import { UpdateProduct } from "./application/update-product/update-product.js";
+import { IncrementProductField } from "./application/increment-product-field/increment-product-field.js";
+import { CreateProduct } from "./application/create-product/create-product.js";
+import { DeleteProduct } from "./application/delete-product/delete-product.js";
+import type { NewProductDetails } from "./domain/product.js";
+import type { ProductCounterField } from "./domain/counter-policy.js";
 
 @Injectable()
 export class ShoppingService {
   constructor(
-    private readonly notificationsService: NotificationsService,
-    @Inject(UpdateProduct) private readonly updateProduct: UpdateProduct<ProductRecord>
+    @Inject(UpdateProduct) private readonly updateProduct: UpdateProduct<ProductRecord>,
+    @Inject(IncrementProductField) private readonly incrementProduct: IncrementProductField<ProductRecord>,
+    @Inject(CreateProduct) private readonly createProduct: CreateProduct<ProductRecord>,
+    @Inject(DeleteProduct) private readonly deleteProduct: DeleteProduct
   ) {}
 
   listDemoShoppingItems() {
@@ -84,8 +87,9 @@ export class ShoppingService {
     return getShoppingItem(id);
   }
 
-  createShoppingItem(input: ProductRecord, ownerSub: string) {
-    return createShoppingItem(input, ownerSub);
+  createShoppingItem(input: NewProductDetails, principal: CognitoPrincipal) {
+    return this.createProduct.execute({ details: input,
+      actor: { subject: principal.subject, isAdmin: principal.role === "admin" } });
   }
 
   async listOwnedShoppingItems(ownerSub: string) {
@@ -105,55 +109,13 @@ export class ShoppingService {
     });
   }
 
-  async incrementShoppingItemField(id: string, field: string, incrementBy: number, principal: CognitoPrincipal) {
-    const current = await getShoppingItem(id);
-    this.assertCanManageProduct(current, principal);
-    const updated = await incrementItemValue(id, field, incrementBy, principal.role === "admin" ? undefined : principal.subject);
-    await this.publishInventoryAlertIfNeeded(current, updated, "admin.increment");
-    return updated;
+  async incrementShoppingItemField(id: string, field: ProductCounterField, incrementBy: number, principal: CognitoPrincipal) {
+    return this.incrementProduct.execute({ productId: id, field, incrementBy,
+      actor: { subject: principal.subject, isAdmin: principal.role === "admin" } });
   }
 
   async deleteShoppingItem(id: string, principal: CognitoPrincipal) {
-    const current = await getShoppingItem(id);
-    this.assertCanManageProduct(current, principal);
-    return deleteShoppingItem(id, principal.role === "admin" ? undefined : principal.subject);
-  }
-
-  private assertCanManageProduct(product: ProductRecord | null, principal: CognitoPrincipal) {
-    if (!product) throw new NotFoundException("Product not found");
-    if (principal.role !== "admin" && String(product.ownerSub ?? "") !== principal.subject) {
-      throw new ForbiddenException("You can only modify products that you created.");
-    }
-  }
-
-  private async publishInventoryAlertIfNeeded(
-    current: ProductRecord | null,
-    updated: ProductRecord | null,
-    source: "admin.update" | "admin.increment"
-  ) {
-    if (!updated) {
-      return;
-    }
-
-    const nextStatus = String(updated.status ?? "");
-    if (nextStatus !== "low_stock" && nextStatus !== "out_of_stock") {
-      return;
-    }
-
-    const previousStatus = String(current?.status ?? "");
-    if (previousStatus === nextStatus) {
-      return;
-    }
-
-    await this.notificationsService.publishInventoryStockAlert({
-      productId: String(updated.id ?? ""),
-      productName: String(updated.name ?? ""),
-      sku: updated.sku ? String(updated.sku) : undefined,
-      stock: Number(updated.stock ?? 0),
-      previousStock: Number(current?.stock ?? 0),
-      status: nextStatus,
-      previousStatus,
-      source
-    });
+    return this.deleteProduct.execute({ productId: id,
+      actor: { subject: principal.subject, isAdmin: principal.role === "admin" } });
   }
 }

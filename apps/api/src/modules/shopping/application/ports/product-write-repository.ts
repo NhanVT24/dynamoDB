@@ -9,7 +9,7 @@ export interface ProductWriteRepository<TResult> {
 
   /**
    * Atomically check existence, expectedVersion and (when supplied) ownership;
-   * update the product AND its category index, increment version and reset alert
+   * update the product AND its dependent views, increment version and reset alert
    * metadata when stock changes. Conditional failure is ProductUpdateError(CONFLICT).
    * Infrastructure failures must propagate, never be classified as conflicts.
    */
