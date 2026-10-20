@@ -113,8 +113,8 @@ Khi retry cần đọc/authorize lại; không áp dụng lại snapshot cũ sau
 
 - ProductMutationError dùng chung: INVALID_INPUT, NOT_FOUND, FORBIDDEN, CONFLICT.
 - AppExceptionFilter map sang 400/404/403/409; lỗi infrastructure khác vẫn 500.
-- ProductUpdateError của Phase 1 được giữ dưới dạng alias cùng constructor để các
-  caller/test cũ tiếp tục dùng instanceof. Tên error trong logs nay là ProductMutationError.
+- Phase 2 giữ ProductUpdateError dưới dạng alias; Phase 3 đã chuyển hết caller/test
+  sang ProductMutationError và xóa alias không còn dùng. Tên error trong logs là ProductMutationError.
 - Conditional transaction errors được xét theo đúng vị trí business operation:
   create 0/1, increment/update 0, delete 1. Collision ở audit-event Put không bị nhầm
   thành stale product conflict. Network/throttle/validation/contention vẫn giữ lỗi gốc.

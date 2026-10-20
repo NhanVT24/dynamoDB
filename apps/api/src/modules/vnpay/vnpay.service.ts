@@ -1,32 +1,22 @@
-import crypto from "node:crypto";
+import { CreatePayment } from "./application/create-payment.js";
+import { PaymentProcessing } from "./application/payment-processing.js";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   logQueueBusinessEvent,
   logQueueWarn
 } from "../../common/logging/queue-logger.js";
 import { RuntimeConfigService } from "../../config/runtime-config.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
-import { getShoppingItem } from "../shopping/shopping.repository.js";
 import {
-  getAwaitingPaymentOrder,
-  transitionAwaitingPaymentOrder
-} from "../storefront/storefront.repository.js";
-import {
-  createPaymentSession,
   getPaymentSessionByTxnRef,
-  listUnenqueuedFinalizedPaymentSessions,
   markPaymentEventEnqueued,
-  updatePaymentSessionStatus,
-  type PaymentSessionRecord
 } from "./vnpay.repository.js";
-import { serializeVnpayParams, signVnpayParams, verifyVnpaySignature } from "./vnpay-signature.js";
+import { verifyVnpaySignature } from "./vnpay-signature.js";
 import type { CreateVnpayFailureTestInput, CreateVnpayPaymentInput } from "./vnpay.schema.js";
 
 const PAYMENT_TIMEOUT_MINUTES = 5;
-const PAYMENT_TIMEOUT_MS = PAYMENT_TIMEOUT_MINUTES * 60 * 1000;
 const PAYMENT_TIMEOUT_MESSAGE = "Phiên thanh toán hoặc thời gian giữ hàng đã hết hạn.";
-const VIETNAM_UTC_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 type VnpayReturnPayload = {
   isValidSignature: boolean;
@@ -43,15 +33,6 @@ type VnpayReturnPayload = {
   bankCode: string;
   payDate: string;
 };
-
-function pad(value: number) {
-  return String(value).padStart(2, "0");
-}
-
-function formatVnpDate(date: Date) {
-  const vietnamDate = new Date(date.getTime() + VIETNAM_UTC_OFFSET_MS);
-  return `${vietnamDate.getUTCFullYear()}${pad(vietnamDate.getUTCMonth() + 1)}${pad(vietnamDate.getUTCDate())}${pad(vietnamDate.getUTCHours())}${pad(vietnamDate.getUTCMinutes())}${pad(vietnamDate.getUTCSeconds())}`;
-}
 
 function mapResponseCode(code: string) {
   if (code === "00") return "Thanh toán thành công.";
@@ -71,17 +52,15 @@ function isConditionalCheckFailedError(error: unknown) {
   return candidate?.name === "ConditionalCheckFailedException" || candidate?.code === "ConditionalCheckFailedException";
 }
 
-function extractOrderId(orderInfo: string) {
-  return orderInfo.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0];
-}
-
 @Injectable()
 export class VnpayService {
   private readonly logger = new Logger(VnpayService.name);
 
   constructor(
     private readonly notificationsService: NotificationsService,
-    private readonly runtimeConfigService: RuntimeConfigService
+    private readonly runtimeConfigService: RuntimeConfigService,
+    @Inject(PaymentProcessing) private readonly processing: PaymentProcessing,
+    @Inject(CreatePayment) private readonly createPayment: CreatePayment
   ) {}
 
   getPaymentConfig() {
@@ -93,74 +72,8 @@ export class VnpayService {
     ipAddress: string,
     options?: { skipStockValidation?: boolean; expiresAt?: string; amount?: number; orderId?: string }
   ) {
-    const paymentConfig = this.runtimeConfigService.getPaymentConfig();
-    let totalAmount = 0;
-
-    for (const item of input.items) {
-      const product = await getShoppingItem(item.productId);
-      if (!product) {
-        throw new Error(`Không tìm thấy sản phẩm ${item.productId}.`);
-      }
-
-      if (!options?.skipStockValidation && Number(product.stock ?? 0) < item.quantity) {
-        throw new Error(`Sản phẩm ${product.name} hiện không đủ số lượng.`);
-      }
-
-      totalAmount += Number(product.price ?? 0) * item.quantity;
-    }
-
-    const amount = options?.amount ?? totalAmount;
-    if (!Number.isSafeInteger(amount) || amount <= 0) {
-      throw new Error("Payment amount must be a positive integer.");
-    }
-
-    const txnRef = `NX${crypto.randomUUID().replace(/-/g, "")}`;
-    const createdAt = new Date();
-    const configuredExpiry = options?.expiresAt ? new Date(options.expiresAt) : null;
-    if (configuredExpiry && (!Number.isFinite(configuredExpiry.getTime()) || configuredExpiry.getTime() <= createdAt.getTime())) {
-      throw new Error("Checkout reservation expired before the VNPay session could be created.");
-    }
-    const expiresAt = configuredExpiry ?? new Date(createdAt.getTime() + PAYMENT_TIMEOUT_MS);
-    const createDate = formatVnpDate(createdAt);
-    const expireDate = formatVnpDate(expiresAt);
-    const orderInfo = input.orderDescription?.trim() || `Payment for ${txnRef}`;
-    const resolvedIpAddress = ipAddress || "127.0.0.1";
-    const params: Record<string, string> = {
-      vnp_Version: "2.1.0",
-      vnp_Command: "pay",
-      vnp_TmnCode: paymentConfig.vnpayTmnCode,
-      vnp_Amount: String(amount * 100),
-      vnp_CreateDate: createDate,
-      vnp_ExpireDate: expireDate,
-      vnp_CurrCode: "VND",
-      vnp_IpAddr: resolvedIpAddress,
-      vnp_Locale: input.locale || "vn",
-      vnp_OrderInfo: orderInfo,
-      vnp_OrderType: "other",
-      vnp_ReturnUrl: paymentConfig.vnpayReturnUrl,
-      vnp_TxnRef: txnRef
-    };
-
-    if (input.bankCode?.trim()) {
-      params.vnp_BankCode = input.bankCode.trim();
-    }
-
-    const query = serializeVnpayParams(params);
-    const secureHash = signVnpayParams(params, paymentConfig.vnpayHashSecret);
-    const paymentUrl = `${paymentConfig.vnpayPaymentUrl}?${query}&vnp_SecureHash=${secureHash}`;
-
-    await createPaymentSession({
-      txnRef,
-      orderId: options?.orderId,
-      email: input.email?.trim().toLowerCase(),
-      orderInfo,
-      amount,
-      expiresAt: expiresAt.toISOString(),
-      transactionDate: createDate
-    });
-
-    this.logger.log(`[payment-vnpay] created txnRef=${txnRef} amount=${amount} itemCount=${input.items.length} expiresAt=${expiresAt.toISOString()}`);
-
+    const payment = await this.createPayment.execute({ ...input, items: input.items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity })) }, ipAddress, options);
+    const { txnRef, amount } = payment;
     if (input.email?.trim()) {
       const normalizedEmail = input.email.trim().toLowerCase();
 
@@ -173,20 +86,13 @@ export class VnpayService {
           itemCount: input.items.length,
           bankCode: input.bankCode ?? "",
           status: "pending",
-          expiresAt: expiresAt.toISOString(),
+          expiresAt: payment.expiresAt,
           timeoutMinutes: PAYMENT_TIMEOUT_MINUTES
         }
       }, `payment.created.audit_failed txnRef=${txnRef} email=${normalizedEmail}`);
     }
 
-    return {
-      paymentUrl,
-      txnRef,
-      amount,
-      orderInfo,
-      expiresAt: expiresAt.toISOString(),
-      timeoutMinutes: PAYMENT_TIMEOUT_MINUTES
-    };
+    return payment;
   }
 
   private parseAndVerifyCallback(rawQuery: Record<string, unknown>, source: "return" | "ipn"): VnpayReturnPayload {
@@ -266,37 +172,16 @@ export class VnpayService {
       this.logger.log(JSON.stringify({ event: "vnpay.ipn_received", requestId, txnRef: result.txnRef }));
       if (!result.isValidSignature) return { RspCode: "97", Message: "Invalid Checksum" };
       if (!this.isValidCallback(result)) return { RspCode: "99", Message: "Invalid callback data" };
-      let session = await getPaymentSessionByTxnRef(result.txnRef);
-      if (!session) return { RspCode: "01", Message: "Order not found" };
-      if (!Number.isSafeInteger(session.amount * 100) || session.amount * 100 !== Number(result.amountMinor)) {
-        return { RspCode: "04", Message: "Invalid amount" };
-      }
-      let alreadyConfirmed = session.status !== "pending";
-      if (!alreadyConfirmed) {
-        try {
-          // Reservation expiry must never turn a paid transaction into an unpaid one.
-          session = await updatePaymentSessionStatus({
-            txnRef: result.txnRef, status: result.transactionStatus === "success" ? "success" : "failed",
-            responseCode: result.responseCode, transactionStatus: result.gatewayTransactionStatus,
-            transactionNo: result.transactionNo, bankCode: result.bankCode, payDate: result.payDate
-          });
-        } catch (error) {
-          if (!isConditionalCheckFailedError(error)) throw error;
-          // Another IPN won the update. Read its durable outcome before acknowledging.
-          session = await getPaymentSessionByTxnRef(result.txnRef);
-          alreadyConfirmed = true;
-        }
-      }
-      if (!session || session.status !== result.transactionStatus
-        || session.responseCode !== result.responseCode
-        || session.transactionNo !== result.transactionNo
-        || (session.gatewayTransactionStatus && session.gatewayTransactionStatus !== result.gatewayTransactionStatus)) {
-        throw new Error("Conflicting payment callback; reconciliation required");
-      }
-      // Resume interrupted dispatch on duplicate callbacks before terminal ACK 02.
-      await this.dispatchPaymentEvent(session, "ipn");
-      return alreadyConfirmed ? { RspCode: "02", Message: "Order already confirmed" }
-        : { RspCode: "00", Message: "Confirm Success" };
+      const confirmed = await this.processing.confirm({ ...result,
+        transactionStatus: result.transactionStatus === "success" ? "success" : "failed" });
+      // Provider response codes belong to the VNPay adapter, not the use case.
+      const responses = {
+        not_found: { RspCode: "01", Message: "Order not found" },
+        invalid_amount: { RspCode: "04", Message: "Invalid amount" },
+        already_confirmed: { RspCode: "02", Message: "Order already confirmed" },
+        confirmed: { RspCode: "00", Message: "Confirm Success" }
+      };
+      return responses[confirmed.outcome];
     } catch (error) {
       this.logger.error(JSON.stringify({ event: "vnpay.ipn_processing_failed", requestId,
         error: error instanceof Error ? error.message : "unknown" }));
@@ -304,58 +189,7 @@ export class VnpayService {
     }
   }
 
-  async reconcileUnenqueuedPaymentEvents(limit = 50) {
-    const sessions = await listUnenqueuedFinalizedPaymentSessions(limit);
-    let enqueued = 0;
-    let failed = 0;
-    for (const session of sessions) {
-      try {
-        await this.dispatchPaymentEvent(session, "reconciliation");
-        enqueued += 1;
-      } catch (error) {
-        failed += 1;
-        this.logger.error(JSON.stringify({
-          event: "vnpay.payment_event_reconciliation_failed",
-          txnRef: session.txnRef,
-          error: error instanceof Error ? error.message : "unknown"
-        }));
-      }
-    }
-    return { checked: sessions.length, enqueued, failed };
-  }
-
-  private async dispatchPaymentEvent(session: PaymentSessionRecord, source: "return" | "ipn" | "reconciliation") {
-    if (session.paymentEventEnqueuedAt) return;
-    const requestId = session.orderId ?? extractOrderId(session.orderInfo);
-    const input = {
-      email: session.email, txnRef: session.txnRef, amount: session.amount,
-      orderInfo: session.orderInfo, requestId,
-      responseCode: session.responseCode ?? "", transactionNo: session.transactionNo ?? "",
-      bankCode: session.bankCode ?? "", payDate: session.payDate ?? ""
-    };
-    if (session.status === "failed" && requestId) {
-      const order = await getAwaitingPaymentOrder(requestId);
-      if (order) {
-        await transitionAwaitingPaymentOrder({
-          orderId: requestId,
-          status: session.responseCode === "24" ? "cancelled" : "payment_failed"
-        });
-      }
-    }
-    if (!session.email) {
-      // Recording money must not depend on an optional notification address.
-      this.logger.warn(JSON.stringify({ event: "vnpay.notification_skipped", txnRef: session.txnRef, reason: "missing_email" }));
-      if (requestId) throw new Error("Checkout payment has no customer email; reconciliation required");
-      return;
-    }
-    if (session.status === "success") {
-      await this.publishAndMarkPaymentCompletedEvent({ ...input, email: session.email }, source);
-    } else {
-      await this.enqueueFailedPaymentNotification({ ...input, email: session.email,
-        failureReason: session.responseCode === "00" ? "VNPay has not confirmed payment success."
-          : mapResponseCode(session.responseCode ?? "") }, source);
-    }
-  }
+  reconcileUnenqueuedPaymentEvents(limit = 50) { return this.processing.reconcile(limit); }
 
   async createFailureTestNotification(email: string, input: CreateVnpayFailureTestInput) {
     const txnRef = `TEST${input.mode.toUpperCase()}${Date.now()}`;
@@ -451,32 +285,6 @@ export class VnpayService {
       });
       throw error;
     }
-  }
-
-  private async publishAndMarkPaymentCompletedEvent(
-    input: {
-      email: string;
-      txnRef: string;
-      amount: number;
-      orderInfo: string;
-      requestId?: string;
-      responseCode: string;
-      transactionNo: string;
-      bankCode: string;
-      payDate: string;
-  },
-    source: "return" | "ipn" | "reconciliation"
-  ) {
-    const published = await this.notificationsService.publishPaymentCompletedEvent(input);
-    if (!published.queued) throw new Error("Payment event publishing is disabled");
-    await this.markPaymentEventEnqueuedSafely(input.txnRef, source);
-    logQueueBusinessEvent(this.logger, {
-      queue: "paymentEvents",
-      eventType: "payment.completed",
-      status: "enqueued",
-      txnRef: input.txnRef,
-      details: { source }
-    });
   }
 
   private async publishAuditLogSafely(

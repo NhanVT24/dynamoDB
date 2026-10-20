@@ -193,50 +193,55 @@ GET /api/storefront/products[/id]
 | File | Function chính | Công dụng |
 | --- | --- | --- |
 | `modules/storefront/products-public.controller.ts` | `listProducts`, `getProductById` | Public product endpoints. |
-| `modules/storefront/storefront.controller.ts` | `listProducts`, `getProductById` | Storefront HTTP endpoints. |
-| `modules/storefront/storefront.service.ts` | `listProducts`, `getProductById` | Parse public query, shape product data và ghép sale campaign đang active. |
-| `modules/storefront/storefront.repository.ts` | `listStorefrontProducts`, `getStorefrontProductById` | Lớp truy cập product dành cho storefront. |
+| `modules/storefront/storefront.controller.ts` | `createOrder`, `cancelOrder`, `refundOrder`, `refreshRefundStatus`, `listMyOrders` | HTTP API order/refund; use cases Phase 3 x? l? cancel/refund. |
+| `modules/storefront/storefront.service.ts` | `createOrder`, `processQueueRecords`, `finalizeWorkflowOrder`, `cancelOrder`, `refundOrder`, `refreshRefundStatus` | Gi? checkout/queue orchestration; cancel/refund l? facade g?i application use cases. |
+| `modules/storefront/storefront.repository.ts` | `listStorefrontProducts` | Lớp truy cập product dành cho storefront. |
 | `modules/sales/sales.repository.ts` | `listActiveSaleCampaigns` | Lấy campaign còn hiệu lực để tính giá hiển thị. |
 
-### 3. Checkout và tạo order (flow phức tạp nhất)
+### 3. Checkout và order sau Phase 4
 
 ```text
-POST /checkout/prepare
-  -> StorefrontService.prepareCheckout
-  -> createCheckoutGateRequest + gửi SQS FIFO
-  -> checkout-gate worker
-  -> reserve stock / tạo order / gửi event
+POST /api/storefront/orders
+  -> StorefrontService.createOrder -> CreateCheckout
+  -> CheckoutOrders -> DynamoCheckoutOrders: atomic hold + order/items + category index
+  -> CheckoutPayments -> VnpayService -> CreatePayment -> VnpayPaymentLinkIssuer
+  -> attach paymentTxnRef/paymentUrl -> trả link thanh toán
 ```
 
-| File | Function chính | Công dụng |
-| --- | --- | --- |
-| `modules/storefront/storefront.controller.ts` | `prepareCheckout`, `getCheckoutStatus`, `createCheckoutPaymentSession`, `cancelCheckout`, `createOrder`, `listMyOrders` | HTTP API checkout và order. |
-| `modules/storefront/storefront.service.ts` | `prepareCheckout`, `getCheckoutGateStatus`, `processCheckoutGateRecords`, `resolveCheckoutGate`, `finalizeQueuedOrder`, `precheckProducts`, `cancelCheckout` | Điều phối checkout, kiểm tra product, reserve stock, xử lý queue và finalization. |
-| `modules/storefront/storefront.repository.ts` | `createCheckoutGateRequest`, `createCheckoutReservations`, `createStorefrontOrder`, `updateCheckoutGateRequestStatus`, `listOrdersByCustomer` | Persist checkout gate, reservation và order trong DynamoDB. |
-| `entrypoints/lambda/queue/checkout-gate-worker.ts` | `handler` | AWS Lambda entrypoint cho SQS FIFO checkout queue. |
-| `entrypoints/lambda/shared/queue-factory.ts` | `createQueueHandler` | Bootstrap Nest context và route SQS records đến Service tương ứng. |
+Application không import NestJS/AWS SDK. `StorefrontModule` wire ports với adapter.
+`storefront.repository.ts` hiện là compatibility re-export; persistence nằm trong
+`modules/storefront/infrastructure/persistence/storefront.store.ts`.
 
-Checkout dùng queue để serialize các request tranh cùng tồn kho. Vì SQS có thể retry, các bước phải idempotent: cùng một message chạy lại không được tạo order hoặc trừ stock lần hai.
+Step Functions dùng `WorkflowCheckout`, sau đó `ReadWorkflowPayment` đọc lại cùng
+session. Direct order queue cũ vẫn đi qua `FinalizeOrder`, dùng requestId làm order
+ID để không trừ stock lần nữa khi retry. Gate/reservation/race-barrier implementation
+cũ không còn caller đã được bỏ; không mô tả chúng là checkout path hiện tại.
 
-### 4. Thanh toán VNPay
+Cancel/refund dùng các use case Phase 3. Expiry dùng `ExpireOrders`, kiểm tra lại
+state/deadline và payment success khi commit. Tham khảo báo cáo
+[Phase 3](clean-architecture-phase-3.md) và [Phase 4](clean-architecture-phase-4.md)
+để xem flow, file, transaction guarantees và các giới hạn recovery.
+
+### 4. Thanh toán VNPay sau Phase 4
 
 ```text
-Create payment session
-  -> VnpayService.createPaymentUrl
-  -> customer thanh toán tại VNPay
-  -> VNPay return/IPN
-  -> VnpayService.verifyReturn hoặc verifyIpn
-  -> event / notification / order finalization
+VNPay return -> VnpayService.verifyReturn -> verify signature + đọc session
+VNPay IPN    -> VnpayService.verifyIpn -> PaymentProcessing
+             -> pending -> success/failed có condition
+             -> PaymentEvents -> EventBridge -> ghi hand-off marker
+payment.completed worker -> ConfirmOrderPayment -> kiểm tra durable payment
+                         -> paid + soldCount + category index trong transaction
 ```
 
-| File | Function chính | Công dụng |
-| --- | --- | --- |
-| `modules/vnpay/vnpay.controller.ts` | `createPayment`, `handleReturn`, `handleIpn` | Nhận request tạo payment và callback từ VNPay. |
-| `modules/vnpay/vnpay.service.ts` | `createPaymentUrl`, `verifyReturn`, `verifyIpn`, `handlePaymentEvent`, `finalizeExpiredPayment`, `finalizeFailedPayment` | Ký URL, verify checksum, xử lý trạng thái payment. |
-| `modules/vnpay/vnpay.repository.ts` | `createPaymentSession`, `getPaymentSessionByTxnRef`, `updatePaymentSessionStatus` | Lưu payment session, chống xử lý trùng transaction. |
-| `entrypoints/lambda/http/payment-vnpay.ts` | `handler` | Lambda HTTP dành cho VNPay API. |
+Return chỉ đọc trạng thái. IPN mới ghi kết quả payment; signature, merchant và amount
+đều được kiểm tra. Duplicate callback đọc lại durable outcome trước khi ACK; thiếu
+marker thì tiếp tục hand-off. Job `reconcile-payment-events` xử lý hand-off chưa xong
+của kết quả đã lưu, chưa thay thế IPN bằng provider-query reconciliation.
 
-`return` là redirect qua browser, còn `IPN` là callback server-to-server. Không được tin dữ liệu từ browser return trước khi verify checksum và trạng thái session.
+Publish thành công nhưng ghi marker thất bại có thể tạo event lặp. Order transaction
+ngăn bán hàng hai lần; notification/email phía sau có delivery semantics riêng.
+Nếu payment success đến sau khi inventory đã được release, worker báo cần reconcile
+và giữ retry/DLQ, không sửa tiền thành failed để che lỗi.
 
 ### 5. Notification và email
 
