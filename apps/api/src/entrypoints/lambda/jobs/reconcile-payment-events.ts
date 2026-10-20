@@ -1,12 +1,11 @@
 import "reflect-metadata";
 import { createStandaloneContext } from "../../../core/app/create-standalone-context.js";
-import { VnpayService } from "../../../modules/vnpay/vnpay.service.js";
+import { PaymentProcessing } from "../../../modules/vnpay/application/payment-processing.js";
+import { auditContext, serviceAuditContext } from "../../../modules/audit-log/audit-context.js";
 
-export const handler = async () => {
+export const handler = async (_event?: unknown, lambdaContext?: { awsRequestId?: string }) => {
   const context = await createStandaloneContext();
-  try {
-    return await context.get(VnpayService).reconcileUnenqueuedPaymentEvents();
-  } finally {
-    await context.close();
-  }
+  return auditContext.run(serviceAuditContext({ actorId: "lambda:reconcile-payment-events", source: "PAYMENT_RECONCILIATION",
+    reason: "scheduled_reconcile_payment_events", requestId: lambdaContext?.awsRequestId }),
+    () => context.get(PaymentProcessing).reconcile());
 };

@@ -1,32 +1,16 @@
 import "reflect-metadata";
 import { createStandaloneContext } from "../../../core/app/create-standalone-context.js";
-import { StorefrontService } from "../../../modules/storefront/storefront.service.js";
+import { WorkflowCheckout } from "../../../modules/storefront/application/workflow-checkout/workflow-checkout.js";
+import { auditContext, serviceAuditContext } from "../../../modules/audit-log/audit-context.js";
 
-type WorkflowInput = {
-  detail?: {
-    email?: string;
-    requestId?: string;
-    items?: Array<{ productId: string; quantity: number }>;
-  };
-};
+type WorkflowInput = { detail?: { email?: string; requestId?: string; items?: Array<{ productId: string; quantity: number }> } };
 
-const appContextPromise = createStandaloneContext();
-
-export const handler = async (event: WorkflowInput) => {
+export const handler = async (event: WorkflowInput, lambdaContext?: { awsRequestId?: string }) => {
   const payload = event.detail ?? {};
   const email = String(payload.email ?? "").trim().toLowerCase();
-  const items = Array.isArray(payload.items) ? payload.items : [];
-  const requestId = String(payload.requestId ?? "").trim();
-
-  if (!email || items.length === 0) {
-    throw new Error("Missing workflow order payload.");
-  }
-
-  const appContext = await appContextPromise;
-  const storefrontService = appContext.get(StorefrontService);
-  return storefrontService.finalizeWorkflowOrder({
-    email,
-    items,
-    requestId
-  });
+  if (!email || !payload.requestId || !payload.items?.length) throw new Error("Missing workflow order payload.");
+  const context = await createStandaloneContext();
+  return auditContext.run(serviceAuditContext({ actorId: "lambda:order-workflow-step", source: "ORDER_WORKFLOW",
+    reason: "checkout_hold", requestId: lambdaContext?.awsRequestId ?? payload.requestId }),
+    () => context.get(WorkflowCheckout).execute(email, payload.items, payload.requestId));
 };
