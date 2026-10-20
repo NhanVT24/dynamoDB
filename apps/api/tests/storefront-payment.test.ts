@@ -52,17 +52,17 @@ function paymentFixture() {
 
 test("IPN core commits once, suppresses duplicates after marker and rejects a conflicting outcome", async () => {
   const f = paymentFixture();
-  assert.equal((await f.processing.confirm(callback)).RspCode, "00");
-  assert.equal((await f.processing.confirm(callback)).RspCode, "02");
+  assert.equal((await f.processing.confirm(callback)).outcome, "confirmed");
+  assert.equal((await f.processing.confirm(callback)).outcome, "already_confirmed");
   assert.deepEqual(f.stats(), { writes: 1, publishes: 1, releases: 0 });
   await assert.rejects(f.processing.confirm({ ...callback, transactionStatus: "failed", responseCode: "24" }), /Conflicting/);
 });
 
 test("IPN amount and missing-session checks precede all writes", async () => {
   const f = paymentFixture();
-  assert.equal((await f.processing.confirm({ ...callback, amountMinor: "999" })).RspCode, "04");
+  assert.equal((await f.processing.confirm({ ...callback, amountMinor: "999" })).outcome, "invalid_amount");
   f.set(null);
-  assert.equal((await f.processing.confirm(callback)).RspCode, "01");
+  assert.equal((await f.processing.confirm(callback)).outcome, "not_found");
   assert.equal(f.stats().writes, 0);
 });
 
@@ -72,7 +72,7 @@ test("publish success / marker failure replays the event without recording money
   await assert.rejects(f.processing.confirm(callback), /marker unavailable/);
   assert.equal(f.current()?.status, "success");
   assert.equal(f.current()?.paymentEventEnqueuedAt, undefined);
-  assert.equal((await f.processing.confirm(callback)).RspCode, "02");
+  assert.equal((await f.processing.confirm(callback)).outcome, "already_confirmed");
   assert.deepEqual(f.stats(), { writes: 1, publishes: 2, releases: 0 });
 });
 
