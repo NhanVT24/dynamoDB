@@ -2,7 +2,7 @@ import type { ProductChanges } from "../../domain/product.js";
 import { deriveStockStatus } from "../../domain/stock-policy.js";
 import type { InventoryAlertPublisher } from "../ports/inventory-alert-publisher.js";
 import type { ProductWriteRepository } from "../ports/product-write-repository.js";
-import { ProductUpdateError } from "./product-update.error.js";
+import { ProductMutationError } from "../product-mutation.error.js";
 import { assertCanManageProduct, type ProductActor } from "../product-access.js";
 
 export interface UpdateProductCommand {
@@ -25,13 +25,13 @@ export class UpdateProduct<TResult> {
       !Number.isSafeInteger(expectedVersion) || expectedVersion < 1 ||
       (changes.stock !== undefined &&
         (!Number.isSafeInteger(changes.stock) || changes.stock < 0 || changes.stock > 999999))) {
-      throw new ProductUpdateError("INVALID_INPUT", "Invalid product update");
+      throw new ProductMutationError("INVALID_INPUT", "Invalid product update");
     }
 
     const current = await this.products.findById(productId);
     assertCanManageProduct(current, actor);
     if (current.version !== expectedVersion) {
-      throw new ProductUpdateError("CONFLICT", "Record changed, missing, or condition failed");
+      throw new ProductMutationError("CONFLICT", "Record changed, missing, or condition failed");
     }
 
     const status = deriveStockStatus(changes.stock ?? current.stock);

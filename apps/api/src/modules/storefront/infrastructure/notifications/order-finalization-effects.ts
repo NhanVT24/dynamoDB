@@ -15,136 +15,136 @@ export class NotificationOrderFinalizationEffects implements OrderFinalizationEf
   constructor(private readonly notificationsService: NotificationsService) {}
   async succeeded(order: QueuedOrder, stockChanges: OrderStockChange[], requestId: string) {
     const email = order.customerEmail;
-      this.logger.log(`[dynamo-order] created orderId=${order.id} requestId=${requestId ?? ""} customer=${email} status=${order.status} totalAmount=${order.totalAmount} itemCount=${order.items.length}`);
-      await this.publishInventoryAlertsFromOrder(stockChanges, email);
+    this.logger.log(`[dynamo-order] created orderId=${order.id} requestId=${requestId ?? ""} customer=${email} status=${order.status} totalAmount=${order.totalAmount} itemCount=${order.items.length}`);
+    await this.publishInventoryAlertsFromOrder(stockChanges, email);
 
-      await this.notificationsService.createPendingNotification({
-        email,
-        channel: "system",
-        title: "order is queued for processing",
-        message: `order ${order.id} has been added to the processing queue.`,
-        metadata: {
-          requestId: requestId ?? "",
-          orderId: order.id,
-          totalAmount: order.totalAmount,
-          itemCount: order.items.length
-        }
-      });
-
-      const emailRoute = await queueOrderConfirmationEmail({
-        toEmail: email,
+    await this.notificationsService.createPendingNotification({
+      email,
+      channel: "system",
+      title: "order is queued for processing",
+      message: `order ${order.id} has been added to the processing queue.`,
+      metadata: {
+        requestId: requestId ?? "",
         orderId: order.id,
         totalAmount: order.totalAmount,
-        createdAt: order.createdAt,
-        items: order.items.map((item) => ({
-          productName: item.productName,
-          quantity: item.quantity,
-          unitPrice: item.price,
-          originalUnitPrice: item.originalUnitPrice,
-          lineTotal: item.lineTotal
-        }))
-      });
-      this.logger.log(`[email-route] order_confirmation_${emailRoute.status} orderId=${order.id} emailJobId=${emailRoute.emailJobId}`);
+        itemCount: order.items.length
+      }
+    });
 
-      await this.notificationsService.publishAuditLog({
-        eventType: "storefront.order.created",
-        email,
-        resourceId: order.id,
-        metadata: {
-          totalAmount: order.totalAmount,
-          itemCount: order.items.length,
-          status: order.status,
-          requestId: requestId ?? ""
-        }
-      });
+    const emailRoute = await queueOrderConfirmationEmail({
+      toEmail: email,
+      orderId: order.id,
+      totalAmount: order.totalAmount,
+      createdAt: order.createdAt,
+      items: order.items.map((item) => ({
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: item.price,
+        originalUnitPrice: item.originalUnitPrice,
+        lineTotal: item.lineTotal
+      }))
+    });
+    this.logger.log(`[email-route] order_confirmation_${emailRoute.status} orderId=${order.id} emailJobId=${emailRoute.emailJobId}`);
 
-      await this.publishCommerceLifecycleEvent({
-        detailType: "storefront.order.succeeded",
-        detail: {
-          type: "storefront.order.succeeded",
-          requestId: requestId ?? "",
-          orderId: order.id,
-          customer: email,
-          totalAmount: order.totalAmount,
-          itemCount: order.items.length,
-          status: order.status,
-          createdAt: order.createdAt
-        }
-      });
-      logQueueBusinessEvent(this.logger, {
-        queue: "storefrontOrders",
-        eventType: "storefront.order.requested",
-        status: "processed",
+    await this.notificationsService.publishAuditLog({
+      eventType: "storefront.order.created",
+      email,
+      resourceId: order.id,
+      metadata: {
+        totalAmount: order.totalAmount,
+        itemCount: order.items.length,
+        status: order.status,
+        requestId: requestId ?? ""
+      }
+    });
+
+    await this.publishCommerceLifecycleEvent({
+      detailType: "storefront.order.succeeded",
+      detail: {
+        type: "storefront.order.succeeded",
         requestId: requestId ?? "",
-        orderId: order.id
-      });
+        orderId: order.id,
+        customer: email,
+        totalAmount: order.totalAmount,
+        itemCount: order.items.length,
+        status: order.status,
+        createdAt: order.createdAt
+      }
+    });
+    logQueueBusinessEvent(this.logger, {
+      queue: "storefrontOrders",
+      eventType: "storefront.order.requested",
+      status: "processed",
+      requestId: requestId ?? "",
+      orderId: order.id
+    });
   }
   async failed(email: string, normalizedItems: CheckoutItem[], requestId: string, failureReason: string) {
+    this.logger.warn(
+      `[dynamo-stock] insufficient_after_queue requestId=${requestId ?? ""} customer=${email} reason=insufficient_stock error=insufficient_stock`
+    );
+
+    if (ordersSenderEmail()) {
+      try {
+        await sendOrderFailureEmail({
+          toEmail: email,
+          requestId,
+          failureReason,
+          items: await Promise.all(normalizedItems.map(async (item) => {
+            const product = await getShoppingItem(item.productId);
+            return {
+              productId: item.productId,
+              productName: product?.name ? String(product.name) : undefined,
+              quantity: item.quantity
+            };
+          }))
+        });
+        this.logger.log(`[mail-ses] order_failure_sent requestId=${requestId ?? ""} customer=${email}`);
+      } catch (mailError) {
         this.logger.warn(
-          `[dynamo-stock] insufficient_after_queue requestId=${requestId ?? ""} customer=${email} reason=insufficient_stock error=insufficient_stock`
+          `[mail-ses] order_failure_failed requestId=${requestId ?? ""} customer=${email} error=${mailError instanceof Error ? mailError.message : "unknown"}`
         );
+      }
+    }
 
-        if (ordersSenderEmail()) {
-          try {
-            await sendOrderFailureEmail({
-              toEmail: email,
-              requestId,
-              failureReason,
-              items: await Promise.all(normalizedItems.map(async (item) => {
-                const product = await getShoppingItem(item.productId);
-                return {
-                  productId: item.productId,
-                  productName: product?.name ? String(product.name) : undefined,
-                  quantity: item.quantity
-                };
-              }))
-            });
-            this.logger.log(`[mail-ses] order_failure_sent requestId=${requestId ?? ""} customer=${email}`);
-          } catch (mailError) {
-            this.logger.warn(
-              `[mail-ses] order_failure_failed requestId=${requestId ?? ""} customer=${email} error=${mailError instanceof Error ? mailError.message : "unknown"}`
-            );
-          }
-        }
+    await this.notificationsService.createPendingNotification({
+      email,
+      channel: "system",
+      title: "Payment Failed",
+      message: failureReason,
+      metadata: {
+        requestId: requestId ?? "",
+        itemCount: normalizedItems.length,
+        failureCode: "insufficient_stock",
+        failureReason
+      }
+    });
 
-        await this.notificationsService.createPendingNotification({
-          email,
-          channel: "system",
-          title: "Payment Failed",
-          message: failureReason,
-          metadata: {
-            requestId: requestId ?? "",
-            itemCount: normalizedItems.length,
-            failureCode: "insufficient_stock",
-            failureReason
-          }
-        });
+    await this.notificationsService.publishAuditLog({
+      eventType: "storefront.order.failed",
+      email,
+      resourceId: requestId ?? "",
+      metadata: {
+        status: "failed",
+        itemCount: normalizedItems.length,
+        requestId: requestId ?? "",
+        failureCode: "insufficient_stock",
+        failureReason
+      }
+    });
 
-        await this.notificationsService.publishAuditLog({
-          eventType: "storefront.order.failed",
-          email,
-          resourceId: requestId ?? "",
-          metadata: {
-            status: "failed",
-            itemCount: normalizedItems.length,
-            requestId: requestId ?? "",
-            failureCode: "insufficient_stock",
-            failureReason
-          }
-        });
-
-        await this.publishCommerceLifecycleEvent({
-          detailType: "storefront.order.failed",
-          detail: {
-            type: "storefront.order.failed",
-            requestId: requestId ?? "",
-            customer: email,
-            itemCount: normalizedItems.length,
-            failureReason,
-            failureCode: "insufficient_stock",
-            createdAt: new Date().toISOString()
-          }
-        });
+    await this.publishCommerceLifecycleEvent({
+      detailType: "storefront.order.failed",
+      detail: {
+        type: "storefront.order.failed",
+        requestId: requestId ?? "",
+        customer: email,
+        itemCount: normalizedItems.length,
+        failureReason,
+        failureCode: "insufficient_stock",
+        createdAt: new Date().toISOString()
+      }
+    });
 
   }
   private async publishCommerceLifecycleEvent(input: {

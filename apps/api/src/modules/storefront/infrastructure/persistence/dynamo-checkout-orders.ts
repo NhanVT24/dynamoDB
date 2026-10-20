@@ -43,6 +43,10 @@ export class DynamoCheckoutOrders implements CheckoutOrders {
         if (winner) return winner;
       }
       if (error instanceof Error && error.message.startsWith("Insufficient stock for ")) throw new InsufficientOrderStock(error.message);
+      if (failure?.name === "TransactionCanceledException" &&
+        failure.CancellationReasons?.some(reason => reason.Code === "ConditionalCheckFailed")) {
+        throw new OrderActionError("CONFLICT", "Inventory changed. Please refresh and retry checkout.");
+      }
       throw error;
     }
   }
