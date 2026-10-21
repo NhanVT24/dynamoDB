@@ -26,21 +26,9 @@ export class PaymentProcessing {
     return { outcome: alreadyConfirmed ? "already_confirmed" as const : "confirmed" as const };
   }
 
-  async reconcile(limit = 50) {
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("Invalid payment reconciliation limit");
-    const candidates = await this.sessions.listUndispatched(limit);
-    let enqueued = 0;
-    let failed = 0;
-    for (const candidate of candidates) {
-      try {
-        // Never trust a stale GSI projection for the financial outcome.
-        const session = await this.sessions.find(candidate.txnRef);
-        if (!session || session.status === "pending" || session.status === "expired") continue;
-        await this.dispatch(session);
-        enqueued++;
-      } catch (error) { failed++; this.log.error("payment.reconciliation_failed", { txnRef: candidate.txnRef, error: String(error) }); }
-    }
-    return { checked: candidates.length, enqueued, failed };
+  async resumeDispatch(session: PaymentSession) {
+    if (session.status !== "success" && session.status !== "failed") return;
+    await this.dispatch(session);
   }
 
   private async dispatch(session: PaymentSession) {
