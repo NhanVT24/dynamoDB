@@ -235,13 +235,17 @@ payment.completed worker -> ConfirmOrderPayment -> kiểm tra durable payment
 
 Return chỉ đọc trạng thái. IPN mới ghi kết quả payment; signature, merchant và amount
 đều được kiểm tra. Duplicate callback đọc lại durable outcome trước khi ACK; thiếu
-marker thì tiếp tục hand-off. Job `reconcile-payment-events` xử lý hand-off chưa xong
-của kết quả đã lưu, chưa thay thế IPN bằng provider-query reconciliation.
+marker thì tiếp tục hand-off. Sau Phase 5, job `reconcile-payment-events` gọi
+`RecoverPayments`: tiếp tục checkout tạo dở, query provider khi mất IPN và khôi phục
+hand-off, có backoff cùng checkpoint. Xem [báo cáo Phase 5](clean-architecture-phase-5.md).
 
 Publish thành công nhưng ghi marker thất bại có thể tạo event lặp. Order transaction
 ngăn bán hàng hai lần; notification/email phía sau có delivery semantics riêng.
 Nếu payment success đến sau khi inventory đã được release, worker báo cần reconcile
-và giữ retry/DLQ, không sửa tiền thành failed để che lỗi.
+và ghi durable manual-review case. Worker chỉ ACK sau khi case lưu thành công;
+lỗi ghi case vẫn giữ retry/DLQ. Không sửa tiền thành failed để che lỗi. Admin xem
+case qua `GET /api/admin/ops/payment-reviews` và ghi nhận xử lý bên ngoài bằng
+`POST /api/admin/ops/payment-reviews/:txnRef/resolve`; endpoint này không tự refund.
 
 ### 5. Notification và email
 
