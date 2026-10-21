@@ -17,7 +17,7 @@ export class UploadsController {
     }
 
     const input = createUploadPresignSchema.parse(rawBody);
-    return this.uploadsService.createPresignedUpload(input);
+    return this.uploadsService.createPresignedUpload(input, {subject:principal.subject,isAdmin:principal.role === "admin"});
   }
 
   @Post("avatar/presign")
@@ -30,7 +30,7 @@ export class UploadsController {
 
     const input = createUploadPresignSchema.parse(rawBody);
     // User avatars always go to their dedicated S3 prefix, regardless of client input.
-    return this.uploadsService.createPresignedUpload({ ...input, scope: `public/avatars/${principal.subject}` });
+    return this.uploadsService.createPresignedUpload({ ...input, scope: `public/avatars/${principal.subject}` }, {subject:principal.subject,isAdmin:principal.role === "admin"});
   }
 
   @Get("default-avatars")
