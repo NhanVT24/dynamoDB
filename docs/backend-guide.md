@@ -194,8 +194,8 @@ GET /api/storefront/products[/id]
 | --- | --- | --- |
 | `modules/storefront/products-public.controller.ts` | `listProducts`, `getProductById` | Public product endpoints. |
 | `modules/storefront/storefront.controller.ts` | `createOrder`, `cancelOrder`, `refundOrder`, `refreshRefundStatus`, `listMyOrders` | HTTP API order/refund; use cases Phase 3 x? l? cancel/refund. |
-| `modules/storefront/storefront.service.ts` | `createOrder`, `processQueueRecords`, `finalizeWorkflowOrder`, `cancelOrder`, `refundOrder`, `refreshRefundStatus` | Gi? checkout/queue orchestration; cancel/refund l? facade g?i application use cases. |
-| `modules/storefront/storefront.repository.ts` | `listStorefrontProducts` | Lớp truy cập product dành cho storefront. |
+| `modules/storefront/storefront.service.ts` | `createOrder`, `processQueueRecords`, `getProductById`, `getOrderDetails`, `listMyOrders`, cancel/refund facades | Input adapter: validation, queue decoding v? g?i application use cases. |
+| `modules/storefront/infrastructure/persistence/dynamo-catalog-reader.ts` | `findById`, `list`, `activeCampaigns` | Implement CatalogReader, ?nh x? allowlist t? record sang read projection. |
 | `modules/sales/sales.repository.ts` | `listActiveSaleCampaigns` | Lấy campaign còn hiệu lực để tính giá hiển thị. |
 
 ### 3. Checkout và order sau Phase 4
@@ -260,7 +260,7 @@ Business event (order/payment/stock)
 | File | Function chính | Công dụng |
 | --- | --- | --- |
 | `modules/notifications/notifications.controller.ts` | `listMyNotifications`, `markAsRead`, `remove`, `removeAll` | API notification của user. |
-| `modules/notifications/notifications.service.ts` | `createPendingNotification`, `publishPaymentCompletedEvent`, `publishPaymentFailedEvent`, `publishInventoryStockAlert`, `processQueueRecords`, `completeOrderIfReady` | Tạo và xử lý notification/event; hoàn tất order khi các điều kiện đã đủ. |
+| `modules/notifications/notifications.service.ts` | `createPendingNotification`, payment/inventory publishers, `processQueueRecords` | Routing v? delivery/integration; business rule ho?n t?t legacy order g?i CompleteNotifiedOrder. |
 | `modules/notifications/notifications.repository.ts` | `createNotification`, `listNotificationsByCustomer`, `deleteNotification`, `deleteNotifications` | Lưu và query notification. |
 | `integrations/ses/*-mailer.ts` | `send...` mailer functions | Gửi email qua AWS SES. |
 | `entrypoints/lambda/queue/notification-worker.ts` | `handler` | Worker nhận notification queue. |
@@ -296,3 +296,11 @@ distribution rejects non-`/public/*` paths at the edge.
 | `modules/sales/sales.service.ts` | `list`, `listProducts`, `create`, `cancel`, `removeProduct`, `handleScheduleEvent`, `getActiveCampaigns` | Tạo/cancel campaign, tạo lịch start/end trên AWS Scheduler. |
 | `modules/sales/sales.repository.ts` | `createSaleCampaign`, `getSaleCampaign`, `listSaleCampaigns`, `listActiveSaleCampaigns`, `updateSaleCampaignProducts` | Lưu và query campaign. |
 | `entrypoints/lambda/jobs/sale-campaign-worker.ts` | `handler` | Xử lý event start/end campaign theo lịch. |
+
+### Clean Architecture Phase 6
+
+Storefront product/order reads g?i application use cases qua CatalogReader v?
+OrderReader; public product attributes d?ng allowlist. Notification completion
+?? t?ch th?nh CompleteNotifiedOrder v?i conditional atomic status/audit write.
+Xem [b?o c?o Phase 6 v? v? d? flow/import/wiring](clean-architecture-phase-6.md).
+Query admin v? m?t s? Scan c? c?n gi? nguy?n; b?o c?o ghi r? gi?i h?n v? Phase 7.
