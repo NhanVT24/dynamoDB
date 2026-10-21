@@ -4,52 +4,15 @@ import { CreateCheckout } from "./application/create-checkout/create-checkout.js
 import { CancelOrder } from "./application/cancel-order/cancel-order.js";
 import { RequestRefund } from "./application/request-refund/request-refund.js";
 import { RefreshRefundStatus } from "./application/refresh-refund-status/refresh-refund-status.js";
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   logQueueWarn
 } from "../../common/logging/queue-logger.js";
-import { resolveSalePrice } from "../sales/sale-pricing.js";
-import { listActiveSaleCampaigns } from "../sales/sales.repository.js";
 import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
-import { getShoppingItem } from "../shopping/shopping.repository.js";
-import type { ProductRecord } from "../shopping/product.types.js";
-import {
-  getAwaitingPaymentOrder,
-  getOrderById,
-  listOrderItems,
-  listOrdersByCustomer,
-  listStorefrontProducts,
-  type StorefrontOrderQueuePayload,
-} from "./storefront.repository.js";
+import type { StorefrontOrderQueuePayload } from "./storefront.repository.js";
 import type { CreateStorefrontOrderInput } from "./storefront.schema.js";
-
-type PublicProductSummary = {
-  id: string;
-  name: string;
-  category: string;
-  brand: string;
-  price: number;
-  originalPrice: number;
-  status: string;
-  stock: number;
-  imageUrl?: string;
-  rating?: number;
-  soldCount?: number;
-  location?: string;
-  featured?: boolean;
-  updatedAt?: string;
-  isLocked?: boolean;
-  lockedUntil?: string;
-  saleCampaignId?: string;
-  saleDiscountPercent?: number;
-  saleEndsAt?: string;
-};
-
-type PublicProductDetail = PublicProductSummary & {
-  description?: string;
-  sku?: string;
-  attributes: Record<string, unknown>;
-};
+import { GetProduct, ListProducts } from "./application/read-catalog/read-catalog.js";
+import { GetOrderDetails, ListMyOrders } from "./application/read-orders/read-orders.js";
 
 type StorefrontQueueResult =
   | {
@@ -81,82 +44,6 @@ function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T):
     : payload;
 }
 
-function toPublicProductSummary(item: ProductRecord, saleCampaigns = [] as Awaited<ReturnType<typeof listActiveSaleCampaigns>>): PublicProductSummary {
-  const stock = Number(item.stock ?? 0);
-  const status = stock <= 0 ? "out_of_stock" : stock <= 10 ? "low_stock" : String(item.status ?? "active");
-  return {
-    id: String(item.id),
-    name: String(item.name ?? ""),
-    category: String(item.category ?? ""),
-    brand: String(item.brand ?? ""),
-    ...resolveSalePrice(item, saleCampaigns),
-    status,
-    stock,
-    imageUrl: item.imageUrl ? String(item.imageUrl) : undefined,
-    rating: item.rating == null ? undefined : Number(item.rating),
-    soldCount: item.soldCount == null ? undefined : Number(item.soldCount),
-    location: item.location ? String(item.location) : undefined,
-    featured: Boolean(item.featured),
-    updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
-    isLocked: false
-  };
-}
-
-function toPublicProductDetail(item: ProductRecord, saleCampaigns = [] as Awaited<ReturnType<typeof listActiveSaleCampaigns>>): PublicProductDetail {
-  const {
-    PK: _pk,
-    SK: _sk,
-    entityType: _entityType,
-    version: _version,
-    searchName: _searchName,
-    searchField: _searchField,
-    createdAt: _createdAt,
-    id,
-    name,
-    category,
-    brand,
-    price,
-    originalPrice,
-    status,
-    stock,
-    imageUrl,
-    rating,
-    soldCount,
-    location,
-    featured,
-    updatedAt,
-    description,
-    sku,
-    ...attributes
-  } = item;
-  const numericStock = Number(stock ?? 0);
-  const publicStatus = numericStock <= 0 ? "out_of_stock" : numericStock <= 10 ? "low_stock" : String(status ?? "active");
-
-  return {
-    id: String(id),
-    name: String(name ?? ""),
-    category: String(category ?? ""),
-    brand: String(brand ?? ""),
-    ...resolveSalePrice(item, saleCampaigns),
-    status: publicStatus,
-    stock: numericStock,
-    imageUrl: imageUrl ? String(imageUrl) : undefined,
-    rating: rating == null ? undefined : Number(rating),
-    soldCount: soldCount == null ? undefined : Number(soldCount),
-    location: location ? String(location) : undefined,
-    featured: Boolean(featured),
-    updatedAt: updatedAt ? String(updatedAt) : undefined,
-    description: description ? String(description) : undefined,
-    sku: sku ? String(sku) : undefined,
-    isLocked: false,
-    attributes
-  };
-}
-
-function hasPhysicalStock(item: Record<string, unknown>) {
-  return Number(item.stock ?? 0) > 0;
-}
-
 @Injectable()
 export class StorefrontService {
   private readonly logger = new Logger(StorefrontService.name);
@@ -167,83 +54,22 @@ export class StorefrontService {
     @Inject(RefreshRefundStatus) private readonly refreshRefundUseCase: RefreshRefundStatus,
     @Inject(CreateCheckout) private readonly createCheckout: CreateCheckout,
     @Inject(FinalizeOrder) private readonly finalizeOrder: FinalizeOrder,
-    @Inject(GetCheckoutStatus) private readonly checkoutStatus: GetCheckoutStatus
+    @Inject(GetCheckoutStatus) private readonly checkoutStatus: GetCheckoutStatus,
+    @Inject(GetProduct) private readonly getProduct: GetProduct,
+    @Inject(ListProducts) private readonly browseProducts: ListProducts,
+    @Inject(GetOrderDetails) private readonly orderDetails: GetOrderDetails,
+    @Inject(ListMyOrders) private readonly myOrders: ListMyOrders
   ) {}
 
-  async listProducts(rawQuery: Record<string, unknown>) {
-    const query = shoppingListQuerySchema.parse(rawQuery);
-    const result = await listStorefrontProducts(query);
-    const saleCampaigns = await listActiveSaleCampaigns();
-
-    const shaped = {
-      // Sold-out products remain available to admin tools but not shoppers.
-      items: result.items.filter(hasPhysicalStock).map((item) => toPublicProductSummary(item, saleCampaigns)),
-      pageInfo: {
-        limit: result.limit,
-        cursor: result.cursor,
-        nextCursor: result.nextCursor,
-        hasNextPage: result.hasNextPage
-      }
-    };
-
-    return shaped;
+  listProducts(rawQuery: Record<string, unknown>) {
+    return this.browseProducts.execute(shoppingListQuerySchema.parse(rawQuery));
   }
 
-  async getProductById(id: string) {
-    const item = await getShoppingItem(id);
-    if (!item || !hasPhysicalStock(item)) {
-      throw new NotFoundException("Not found product.");
-    }
-
-    const shaped = toPublicProductDetail(item, await listActiveSaleCampaigns());
-    return shaped;
-  }
+  getProductById(id: string) { return this.getProduct.execute(id); }
 
   getOrderStatus(email: string, orderId: string) { return this.checkoutStatus.execute(email, orderId); }
 
-  async getOrderDetails(email: string, orderId: string) {
-    const normalizedOrderId = orderId.trim();
-    if (!normalizedOrderId || normalizedOrderId.length > 128) throw new NotFoundException("Order not found.");
-
-    const order = await getOrderById(normalizedOrderId);
-    if (order) {
-      if (order.customerEmail !== email) throw new NotFoundException("Order not found.");
-      return {
-        id: order.id,
-        customerEmail: order.customerEmail,
-        status: order.status,
-        items: order.items,
-        totalAmount: order.totalAmount,
-        createdAt: order.createdAt,
-        updatedAt: order.updatedAt,
-        serverNow: new Date().toISOString()
-      };
-    }
-
-    const awaitingOrder = await getAwaitingPaymentOrder(normalizedOrderId);
-    if (!awaitingOrder || awaitingOrder.customerEmail !== email) throw new NotFoundException("Order not found.");
-    const items = await listOrderItems(normalizedOrderId);
-    return {
-      id: normalizedOrderId,
-      customerEmail: awaitingOrder.customerEmail,
-      status: awaitingOrder.status,
-      items: items.map((item) => ({
-        productId: item.productId,
-        productName: item.productName,
-        price: item.unitPrice,
-        originalUnitPrice: item.originalUnitPrice,
-        quantity: item.quantity,
-        lineTotal: item.lineTotal
-      })),
-      totalAmount: awaitingOrder.totalAmount,
-      createdAt: awaitingOrder.createdAt,
-      updatedAt: awaitingOrder.updatedAt,
-      serverNow: new Date().toISOString(),
-      paymentConfirmedAt: awaitingOrder.paymentConfirmedAt,
-      refundStatus: awaitingOrder.refundStatus,
-      refundUpdatedAt: awaitingOrder.refundUpdatedAt
-    };
-  }
+  getOrderDetails(email: string, orderId: string) { return this.orderDetails.execute(email, orderId); }
 
   createOrder(email: string, input: CreateStorefrontOrderInput) {
     return this.createCheckout.execute(email, { ...input,
@@ -282,15 +108,7 @@ export class StorefrontService {
   }
 
   listMyOrders(email: string) {
-    return listOrdersByCustomer(email);
-  }
-
-  async finalizeWorkflowOrder(input: {
-    email: string;
-    items: CreateStorefrontOrderInput["items"];
-    requestId?: string;
-  }) {
-    return this.finalizeQueuedOrder(input.email, input.items, input.requestId);
+    return this.myOrders.execute(email);
   }
 
   private async processQueueRecord(body: string | undefined) {
