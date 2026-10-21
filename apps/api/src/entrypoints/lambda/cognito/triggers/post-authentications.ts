@@ -1,3 +1,4 @@
+import { ObserveSuccessfulLogin, type LoginObservation } from "../../../../modules/customers/authorization/application/observe-login.js";
 import crypto from "node:crypto";
 import { PutItemCommand, UpdateItemCommand, type AttributeValue, type DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import type { CognitoTriggerEvent } from "../types.js";
@@ -15,14 +16,8 @@ function resolveAccountStatus(attributes: Record<string, AttributeValue> | undef
   return String(attributes?.status?.S || "ACTIVE").trim().toUpperCase();
 }
 
-async function recordSuccessfulLogin(dynamo: DynamoDBClient, event: CognitoTriggerEvent) {
-  const subject = resolveSubject(event);
-  if (!subject) return;
-
-  const now = new Date().toISOString();
-  const email = normalizeEmail(event.request.userAttributes?.email);
-  const ipAddress = resolveRequestIp(event);
-  const auditId = crypto.randomUUID();
+async function recordSuccessfulLogin(dynamo:DynamoDBClient,input:LoginObservation) {
+ const {subject,email,ipAddress,auditId,at:now}=input;
 
   const profileUpdate = await dynamo.send(new UpdateItemCommand({
     TableName: process.env.DYNAMODB_TABLE_NAME,
@@ -74,16 +69,9 @@ export async function TriggerPostAuthentication(dynamo: DynamoDBClient, event: C
     return event;
   }
 
-  try {
-    await recordSuccessfulLogin(dynamo, event);
-  } catch (error) {
-    console.error(JSON.stringify({
-      flow: "cognito_post_authentication",
-      stage: "login_audit_failed",
-      subject: resolveSubject(event),
-      message: error instanceof Error ? error.message : "unknown"
-    }));
-  }
+  await new ObserveSuccessfulLogin({record:input=>recordSuccessfulLogin(dynamo,input)},(subject,error)=>console.error(JSON.stringify({
+    flow:"cognito_post_authentication",stage:"login_audit_failed",subject,message:error instanceof Error ? error.message : "unknown"
+  })),crypto.randomUUID).execute({subject:resolveSubject(event),email:normalizeEmail(event.request.userAttributes?.email),ipAddress:resolveRequestIp(event)});
 
   return event;
 }

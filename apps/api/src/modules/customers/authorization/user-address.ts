@@ -1,3 +1,4 @@
+import type { UserAddress } from "./domain/user-address.js";
 import { z } from "zod";
 
 const wardSchema = z.object({
@@ -13,12 +14,12 @@ export const userAddressSchema = z.object({
   province: z.string().trim().min(1).max(120)
 }).strict();
 
-export type UserAddress = z.output<typeof userAddressSchema>;
+export type { UserAddress } from "./domain/user-address.js";
 
 export function normalizeAddresses(value: unknown): UserAddress[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     const parsed = userAddressSchema.safeParse(item);
-    return parsed.success ? [parsed.data] : [];
+    return parsed.success ? [parsed.data as UserAddress] : [];
   });
 }

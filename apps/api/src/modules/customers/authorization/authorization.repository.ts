@@ -8,14 +8,9 @@ import { keys } from "../../../database/dynamodb/keys.js";
 import { normalizePermissions, type ProductPermission } from "../../../common/auth/permissions.js";
 
 const TableName = env.DYNAMODB_TABLE_NAME;
-export type UserAccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
-
-const accountStatuses = new Set<UserAccountStatus>(["ACTIVE", "SUSPENDED", "DISABLED", "BLOCKED"]);
-
-export function normalizeUserAccountStatus(status: unknown): UserAccountStatus {
-  const normalized = String(status || "").trim().toUpperCase();
-  return accountStatuses.has(normalized as UserAccountStatus) ? normalized as UserAccountStatus : "ACTIVE";
-}
+import { normalizeUserAccountStatus, type UserAccountStatus } from "./domain/account-status.js";
+export { normalizeUserAccountStatus } from "./domain/account-status.js";
+export type { UserAccountStatus } from "./domain/account-status.js";
 
 export async function getUserPermissions(subject: string): Promise<ProductPermission[]> {
   const result = await rawDb.send(new GetItemCommand({

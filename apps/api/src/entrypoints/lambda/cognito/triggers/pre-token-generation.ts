@@ -1,3 +1,4 @@
+import { AccountAccess } from "../../../../modules/customers/authorization/application/account-lifecycle.js";
 import {
   AdminGetUserCommand,
   AdminListGroupsForUserCommand,
@@ -7,7 +8,7 @@ import { GetItemCommand, type DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import type { CognitoTriggerEvent } from "../types.js";
 import { getAttribute, normalizeEmail, resolveAuthProvider } from "../helper/attributes.js";
 
-const blockedStatuses = new Set(["SUSPENDED", "DISABLED", "BLOCKED"]);
+
 
 async function readAuthorization(dynamo: DynamoDBClient, subject: string) {
   const result = await dynamo.send(new GetItemCommand({
@@ -59,32 +60,13 @@ export async function TriggerPreTokenGeneration(
   }));
 
   const groups = (groupsResponse.Groups ?? []).map((group) => String(group.GroupName || "").toLowerCase());
-  const role = groups.includes("admin") ? "admin" : groups.includes("customer") ? "customer" : "customer";
   const email = normalizeEmail(getAttribute(user.UserAttributes, "email"));
   const displayName = getAttribute(user.UserAttributes, "name") || email || "Cognito User";
   const subject = getAttribute(user.UserAttributes, "sub");
   const authProvider = resolveAuthProvider(user.UserAttributes);
-  const accountStatus = subject ? await readAccountStatus(dynamo, subject) : "ACTIVE";
-
-  if (blockedStatuses.has(accountStatus)) {
-    console.warn(JSON.stringify({
-      flow: "cognito_pre_token_generation",
-      stage: "token_blocked",
-      subject,
-      email,
-      accountStatus
-    }));
-    throw new Error("This account is not allowed to receive new tokens. Please contact support.");
-  }
-
-  const permissions = subject ? await readAuthorization(dynamo, subject) : [];
-  const identityClaims = {
-    role,
-    auth_provider: authProvider,
-    principal_email: email,
-    display_name: displayName,
-    account_status: accountStatus
-  };
+  const claims = await new AccountAccess({status:id=>readAccountStatus(dynamo,id),permissions:id=>readAuthorization(dynamo,id)})
+    .claims({subject,groups,email,displayName,provider:authProvider});
+  const identityClaims=claims.identity, permissions=claims.permissions;
 
   event.response = {
     claimsAndScopeOverrideDetails: {
@@ -99,7 +81,7 @@ export async function TriggerPreTokenGeneration(
         scopesToAdd: ["supermarket-api/access"]
       },
       groupOverrideDetails: {
-        groupsToOverride: groups.length > 0 ? groups : ["customer"]
+        groupsToOverride: claims.groups
       }
     }
   };
