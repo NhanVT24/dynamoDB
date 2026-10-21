@@ -4,7 +4,6 @@ export interface PaymentSessions {
   find(txnRef: string): Promise<PaymentSession | null>;
   /** Compare pending -> terminal atomically; on a lost race return the durable winner. */
   confirm(callback: VerifiedPaymentCallback): Promise<{ session: PaymentSession | null; changed: boolean }>;
-  listUndispatched(limit: number): Promise<PaymentSession[]>;
   markDispatched(txnRef: string): Promise<void>;
 }
 export interface PaymentEvent {

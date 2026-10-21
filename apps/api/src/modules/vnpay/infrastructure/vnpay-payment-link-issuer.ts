@@ -1,5 +1,6 @@
+import { getAwaitingPaymentOrder } from "../../storefront/infrastructure/persistence/order-record.store.js";
 import crypto from "node:crypto";
-import { createPaymentSession } from "../vnpay.repository.js";
+import { createPaymentSession, getPaymentSessionByTxnRef } from "../vnpay.repository.js";
 import { serializeVnpayParams, signVnpayParams } from "../vnpay-signature.js";
 import type { PaymentLinkIssuer, CreatePaymentInput } from "../application/create-payment.js";
 import type { RuntimeConfigService } from "../../../config/runtime-config.service.js";
@@ -18,6 +19,19 @@ export class VnpayPaymentLinkIssuer implements PaymentLinkIssuer {
   constructor(private readonly config: () => ReturnType<RuntimeConfigService["getPaymentConfig"]>) {}
   async issue(input: CreatePaymentInput, details: Parameters<PaymentLinkIssuer["issue"]>[1]) {
     const { ipAddress, amount, orderId, createdAt, expiresAt } = details;
+    const existing = async () => {
+      if (!orderId) return null;
+      const order = await getAwaitingPaymentOrder(orderId);
+      if (!order?.paymentTxnRef || !order.paymentUrl) return null;
+      const session = await getPaymentSessionByTxnRef(order.paymentTxnRef);
+      if (!session || session.orderId !== orderId || session.email !== input.email?.trim().toLowerCase() || session.amount !== amount ||
+        order.customerEmail !== session.email || order.totalAmount !== amount || order.status !== "awaiting_payment" ||
+        order.lockedUntil <= new Date().toISOString()) throw new Error("Checkout payment correlation changed");
+      return { paymentUrl: order.paymentUrl, txnRef: session.txnRef, amount: session.amount, orderInfo: session.orderInfo,
+        expiresAt: session.expiresAt, timeoutMinutes: 5 };
+    };
+    const replay = await existing();
+    if (replay) return replay;
     const paymentConfig = this.config();
     const txnRef = `NX${crypto.randomUUID().replace(/-/g, "")}`;
     const createDate = formatVnpDate(createdAt);
@@ -48,15 +62,20 @@ export class VnpayPaymentLinkIssuer implements PaymentLinkIssuer {
     const secureHash = signVnpayParams(params, paymentConfig.vnpayHashSecret);
     const paymentUrl = `${paymentConfig.vnpayPaymentUrl}?${query}&vnp_SecureHash=${secureHash}`;
 
-    await createPaymentSession({
+    try { await createPaymentSession({
       txnRef,
       orderId,
       email: input.email?.trim().toLowerCase(),
       orderInfo,
       amount,
       expiresAt: expiresAt.toISOString(),
-      transactionDate: createDate
-    });
+      transactionDate: createDate, paymentUrl
+    }); } catch (error) {
+      // Includes ambiguous commit responses: only the durable winner is replayed.
+      const winner = await existing();
+      if (winner) return winner;
+      throw error;
+    }
 
     return { paymentUrl, txnRef, amount, orderInfo, expiresAt: expiresAt.toISOString(), timeoutMinutes: 5 };
   }

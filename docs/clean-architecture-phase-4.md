@@ -1,5 +1,8 @@
 # Phase 4 — Checkout, payment, worker và expiry
 
+Các giới hạn trong báo cáo này mô tả thời điểm kết thúc Phase 4. Những thay đổi
+recovery tiếp theo được ghi tại [Phase 5](clean-architecture-phase-5.md).
+
 Phase 4 tách orchestration của checkout/payment khỏi NestJS và DynamoDB, đồng thời
 đồng bộ các inventory writers đang hoạt động. Đây là thay đổi source code local,
 chưa deploy AWS hoặc kiểm chứng gateway VNPay thật.

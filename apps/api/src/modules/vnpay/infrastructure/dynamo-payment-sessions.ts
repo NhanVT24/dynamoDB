@@ -1,4 +1,4 @@
-import { getPaymentSessionByTxnRef, listUnenqueuedFinalizedPaymentSessions,
+import { getPaymentSessionByTxnRef,
   markPaymentEventEnqueued, updatePaymentSessionStatus } from "../vnpay.repository.js";
 import type { PaymentSessions } from "../application/ports/payment-ports.js";
 import type { VerifiedPaymentCallback } from "../domain/payment.js";
@@ -6,7 +6,6 @@ import type { VerifiedPaymentCallback } from "../domain/payment.js";
 const conditional = (error: unknown) => (error as { name?: string })?.name === "ConditionalCheckFailedException";
 export class DynamoPaymentSessions implements PaymentSessions {
   find = getPaymentSessionByTxnRef;
-  listUndispatched = listUnenqueuedFinalizedPaymentSessions;
   async confirm(callback: VerifiedPaymentCallback) {
     try {
       const session = await updatePaymentSessionStatus({ ...callback, status: callback.transactionStatus,

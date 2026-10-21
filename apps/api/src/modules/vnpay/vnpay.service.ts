@@ -189,7 +189,6 @@ export class VnpayService {
     }
   }
 
-  reconcileUnenqueuedPaymentEvents(limit = 50) { return this.processing.reconcile(limit); }
 
   async createFailureTestNotification(email: string, input: CreateVnpayFailureTestInput) {
     const txnRef = `TEST${input.mode.toUpperCase()}${Date.now()}`;

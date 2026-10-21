@@ -62,6 +62,6 @@ import { NestOrderOperationLogger } from "./infrastructure/order-operation-logge
       useFactory: (orders: DynamoRefundOrders, resolution: RefundResolution, log: NestOrderOperationLogger) =>
         new ReconcilePendingRefunds(orders, resolution, log) }
   ],
-  exports: [ReconcilePendingRefunds, ExpireOrders, WorkflowCheckout, ReadWorkflowPayment]
+  exports: [CreateCheckout, ReconcilePendingRefunds, ExpireOrders, WorkflowCheckout, ReadWorkflowPayment]
 })
 export class StorefrontModule {}

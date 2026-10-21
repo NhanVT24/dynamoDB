@@ -1,3 +1,4 @@
+import { PaymentReviewRequired } from "../storefront/application/ports/payment-review.js";
 import { ConfirmOrderPayment } from "../storefront/application/confirm-order-payment/confirm-order-payment.js";
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
@@ -588,9 +589,6 @@ export class NotificationsService {
     try {
       const awaitingOrder = requestId ? await getAwaitingPaymentOrder(requestId) : null;
       if (awaitingOrder) {
-        if (awaitingOrder.customerEmail !== email || awaitingOrder.totalAmount !== amount) {
-          throw new Error("Payment customer or amount does not match held order");
-        }
         const outcome = await this.confirmOrderPayment.execute({
           orderId: requestId, email, amount, txnRef: payload.txnRef
         });
@@ -611,10 +609,18 @@ export class NotificationsService {
           }
         };
       } else {
-        if (requestId) throw new Error("ORDER not found; payment reconciliation required");
+        if (requestId) await this.confirmOrderPayment.execute({ orderId: requestId, email, amount, txnRef: payload.txnRef });
         committed = { order: null, orderId: payload.orderId?.trim() || "" };
       }
     } catch (error) {
+      if (error instanceof PaymentReviewRequired) {
+        this.logger.error(JSON.stringify({ event: "payment.manual_review_required", txnRef: payload.txnRef, requestId }));
+        await this.publishAdminAlertSafely({ subject: `Payment requires review ${payload.txnRef}`,
+          message: `A durable payment review is available for transaction ${payload.txnRef}, order ${requestId}. No automatic refund or inventory change was performed.`,
+          attributes: { alertType: "payment.manual_review_required", txnRef: payload.txnRef, orderId: requestId },
+          logContext: `payment.manual_review_required txnRef=${payload.txnRef}` });
+        return { type: "payment.completed", txnRef: payload.txnRef, orderId: requestId, status: "manual_review" };
+      }
       const syncErrorMessage = error instanceof Error ? error.message : "unknown";
 
       await this.publishAuditLogSafely({

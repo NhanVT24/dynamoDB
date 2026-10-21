@@ -1,7 +1,7 @@
+import { transport } from "./helpers/payment-transport.js";
 import "reflect-metadata";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { DynamoDBClient, TransactWriteItemsCommandInput, UpdateItemCommandInput } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { CreateCheckout } from "../src/modules/storefront/application/create-checkout/create-checkout.js";
 import { ConfirmOrderPayment } from "../src/modules/storefront/application/confirm-order-payment/confirm-order-payment.js";
@@ -41,7 +41,6 @@ function paymentFixture() {
       session = { ...session!, ...input, status: input.transactionStatus };
       return { session, changed: true };
     },
-    async listUndispatched() { return session ? [{ ...session }] : []; },
     async markDispatched() { if (failMarker) { failMarker = false; throw new Error("marker unavailable"); } session!.paymentEventEnqueuedAt = "now"; }
   };
   const events: PaymentEvents = { async publishCompleted() { publishes++; }, async publishFailed() { publishes++; } };
@@ -76,16 +75,15 @@ test("publish success / marker failure replays the event without recording money
   assert.deepEqual(f.stats(), { writes: 1, publishes: 2, releases: 0 });
 });
 
-test("disabled publisher remains recoverable; reconciliation uses the strong-read outcome", async () => {
+test("disabled publisher remains recoverable; non-final sessions cannot dispatch", async () => {
   const f = paymentFixture();
   f.events.publishCompleted = async () => { throw new Error("disabled"); };
   await assert.rejects(f.processing.confirm(callback), /disabled/);
   assert.equal(f.current()?.paymentEventEnqueuedAt, undefined);
   f.events.publishCompleted = async () => {};
-  assert.deepEqual(await f.processing.reconcile(), { checked: 1, enqueued: 1, failed: 0 });
+  await f.processing.resumeDispatch((await f.sessions.find("NXtest"))!);
   const g = paymentFixture();
-  g.sessions.listUndispatched = async () => [{ ...initialPayment(), status: "success" }];
-  assert.deepEqual(await g.processing.reconcile(), { checked: 1, enqueued: 0, failed: 0 });
+  await g.processing.resumeDispatch((await g.sessions.find("NXtest"))!);
   assert.equal(g.stats().publishes, 0);
 });
 
@@ -107,7 +105,7 @@ test("checkout item policy rejects fractions, empty carts and merged quantity ov
   }
 });
 
-test("checkout preserves the payment failure when compensation also fails", async () => {
+test("checkout keeps the hold on ambiguous payment failure instead of compensating a concurrent winner", async () => {
   const calls: string[] = [];
   const held = { id, customerEmail: email, status: "awaiting_payment" as const, totalAmount: 2000, lockedUntil: "future" };
   const orders = { async hold() { calls.push("hold"); return { order: held, items: [{ ...items[0], productName: "P", unitPrice: 1000, lineTotal: 2000 }] }; },
@@ -116,7 +114,7 @@ test("checkout preserves the payment failure when compensation also fails", asyn
   const useCase = new CreateCheckout(orders, { async create() { calls.push("payment"); throw new Error("payment unavailable"); } },
     { error(event) { calls.push(event); } }, () => id);
   await assert.rejects(useCase.execute(email, { items }), /payment unavailable/);
-  assert.deepEqual(calls, ["hold", "payment", "release", "checkout.compensation_failed"]);
+  assert.deepEqual(calls, ["hold", "payment", "checkout.provisioning_interrupted"]);
 });
 
 test("payment creation trusts committed checkout price and validates amount/expiry before issuing", async () => {
@@ -141,87 +139,6 @@ test("expiry continues after a per-order failure and passes an exact deadline to
 
 // SDK transport fake: exercises real adapters/audit middleware and transaction
 // construction. This is NOT a DynamoDB expression engine or an AWS integration.
-function transport(client: DynamoDBClient) {
-  type Row = Record<string, any>;
-  let rows = new Map<string, Row>();
-  let beforeTransaction: (() => void) | undefined;
-  const writes: TransactWriteItemsCommandInput[] = [];
-  const key = (row: Row) => `${row.PK}|${row.SK}`;
-  const put = (row: Row) => rows.set(key(row), structuredClone(row));
-  const get = (pk: string, sk = "ORDER") => rows.get(`${pk}|${sk}`);
-  const conditional = () => Object.assign(new Error("conditional failed"), { name: "ConditionalCheckFailedException" });
-  const applyUpdate = (input: UpdateItemCommandInput, target: Map<string, Row>) => {
-    const k = key(unmarshall(input.Key!)), row = target.get(k);
-    if (!row) throw conditional();
-    const v = unmarshall(input.ExpressionAttributeValues ?? {}), c = input.ConditionExpression ?? "";
-    if (c.includes("#version = :expectedVersion") && row.version !== v[":expectedVersion"]) throw conditional();
-    if (c.includes("attribute_not_exists(#version)") && row.version !== undefined) throw conditional();
-    if (c.includes("#status = :pendingStatus") && row.status !== "pending") throw conditional();
-    if (c.includes("#status = :awaitingPayment") && row.status !== "awaiting_payment") throw conditional();
-    if (c.includes("#status = :awaiting AND") && row.status !== "awaiting_payment") throw conditional();
-    if (c.includes("customerEmail = :expectedCustomerEmail") && row.customerEmail !== v[":expectedCustomerEmail"]) throw conditional();
-    if (c.includes("paymentTxnRef = :expectedTxnRef") && row.paymentTxnRef !== v[":expectedTxnRef"]) throw conditional();
-    if (c.includes("totalAmount = :expectedAmount") && row.totalAmount !== v[":expectedAmount"]) throw conditional();
-    if (c.includes("lockedUntil <= :expiresBefore") && row.lockedUntil > v[":expiresBefore"]) throw conditional();
-    if (c.includes("attribute_not_exists(paymentEventEnqueuedAt)") && row.paymentEventEnqueuedAt) throw conditional();
-    const next = { ...row };
-    for (const match of (input.UpdateExpression ?? "").matchAll(/([#\w]+)\s*=\s*(:\w+)/g)) {
-      next[input.ExpressionAttributeNames?.[match[1]] ?? match[1]] = v[match[2]];
-    }
-    if (input.UpdateExpression?.includes("REMOVE inventoryAlertSentAt")) delete next.inventoryAlertSentAt;
-    target.set(k, next);
-    return next;
-  };
-  client.middlewareStack.add((_next, context) => async args => {
-    const input = args.input as any;
-    let output: Row & { $metadata: {} } = { $metadata: {} };
-    if (context.commandName === "GetItemCommand") {
-      assert.equal(input.ConsistentRead, true);
-      const row = rows.get(key(unmarshall(input.Key)));
-      output.Item = row && marshall(row, { removeUndefinedValues: true });
-    } else if (context.commandName === "QueryCommand") {
-      const v = unmarshall(input.ExpressionAttributeValues);
-      output.Items = [...rows.values()].filter(row => input.IndexName
-        ? row.status === v[":status"] && (!v[":entityType"] || row.entityType === v[":entityType"]) && (!v[":entity"] || row.entityType === v[":entity"])
-        : row.PK === v[":pk"] && row.SK.startsWith(v[":itemPrefix"])).map(row => marshall(row, { removeUndefinedValues: true }));
-    } else if (context.commandName === "ScanCommand") output.Items = [];
-    else if (context.commandName === "PutItemCommand") {
-      const row = unmarshall(input.Item);
-      if (rows.has(key(row)) && input.ConditionExpression?.includes("attribute_not_exists(PK)")) throw conditional();
-      put(row);
-    } else if (context.commandName === "UpdateItemCommand") output.Attributes = marshall(applyUpdate(input, rows), { removeUndefinedValues: true });
-    else if (context.commandName === "TransactWriteItemsCommand") {
-      if (beforeTransaction) { const effect = beforeTransaction; beforeTransaction = undefined; effect(); }
-      const next = structuredClone(rows), touched = new Set<string>();
-      const tx = input as TransactWriteItemsCommandInput;
-      writes.push(tx);
-      for (const [index, op] of tx.TransactItems!.entries()) {
-        const itemKey = key(unmarshall((op.Put?.Item ?? op.Update?.Key ?? op.Delete?.Key ?? op.ConditionCheck?.Key)!));
-        assert.equal(touched.has(itemKey), false, "DynamoDB forbids duplicate item operations");
-        touched.add(itemKey);
-        try {
-          if (op.Update) applyUpdate(op.Update, next);
-          if (op.Put) {
-            if (op.Put.ConditionExpression?.includes("attribute_not_exists(PK)") && next.has(itemKey)) throw conditional();
-            next.set(itemKey, unmarshall(op.Put.Item!));
-          }
-          if (op.Delete) next.delete(itemKey);
-          if (op.ConditionCheck && next.get(itemKey)?.status === "success") throw conditional();
-        } catch (error) {
-          if ((error as Error).name !== "ConditionalCheckFailedException") throw error;
-          throw Object.assign(new Error("transaction cancelled"), { name: "TransactionCanceledException",
-            CancellationReasons: tx.TransactItems!.map((_, i) => ({ Code: i === index ? "ConditionalCheckFailed" : "None" })) });
-        }
-      }
-      rows = next;
-    } else throw new Error(`Unexpected ${context.commandName}`);
-    return { response: {}, output };
-  }, { step: "initialize", priority: "low", name: "phase4Transport" });
-  put({ PK: `PRODUCT#${productId}`, SK: "DETAIL", id: productId, entityType: "PRODUCT", name: "Product", category: "Food",
-    price: 1000, stock: 12, soldCount: 0, status: "active", version: 1, createdAt: "2026-10-01T00:00:00.000Z", updatedAt: "2026-10-01T00:00:00.000Z" });
-  return { put, get, writes, rows: () => [...rows.values()], race(effect: () => void) { beforeTransaction = effect; },
-    close() { client.middlewareStack.remove("phase4Transport"); } };
-}
 
 test("inventory builder atomically mirrors status/counters and prevents duplicate index keys in one millisecond", () => {
   const product = { id: productId, category: "Food", stock: 1, soldCount: 0, version: 1, updatedAt: new Date(clock).toISOString() };
@@ -240,7 +157,7 @@ test("SDK checkout hold/cancel preserve snapshot and duplicate request cannot de
     await orders.hold({ orderId: id, email, items, holdSeconds: 300 });
     assert.equal(db.get(`PRODUCT#${productId}`, "DETAIL")?.stock, 10);
     assert.equal(db.get(`PRODUCT#${productId}`, "DETAIL")?.status, "low_stock");
-    await assert.rejects(orders.hold({ orderId: id, email, items, holdSeconds: 300 }));
+    assert.equal((await orders.hold({ orderId: id, email, items, holdSeconds: 300 })).order.id, id);
     assert.equal(db.get(`PRODUCT#${productId}`, "DETAIL")?.stock, 10);
     await orders.transition({ orderId: id, expectedCustomerEmail: email, status: "cancelled" });
     assert.equal(db.get(`PRODUCT#${productId}`, "DETAIL")?.stock, 12);
@@ -257,7 +174,7 @@ test("SDK worker verifies durable payment, commits sold once and tolerates repla
     await orders.hold({ orderId: id, email, items, holdSeconds: 300 });
     await orders.attachPayment(id, "NXtest", email, "https://gateway.example.test/pay");
     db.put({ ...initialPayment(), PK: "PAYMENT#NXtest", SK: "DETAIL", entityType: "PAYMENT_SESSION", status: "success" });
-    const useCase = new ConfirmOrderPayment(orders, new DynamoPaymentSessions());
+    const useCase = new ConfirmOrderPayment(orders, new DynamoPaymentSessions(), { async open() {} });
     const input = { orderId: id, email, txnRef: "NXtest", amount: 2000 };
     await assert.rejects(useCase.execute({ ...input, amount: 1 }), /not durable/);
     assert.equal((await useCase.execute(input)).changed, true);
@@ -293,7 +210,7 @@ test("late payment after release remains recorded and requires reconciliation wi
     await orders.attachPayment(id, "NXtest", email, "https://gateway.example.test/pay");
     await orders.transition({ orderId: id, status: "expired", expiresBefore: new Date(Date.now() + 600000).toISOString() });
     db.put({ ...initialPayment(), PK: "PAYMENT#NXtest", SK: "DETAIL", status: "success" });
-    await assert.rejects(new ConfirmOrderPayment(orders, new DynamoPaymentSessions()).execute({ orderId: id, email, txnRef: "NXtest", amount: 2000 }), /reconciliation required/);
+    await assert.rejects(new ConfirmOrderPayment(orders, new DynamoPaymentSessions(), { async open() {} }).execute({ orderId: id, email, txnRef: "NXtest", amount: 2000 }), /reconciliation required/);
     assert.equal(db.get("PAYMENT#NXtest", "DETAIL")?.status, "success");
     assert.equal(db.get(`PRODUCT#${productId}`, "DETAIL")?.stock, 12);
     assert.equal(db.get(`PRODUCT#${productId}`, "DETAIL")?.soldCount, 0);
@@ -419,22 +336,22 @@ test("compiled workflow retries reuse one held order/session and the committed p
 
 test("payment reconciliation and expiry jobs preserve cached context and per-invocation audit identity", async () => {
   const { createStandaloneContext } = await import("../dist/src/core/app/create-standalone-context.js");
-  const { PaymentProcessing: PaymentJob } = await import("../dist/src/modules/vnpay/application/payment-processing.js");
+  const { RecoverPayments: PaymentJob } = await import("../dist/src/modules/vnpay/application/recover-payments.js");
   const { ExpireOrders: ExpiryJob } = await import("../dist/src/modules/storefront/application/expire-orders/expire-orders.js");
   const { auditContext } = await import("../dist/src/modules/audit-log/audit-context.js");
   const payment = await import("../dist/src/entrypoints/lambda/jobs/reconcile-payment-events.js");
   const expiry = await import("../dist/src/entrypoints/lambda/jobs/release-expired-orders.js");
   const context = await createStandaloneContext(), requests: string[] = [];
   const paymentJob = context.get(PaymentJob), expiryJob = context.get(ExpiryJob);
-  const oldPayment = paymentJob.reconcile, oldExpiry = expiryJob.execute, close = context.close;
+  const oldPayment = paymentJob.execute, oldExpiry = expiryJob.execute, close = context.close;
   let closes = 0;
   context.close = async () => { closes++; };
-  paymentJob.reconcile = async () => { requests.push(auditContext.getStore()!.auditRequestId!); return { checked: 0, enqueued: 0, failed: 0 }; };
+  paymentJob.execute = async () => { requests.push(auditContext.getStore()!.auditRequestId!); return { checked: 0, recovered: 0, failed: 0 }; };
   expiryJob.execute = async () => { requests.push(auditContext.getStore()!.auditRequestId!); return { ok: true, releasedCount: 0, failed: 0, checkedAt: "now" }; };
   try {
     await payment.handler({}, { awsRequestId: "p1" }); await payment.handler({}, { awsRequestId: "p2" });
     await expiry.handler({}, { awsRequestId: "e1" }); await expiry.handler({}, { awsRequestId: "e2" });
     assert.deepEqual(requests, ["p1", "p2", "e1", "e2"]);
     assert.equal(closes, 0); assert.equal(auditContext.getStore(), undefined);
-  } finally { paymentJob.reconcile = oldPayment; expiryJob.execute = oldExpiry; context.close = close; await context.close(); }
+  } finally { paymentJob.execute = oldPayment; expiryJob.execute = oldExpiry; context.close = close; await context.close(); }
 });
