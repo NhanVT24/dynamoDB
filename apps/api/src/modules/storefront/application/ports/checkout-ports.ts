@@ -19,7 +19,7 @@ export interface CheckoutLine extends CheckoutItem {
 }
 export interface CheckoutOrders {
   /** Creation is atomic. A repeated ID must never deduct stock a second time. */
-  hold(input: { orderId: string; email: string; items: CheckoutItem[]; holdSeconds: number }): Promise<{ order: HeldOrder; items: CheckoutLine[] }>;
+  hold(input: { orderId: string; email: string; items: CheckoutItem[]; holdSeconds: number; bankCode?: string; locale?: "vn" | "en" }): Promise<{ order: HeldOrder; items: CheckoutLine[] }>;
   findById(id: string): Promise<HeldOrder | null>;
   attachPayment(orderId: string, txnRef: string, email: string, paymentUrl: string): Promise<void>;
   /** Conditional state change and inventory changes commit together. */
