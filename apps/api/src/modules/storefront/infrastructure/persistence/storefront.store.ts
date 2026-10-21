@@ -55,6 +55,8 @@ export type StorefrontAwaitingPaymentOrderRecord = {
   createdAt: string;
   updatedAt: string;
   paymentUrl?: string;
+  checkoutBankCode?: string;
+  checkoutLocale?: "vn" | "en";
   paymentTxnRef?: string;
   paymentConfirmedAt?: string;
   refundRequestId?: string;
@@ -291,6 +293,8 @@ export async function createAwaitingPaymentOrder(input: {
   email: string;
   items: Array<{ productId: string; quantity: number }>;
   holdSeconds: number;
+  bankCode?: string;
+  locale?: "vn" | "en";
 }) {
   const normalizedItems = normalizeCheckoutItems(input.items);
   const now = new Date().toISOString();
@@ -338,6 +342,7 @@ export async function createAwaitingPaymentOrder(input: {
     totalAmount,
     itemCount: lines.length,
     lockedUntil,
+    checkoutBankCode: input.bankCode, checkoutLocale: input.locale,
     createdAt: now,
     updatedAt: now,
     ...serviceAuditMetadata({

@@ -1,5 +1,6 @@
-import { QueryCommand, UpdateItemCommand, TransactWriteItemsCommand } from "@aws-sdk/client-dynamodb";
-import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
+import { DynamoPaymentRecovery } from "../../../vnpay/infrastructure/dynamo-payment-recovery.js";
+import { UpdateItemCommand, TransactWriteItemsCommand } from "@aws-sdk/client-dynamodb";
+import { marshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../../../config/env.js";
 import { rawDb } from "../../../../database/dynamodb/client.js";
 import { inventoryTransaction } from "../../../shopping/infrastructure/persistence/inventory-transaction.js";
@@ -29,17 +30,13 @@ function conditionalOrderFailure(error: unknown): boolean {
 
 /** Bounded reconciliation read; avoids scanning the full marketplace table. */
 async function listPendingRefundRecords(limit = 50) {
-  const result = await rawDb.send(new QueryCommand({
-    TableName,
-    IndexName: "StatusTimelineIndex",
-    KeyConditionExpression: "#status = :status",
-    FilterExpression: "entityType = :entityType AND attribute_exists(refundRequestId) AND attribute_exists(paymentTxnRef)",
-    ExpressionAttributeNames: { "#status": "status" },
-    ExpressionAttributeValues: toDynamoItem({ ":status": "refund_pending", ":entityType": "ORDER" }),
-    ScanIndexForward: true,
-    Limit: Math.min(Math.max(Math.trunc(limit), 1), 100)
-  }));
-  return (result.Items ?? []).map((item) => unmarshall(item) as StorefrontAwaitingPaymentOrderRecord);
+  const recovery = new DynamoPaymentRecovery();
+  const page = await recovery.page("refund", Math.min(Math.max(Math.trunc(limit), 1), 100));
+  const records = (await Promise.all(page.ids.map(getAwaitingPaymentOrder))).filter(Boolean);
+  // Advance a bounded page even when all candidates were filtered out. A crash
+  // after this read is retried on cursor wrap; no refund request is re-sent.
+  await recovery.checkpoint("refund", page.checkpoint);
+  return records;
 }
 
 
