@@ -4,7 +4,7 @@ import type { FastifyRequest } from "fastify";
 import { Observable } from "rxjs";
 import { PutItemCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall } from "@aws-sdk/util-dynamodb";
-import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
+import { getRequestPrincipal } from "../../common/auth/request-principal.js";
 import { rawDb } from "../../database/dynamodb/client.js";
 import { env } from "../../config/env.js";
 import { auditContext, principalAuditContext, serviceAuditContext } from "./audit-context.js";
@@ -14,7 +14,7 @@ export class AuditMutationInterceptor implements NestInterceptor {
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     if (!["POST", "PUT", "PATCH", "DELETE"].includes(request.method)) return next.handle();
-    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+    const principal = await getRequestPrincipal(request);
     // Generate the ID server-side; correlation headers are supplied by clients.
     const requestId = crypto.randomUUID();
     const route = request.routeOptions.url ?? request.url.split("?")[0]!;

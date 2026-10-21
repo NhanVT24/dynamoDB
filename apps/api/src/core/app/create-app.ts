@@ -2,8 +2,7 @@ import crypto from "node:crypto";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
-import { isAdminRequest } from "../../common/auth/cognito-groups.js";
-import { extractCognitoPrincipal } from "../../common/auth/cognito-principal.js";
+import { getRequestPrincipal } from "../../common/auth/request-principal.js";
 import { AppExceptionFilter } from "../../common/filters/app-exception.filter.js";
 import { createNestLogger } from "../../common/logging/nest-logger.js";
 import { env } from "../../config/env.js";
@@ -14,7 +13,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
   const adapter = new FastifyAdapter({ logger: {
     // Signed callback URLs are read capabilities; never put them in access logs.
     serializers: {
-      req: (request) => ({ method: request.method, url: request.url?.split("?")[0], id: request.id })
+      req: (request) => ({ method: request.method, route: request.routeOptions?.url ?? "<unmatched>", id: request.id })
     }
   } });
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, {
@@ -62,7 +61,8 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
 
   fastify.addHook("onRequest", async (request, reply) => {
     const correlationIdHeader = request.headers["x-correlation-id"] ?? request.headers["x-request-id"];
-    const correlationId = String(Array.isArray(correlationIdHeader) ? correlationIdHeader[0] : correlationIdHeader || crypto.randomUUID());
+    const suppliedId = String(Array.isArray(correlationIdHeader) ? correlationIdHeader[0] : correlationIdHeader ?? "");
+    const correlationId = /^[a-zA-Z0-9._:-]{1,128}$/.test(suppliedId) ? suppliedId : crypto.randomUUID();
     (request as { correlationId?: string }).correlationId = correlationId;
     reply.header("x-correlation-id", correlationId);
 
@@ -70,9 +70,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       correlationId,
       lambdaName: (request.raw as { requestContext?: { lambdaName?: string } })?.requestContext?.lambdaName ?? "http-api",
       method: request.method,
-      url: request.url.split("?")[0],
-      query: request.url.includes("/payments/vnpay") ? undefined : request.query,
-      params: request.params
+      route: request.routeOptions.url ?? "<unmatched>",
     }, "incoming api request");
   });
 
@@ -113,7 +111,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isStorefrontOrderMutation) {
-      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await getRequestPrincipal(request);
       if (principal && (principal.role === "customer" || principal.role === "admin")) {
         return;
       }
@@ -126,7 +124,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isStorefrontCheckoutPrepareMutation) {
-      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await getRequestPrincipal(request);
       if (principal && (principal.role === "customer" || principal.role === "admin")) {
         return;
       }
@@ -139,7 +137,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isStorefrontCheckoutPaymentSessionMutation) {
-      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await getRequestPrincipal(request);
       if (principal && (principal.role === "customer" || principal.role === "admin")) {
         return;
       }
@@ -152,7 +150,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isStorefrontCheckoutCancelMutation) {
-      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await getRequestPrincipal(request);
       if (principal && (principal.role === "customer" || principal.role === "admin")) {
         return;
       }
@@ -165,7 +163,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isAvatarUploadPresignMutation || isProfileMutation) {
-      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await getRequestPrincipal(request);
       if (principal) {
         return;
       }
@@ -178,7 +176,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isVnpayFailureTestMutation) {
-      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await getRequestPrincipal(request);
       if (principal && (principal.role === "customer" || principal.role === "admin")) {
         return;
       }
@@ -191,7 +189,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     }
 
     if (isNotificationReadMutation || isNotificationDeleteMutation || isNotificationDeleteAllMutation) {
-      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await getRequestPrincipal(request);
       if (principal) {
         return;
       }
@@ -207,13 +205,13 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     // ShoppingController/ShoppingService. This global gate only requires a
     // verified principal so non-admin creators can reach that policy layer.
     if (isShoppingProductMutation) {
-      const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
+      const principal = await getRequestPrincipal(request);
       if (principal) return;
       reply.status(403).send({ statusCode: 403, message: "A signed-in account is required." });
       return;
     }
 
-    if (await isAdminRequest(request.headers as Record<string, unknown>)) {
+    if ((await getRequestPrincipal(request))?.role === "admin") {
       return;
     }
 
@@ -228,8 +226,9 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       correlationId: (request as { correlationId?: string }).correlationId ?? "",
       lambdaName: (request.raw as { requestContext?: { lambdaName?: string } })?.requestContext?.lambdaName ?? "http-api",
       method: request.method,
-      url: request.url.split("?")[0],
-      statusCode: reply.statusCode
+      route: request.routeOptions.url ?? "<unmatched>",
+      statusCode: reply.statusCode,
+      durationMs: Math.round(reply.elapsedTime * 100) / 100
     }, "api response sent");
   });
 

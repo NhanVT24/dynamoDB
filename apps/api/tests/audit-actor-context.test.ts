@@ -104,7 +104,8 @@ test("HTTP interceptor attributes unauthenticated mutations to the HTTP service"
   const result = await lastValueFrom(await new AuditMutationInterceptor().intercept(context, {
     handle: () => defer(async () => auditContext.getStore())
   }));
-  assert.equal(result?.auditActorType, "SERVICE");
-  assert.equal(result?.auditActorId, "service:http-api");
-  assert.equal(result?.auditSource, "POST /api/vnpay/ipn");
+  assert.ok(result && typeof result === "object");
+  assert.equal("auditActorType" in result ? result.auditActorType : undefined, "SERVICE");
+  assert.equal("auditActorId" in result ? result.auditActorId : undefined, "service:http-api");
+  assert.equal("auditSource" in result ? result.auditSource : undefined, "POST /api/vnpay/ipn");
 });
