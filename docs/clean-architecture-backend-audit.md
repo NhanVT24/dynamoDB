@@ -1,5 +1,11 @@
 # Audit phạm vi Clean Architecture của toàn backend
 
+> Cập nhật 2026-10-21: các finding về application boundary trong bản audit này đã
+> được xử lý ở đợt refactor tiếp theo. Xem [báo cáo thay đổi và verification](clean-architecture-remaining-migration.md).
+> Nội dung bên dưới được giữ như snapshot trước đợt sửa; không dùng bảng trạng
+> thái cũ để mô tả source hiện tại. Những giới hạn query/performance và kiểm chứng
+> AWS runtime được ghi riêng trong báo cáo mới.
+
 ## Kết luận
 
 **Chưa chuyển toàn bộ backend sang Clean Architecture.** Source hiện tại là kiến
