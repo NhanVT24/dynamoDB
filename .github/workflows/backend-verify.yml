@@ -1,0 +1,48 @@
+name: Backend verification
+on:
+  pull_request:
+    paths: ["apps/api/**", "package.json", "package-lock.json", ".github/workflows/backend-verify.yml"]
+  push:
+    paths: ["apps/api/**", "package.json", "package-lock.json", ".github/workflows/backend-verify.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: backend-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_REGION: ap-southeast-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      VNPAY_TMN_CODE: LOCALTEST
+      VNPAY_HASH_SECRET: ci-test-only
+      VNPAY_RETURN_URL: https://example.test/return
+      VNPAY_IPN_URL: https://example.test/ipn
+      PHASE7_DYNAMODB_ENDPOINT: http://127.0.0.1:18000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Architecture, types and regression
+        run: npm run verify -w @supermarket/api
+      - name: Start isolated DynamoDB Local
+        run: >-
+          docker run --detach --rm --name supermarket-phase7-dynamodb
+          --publish 127.0.0.1:18000:8000
+          amazon/dynamodb-local@sha256:6ada631ec7aa5fc83446855eb17233e3dad184fec47477e8140c6c569cfe0c86
+          -jar DynamoDBLocal.jar -inMemory -sharedDb
+      - name: DynamoDB engine integration
+        run: npm run test:integration -w @supermarket/api
+      - name: Stop test database
+        if: always()
+        run: docker stop supermarket-phase7-dynamodb || true
