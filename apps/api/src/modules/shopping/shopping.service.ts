@@ -1,15 +1,8 @@
+import { ManagedProducts } from "./application/managed-products.js";
 import { Inject, Injectable } from "@nestjs/common";
 import type { CognitoPrincipal } from "../../common/auth/cognito-principal.js";
+import { getMockShoppingItem, listMockShoppingItems } from "./shopping.mock.js";
 import {
-  getShoppingItemsPageCursor,
-  getMockShoppingItem,
-  getShoppingItem,
-  listAllShoppingItems,
-  listMockShoppingItems,
-  listShoppingItems
-} from "./shopping.repository.js";
-import {
-  normalizeCategory,
   shoppingCategories,
   shoppingStatuses
 } from "./shopping.schema.js";
@@ -29,7 +22,8 @@ export class ShoppingService {
     @Inject(UpdateProduct) private readonly updateProduct: UpdateProduct<ProductRecord>,
     @Inject(IncrementProductField) private readonly incrementProduct: IncrementProductField<ProductRecord>,
     @Inject(CreateProduct) private readonly createProduct: CreateProduct<ProductRecord>,
-    @Inject(DeleteProduct) private readonly deleteProduct: DeleteProduct
+    @Inject(DeleteProduct) private readonly deleteProduct: DeleteProduct,
+    @Inject(ManagedProducts) private readonly reads: ManagedProducts<ProductRecord, unknown, unknown, unknown>
   ) {}
 
   listDemoShoppingItems() {
@@ -48,44 +42,14 @@ export class ShoppingService {
     };
   }
 
-  listShoppingItems(query: ShoppingListQuery) {
-    return listShoppingItems(query.limit, query.cursor, {
-      category: normalizeCategory(query.category) as string | undefined,
-      status: query.status,
-      updatedAtFrom: query.updatedAtFrom,
-      searchField: query.searchField,
-      search: query.search,
-      sortBy: query.sortBy,
-      sortDirection: query.sortDirection
-    });
-  }
+  listShoppingItems(query: ShoppingListQuery) { return this.reads.list(query); }
 
-  listAllShoppingItems(query: ShoppingListAllQuery) {
-    return listAllShoppingItems(query.pageLimit, query.maxPages, {
-      category: normalizeCategory(query.category) as string | undefined,
-      status: query.status,
-      updatedAtFrom: query.updatedAtFrom,
-      searchField: query.searchField,
-      search: query.search,
-      sortBy: query.sortBy,
-      sortDirection: query.sortDirection
-    });
-  }
+  listAllShoppingItems(query: ShoppingListAllQuery) { return this.reads.all(query); }
 
-  getShoppingItemsPageCursor(query: ShoppingPageCursorQuery) {
-    return getShoppingItemsPageCursor(query.page, query.limit, {
-      category: normalizeCategory(query.category) as string | undefined,
-      status: query.status,
-      updatedAtFrom: query.updatedAtFrom,
-      searchField: query.searchField,
-      search: query.search,
-      sortBy: query.sortBy,
-      sortDirection: query.sortDirection
-    });
-  }
+  getShoppingItemsPageCursor(query: ShoppingPageCursorQuery) { return this.reads.cursor(query); }
 
   getShoppingItemById(id: string) {
-    return getShoppingItem(id);
+    return this.reads.find(id);
   }
 
   createShoppingItem(input: NewProductDetails, principal: CognitoPrincipal) {
@@ -93,15 +57,7 @@ export class ShoppingService {
       actor: { subject: principal.subject, isAdmin: principal.role === "admin" } });
   }
 
-  async listOwnedShoppingItems(ownerSub: string) {
-    const result = await listAllShoppingItems(100, 20, {
-      sortBy: "updatedAt",
-      sortDirection: "desc"
-    });
-    return {
-      items: result.items.filter((item) => String(item.ownerSub ?? "") === ownerSub)
-    };
-  }
+  listOwnedShoppingItems(subject: string) { return this.reads.owned(subject); }
 
   async updateShoppingItem(id: string, patch: ProductChanges, version: number, principal: CognitoPrincipal) {
     return this.updateProduct.execute({

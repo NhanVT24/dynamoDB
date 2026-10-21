@@ -1,3 +1,4 @@
+import { ReadPaymentReturn } from "./application/read-payment-return.js";
 import { CreatePayment } from "./application/create-payment.js";
 import { VnpayPaymentLinkIssuer } from "./infrastructure/vnpay-payment-link-issuer.js";
 import { readProductRecord } from "../shopping/infrastructure/persistence/product-record.store.js";
@@ -17,7 +18,7 @@ import { VnpayService } from "./vnpay.service.js";
 @Module({
   imports: [ConfigModule, NotificationsModule],
   controllers: [VnpayController],
-  providers: [VnpayService, { provide: CreatePayment, inject: [RuntimeConfigService],
+  providers: [VnpayService, { provide: ReadPaymentReturn, useFactory: () => new ReadPaymentReturn(new DynamoPaymentSessions()) }, { provide: CreatePayment, inject: [RuntimeConfigService],
     useFactory: (config: RuntimeConfigService) => new CreatePayment({ find: readProductRecord }, new VnpayPaymentLinkIssuer(() => config.getPaymentConfig())) }, { provide: PaymentProcessing, inject: [NotificationsService],
     useFactory: (notifications: NotificationsService) => new PaymentProcessing(new DynamoPaymentSessions(),
       new NotificationPaymentEvents(notifications), new DynamoFailedPaymentOrders(),

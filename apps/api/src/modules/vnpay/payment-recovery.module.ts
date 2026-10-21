@@ -1,3 +1,4 @@
+import { PaymentReviewAdministration } from "../storefront/application/payment-review-administration.js";
 import { Logger, Module } from "@nestjs/common";
 import { StorefrontModule } from "../storefront/storefront.module.js";
 import { VnpayModule } from "./vnpay.module.js";
@@ -12,7 +13,7 @@ import { VnpayStatusGateway } from "./infrastructure/vnpay-status-gateway.js";
 import { ResumeCheckoutProvisioning } from "./infrastructure/checkout-provisioning.js";
 import { PaymentRecoveryController } from "./payment-recovery.controller.js";
 
-@Module({ imports: [StorefrontModule, VnpayModule, ConfigModule], controllers: [PaymentRecoveryController], providers: [
+@Module({ imports: [StorefrontModule, VnpayModule, ConfigModule], controllers: [PaymentRecoveryController], providers: [{ provide: PaymentReviewAdministration, inject: [DynamoPaymentReviews], useFactory: (reviews: DynamoPaymentReviews) => new PaymentReviewAdministration(reviews) },
   { provide: DynamoPaymentReviews, useFactory: () => new DynamoPaymentReviews() },
   { provide: RecoverPayments, inject: [CreateCheckout, PaymentProcessing, RuntimeConfigService, DynamoPaymentReviews],
     useFactory: (checkout: CreateCheckout, processing: PaymentProcessing, config: RuntimeConfigService, reviews: DynamoPaymentReviews) => {

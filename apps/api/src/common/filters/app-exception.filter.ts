@@ -10,6 +10,7 @@ import { ZodError } from "zod";
 import { requestFailureContext } from "../logging/request-failure-context.js";
 import { ProductMutationError } from "../../modules/shopping/application/product-mutation.error.js";
 import { OrderActionError } from "../../modules/storefront/application/order-action.error.js";
+import { ApplicationError } from "../application/application-error.js";
 
 @Catch()
 export class AppExceptionFilter implements ExceptionFilter {
@@ -22,9 +23,15 @@ export class AppExceptionFilter implements ExceptionFilter {
     const correlationId = String((request as { correlationId?: string })?.correlationId ?? "");
     const context = requestFailureContext(exception, request);
     const expected = exception instanceof HttpException || exception instanceof ZodError ||
-      exception instanceof OrderActionError || exception instanceof ProductMutationError;
+      exception instanceof OrderActionError || exception instanceof ProductMutationError || exception instanceof ApplicationError;
     if (expected) this.logger.warn("api request rejected", context);
     else this.logger.error("api request failed", context);
+
+    if (exception instanceof ApplicationError) {
+      const status = { INVALID_INPUT: 400, NOT_FOUND: 404, CONFLICT: 409, NOT_CONFIGURED: 500 }[exception.code];
+      const label = { 400: "Bad Request", 404: "Not Found", 409: "Conflict", 500: "Internal Server Error" }[status];
+      return response.status(status).send({ message: exception.message, error: label, statusCode: status });
+    }
 
     if (exception instanceof ZodError || Array.isArray((exception as { issues?: unknown[] })?.issues)) {
       return response.status(HttpStatus.BAD_REQUEST).send({

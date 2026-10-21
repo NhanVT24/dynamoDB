@@ -2,11 +2,11 @@ import { Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import { requireRequestPrincipal } from "../../common/auth/request-principal.js";
-import { DynamoPaymentReviews } from "../storefront/infrastructure/persistence/dynamo-payment-reviews.js";
+import { PaymentReviewAdministration } from "../storefront/application/payment-review-administration.js";
 
 @Controller("api/admin/ops/payment-reviews")
 export class PaymentRecoveryController {
-  constructor(private readonly reviews: DynamoPaymentReviews) {}
+  constructor(private readonly reviews: PaymentReviewAdministration<unknown>) {}
   private async admin(request: FastifyRequest) {
     return requireRequestPrincipal(request, { roles: ["admin"], message: "Only admin accounts can manage payment reviews." });
   }

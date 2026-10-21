@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { z } from "zod";
-import { markEmailRouteRuleMatched } from "../../../modules/email-deliveries/email-route.repository.js";
+import { createTrackEmailRouteMatch } from "../../../modules/email-deliveries/email-background.composition.js";
 
 const routeDetailSchema = z.object({
   emailJobId: z.string().length(64),
@@ -29,7 +29,7 @@ const eventSchema = z.union([
 
 export const handler = async (rawEvent: unknown) => {
   const event = eventSchema.parse(rawEvent);
-  const advanced = await markEmailRouteRuleMatched(event.detail.emailJobId);
+  const { tracked: advanced } = await createTrackEmailRouteMatch().execute(event.detail.emailJobId);
 
   console.log(JSON.stringify({
     flow: "email_routing",

@@ -1,0 +1,141 @@
+import { ApplicationError } from "../../../common/application/application-error.js";
+import type { SaleCampaign, SaleCampaignStatus, NewSaleCampaign } from "../domain/campaign.js";
+export interface CampaignStore {
+    listSaleCampaigns(): Promise<SaleCampaign[]>;
+    listActiveSaleCampaigns(): Promise<SaleCampaign[]>;
+    getSaleCampaign(id: string): Promise<SaleCampaign | null>;
+    createSaleCampaign(input: Omit<SaleCampaign, "version" | "createdAt" | "updatedAt">): Promise<SaleCampaign>;
+    cancelSaleCampaign(id: string): Promise<void>;
+    transitionSaleCampaign(id: string, from: SaleCampaignStatus, to: SaleCampaignStatus): Promise<void>;
+    closeSaleCampaignBecauseEmpty(input: {
+        id: string;
+        expectedStatus: "scheduled" | "active";
+        expectedVersion: number;
+    }): Promise<SaleCampaign | null>;
+    updateSaleCampaignProducts(input: {
+        id: string;
+        expectedStatus: "scheduled" | "active";
+        expectedVersion: number;
+        productIds: string[];
+    }): Promise<SaleCampaign | null>;
+}
+export interface CampaignProducts<TProduct> {
+    find(id: string): Promise<TProduct | null>;
+}
+export interface CampaignSchedules {
+    assertReady(): void;
+    create(id: string, action: "start" | "end", at: string, name: string): Promise<void>;
+    delete(name: string): Promise<void>;
+}
+const scheduleName = (id: string, action: "start" | "end") => `sale-${action}-${id}`;
+function ignoreConflict(error: unknown) { if (!(error instanceof ApplicationError) || error.code !== "CONFLICT")
+    throw error; }
+export class SalesUseCases<TProduct> {
+    constructor(private readonly campaigns: CampaignStore, private readonly products: CampaignProducts<TProduct>, private readonly schedules: CampaignSchedules, private readonly newId: () => string, private readonly now: () => number = Date.now) { }
+    async list() { return this.campaigns.listSaleCampaigns(); }
+    async listProducts(id: string) {
+        const campaign = await this.campaigns.getSaleCampaign(id);
+        if (!campaign)
+            throw new ApplicationError("NOT_FOUND", "Sale campaign not found.");
+        const results = await Promise.all(campaign.productIds.map((productId) => this.products.find(productId)));
+        return {
+            campaign,
+            items: results.filter((product): product is NonNullable<typeof product> => Boolean(product))
+        };
+    }
+    async create(input: NewSaleCampaign) {
+        const start = new Date(input.startAt);
+        const end = new Date(input.endAt);
+        if (start.getTime() <= this.now() + 60000 || end <= start)
+            throw new ApplicationError("INVALID_INPUT", "Sale must start at least one minute from now and end after it starts.");
+        for (const productId of input.productIds)
+            if (!await this.products.find(productId))
+                throw new ApplicationError("INVALID_INPUT", `Product ${productId} does not exist.`);
+        this.schedules.assertReady();
+        const id = this.newId();
+        const startName = scheduleName(id, "start");
+        const endName = scheduleName(id, "end");
+        const campaign = await this.campaigns.createSaleCampaign({ id, name: input.name, discountPercent: input.discountPercent, startAt: input.startAt, endAt: input.endAt, productIds: input.productIds ?? [], campaignStatus: "scheduled", startScheduleName: startName, endScheduleName: endName });
+        try {
+            const scheduled = await Promise.allSettled([this.schedules.create(campaign.id, "start", input.startAt, startName), this.schedules.create(campaign.id, "end", input.endAt, endName)]);
+            const rejected = scheduled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+            if (rejected)
+                throw rejected.reason;
+        }
+        catch (error) {
+            // Compensate for a partial Scheduler failure so a campaign cannot become active unexpectedly.
+            await Promise.allSettled([this.schedules.delete(startName), this.schedules.delete(endName)]);
+            await this.campaigns.cancelSaleCampaign(campaign.id).catch(() => undefined);
+            throw error;
+        }
+        return campaign;
+    }
+    async cancel(id: string) {
+        const campaign = await this.campaigns.getSaleCampaign(id);
+        if (!campaign)
+            throw new ApplicationError("NOT_FOUND", "Sale campaign not found.");
+        await Promise.allSettled([this.schedules.delete(campaign.startScheduleName), this.schedules.delete(campaign.endScheduleName)]);
+        await this.campaigns.cancelSaleCampaign(id);
+        return { success: true };
+    }
+    async removeProduct(id: string, productId: string) {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const campaign = await this.campaigns.getSaleCampaign(id);
+            if (!campaign)
+                throw new ApplicationError("NOT_FOUND", "Sale campaign not found.");
+            if (campaign.campaignStatus !== "scheduled" && campaign.campaignStatus !== "active") {
+                throw new ApplicationError("INVALID_INPUT", "Only scheduled or active sale campaigns can be changed.");
+            }
+            if (!campaign.productIds.includes(productId)) {
+                return { campaign, closed: campaign.productIds.length === 0 };
+            }
+            const remainingProductIds = campaign.productIds.filter((id) => id !== productId);
+            try {
+                if (remainingProductIds.length === 0) {
+                    const closedCampaign = await this.campaigns.closeSaleCampaignBecauseEmpty({
+                        id: campaign.id,
+                        expectedStatus: campaign.campaignStatus,
+                        expectedVersion: campaign.version
+                    });
+                    // The state is committed first; schedule deletion is cleanup and can safely be retried by AWS later.
+                    await Promise.allSettled([this.schedules.delete(campaign.startScheduleName), this.schedules.delete(campaign.endScheduleName)]);
+                    return { campaign: closedCampaign!, closed: true };
+                }
+                const updatedCampaign = await this.campaigns.updateSaleCampaignProducts({
+                    id: campaign.id,
+                    expectedStatus: campaign.campaignStatus,
+                    expectedVersion: campaign.version,
+                    productIds: remainingProductIds
+                });
+                return { campaign: updatedCampaign!, closed: false };
+            }
+            catch (error) {
+                if (!(error instanceof ApplicationError) || error.code !== "CONFLICT")
+                    throw error;
+            }
+        }
+        throw new ApplicationError("CONFLICT", "Sale campaign changed at the same time. Please retry.");
+    }
+    async handleScheduleEvent(input: {
+        campaignId?: string;
+        action?: string;
+    }) {
+        const campaign = await this.campaigns.getSaleCampaign(String(input.campaignId ?? ""));
+        if (!campaign)
+            return { ignored: "campaign_not_found" };
+        if (input.action === "start") {
+            if (this.now() >= Date.parse(campaign.endAt)) {
+                await this.campaigns.transitionSaleCampaign(campaign.id, "scheduled", "ended").catch(ignoreConflict);
+                return { ended: true };
+            }
+            await this.campaigns.transitionSaleCampaign(campaign.id, "scheduled", "active").catch(ignoreConflict);
+            return { active: true };
+        }
+        if (input.action === "end") {
+            await this.campaigns.transitionSaleCampaign(campaign.id, campaign.campaignStatus === "scheduled" ? "scheduled" : "active", "ended").catch(ignoreConflict);
+            return { ended: true };
+        }
+        return { ignored: "unknown_action" };
+    }
+    async getActiveCampaigns() { return this.campaigns.listActiveSaleCampaigns(); }
+}

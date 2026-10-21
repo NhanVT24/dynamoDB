@@ -1,3 +1,5 @@
+import { ManagedProducts } from "./application/managed-products.js";
+import { managedProductReads } from "./infrastructure/persistence/managed-product-reads.js";
 import { Module } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { NotificationsModule } from "../notifications/notifications.module.js";
@@ -19,6 +21,7 @@ import { DynamoProductDeleter } from "./infrastructure/persistence/dynamo-produc
   controllers: [ShoppingController],
   providers: [
     ShoppingService,
+    { provide: ManagedProducts, useFactory: () => new ManagedProducts(managedProductReads) },
     {
       provide: UpdateProduct,
       inject: [NotificationsService],

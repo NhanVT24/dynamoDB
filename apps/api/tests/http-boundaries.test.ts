@@ -136,3 +136,62 @@ test("full app preHandler, audit interceptor and controller preserve the same tr
     assert.equal((await http.inject({ method: "GET", url: "/api/shopping-items" })).statusCode, 403);
   } finally { await app.close(); compiledEnv.AUTH_ALLOW_UNVERIFIED_JWT = previous; }
 });
+
+
+test("remaining compiled modules preserve profile identity, email admin guard and upload scope policy", async () => {
+  const { rawDb } = await import("../dist/src/database/dynamodb/client.js");
+  const originalSend = rawDb.send;
+  // The real global audit interceptor still runs. Only its operation ledger
+  // writes are simulated; any unexpected database access fails locally.
+  rawDb.send = (async command => {
+    const name = command.constructor.name;
+    if (name !== "PutItemCommand" && name !== "UpdateItemCommand") throw new Error(`Unexpected database command: ${name}`);
+    return {};
+  }) as typeof rawDb.send;
+  const { createNestApp } = await import("../dist/src/core/app/create-app.js");
+  const { env: compiledEnv } = await import("../dist/src/config/env.js");
+  const { ProfileQueries, UpdateProfile } = await import("../dist/src/modules/customers/authorization/application/profile.js");
+  const { EmailAdministration } = await import("../dist/src/modules/email-deliveries/application/email-administration.js");
+  const { UploadAccess } = await import("../dist/src/modules/uploads/application/upload-access.js");
+  const { ApplicationError: CompiledError } = await import("../dist/src/common/application/application-error.js");
+  const previous = compiledEnv.AUTH_ALLOW_UNVERIFIED_JWT; compiledEnv.AUTH_ALLOW_UNVERIFIED_JWT = true;
+  const app = await createNestApp();
+  const updates: unknown[] = []; let emailReads = 0, grants = 0;
+  app.get(ProfileQueries).get = async subject => ({ displayName: subject, avatarKey: "", avatarUrl: "", addresses: [] });
+  app.get(UpdateProfile).execute = async (subject, patch) => {
+    updates.push({ subject, patch });
+    if (patch.displayName === "Missing") throw new CompiledError("INVALID_INPUT", "User profile is not ready yet.");
+    return { ...patch, avatarKey: "", avatarUrl: "", addresses: [] } as never;
+  };
+  app.get(EmailAdministration).list = async () => { emailReads++; return { items: [] } as never; };
+  const upload = app.get(UploadAccess) as unknown as { storage: { put(scope: string): Promise<unknown> } };
+  upload.storage.put = async scope => { grants++; return { key: scope + "/image.png" }; };
+  try {
+    await app.init(); const http = app.getHttpAdapter().getInstance(); await http.ready();
+    assert.equal((await http.inject({ method: "GET", url: "/api/profile/me" })).statusCode, 403);
+    const own = { authorization: token({ sub: "trusted-subject" }) };
+    const fetched = await http.inject({ method: "GET", url: "/api/profile/me", headers: own });
+    assert.equal(fetched.statusCode, 200); assert.equal(fetched.json().displayName, "trusted-subject");
+    for (const payload of [{}, { displayName: "Name", subject: "spoof" }]) {
+      assert.equal((await http.inject({ method: "PATCH", url: "/api/profile/me", headers: own, payload })).statusCode, 400);
+    }
+    assert.equal(updates.length, 0);
+    assert.equal((await http.inject({ method: "PATCH", url: "/api/profile/me", headers: own, payload: { displayName: "Name" } })).statusCode, 200);
+    assert.deepEqual(updates, [{ subject: "trusted-subject", patch: { displayName: "Name", addresses: undefined } }]);
+    assert.equal((await http.inject({ method: "PATCH", url: "/api/profile/me", headers: own, payload: { displayName: "Missing" } })).statusCode, 400);
+    for (const headers of [{}, own]) {
+      assert.equal((await http.inject({ method: "GET", url: "/api/admin/email-deliveries", headers })).statusCode, 403);
+    }
+    assert.equal(emailReads, 0);
+    const admin = { authorization: token({ role: "admin" }) };
+    assert.equal((await http.inject({ method: "GET", url: "/api/admin/email-deliveries", headers: admin })).statusCode, 200);
+    assert.equal(emailReads, 1);
+    assert.equal((await http.inject({ method: "POST", url: "/api/admin/email-deliveries/sale", headers: admin, payload: { recipients: [] } })).statusCode, 400);
+    const image = { fileName: "image.png", contentType: "image/png", scope: "private/admin-reports" };
+    assert.equal((await http.inject({ method: "POST", url: "/api/uploads/presign", headers: own, payload: image })).statusCode, 403);
+    assert.equal((await http.inject({ method: "POST", url: "/api/uploads/presign", headers: admin, payload: image })).statusCode, 400);
+    assert.equal(grants, 0);
+    const avatar = await http.inject({ method: "POST", url: "/api/uploads/avatar/presign", headers: own, payload: image });
+    assert.equal(avatar.statusCode, 201, avatar.body); assert.equal(avatar.json().key, "public/avatars/trusted-subject/image.png");
+  } finally { await app.close(); compiledEnv.AUTH_ALLOW_UNVERIFIED_JWT = previous; rawDb.send = originalSend; }
+});

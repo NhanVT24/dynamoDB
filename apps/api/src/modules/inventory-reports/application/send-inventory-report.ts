@@ -1,0 +1,136 @@
+import { ApplicationError } from "../../../common/application/application-error.js";
+import type { ProductStatus } from "../../shopping/domain/product.js";
+export interface DigestProduct {
+    id: string;
+    name: string;
+    sku?: string;
+    stock: number;
+    status: ProductStatus;
+    updatedAt: string;
+    inventoryAlertSent: boolean;
+}
+export interface InventoryReportPorts {
+    listInventoryReportProducts(): Promise<DigestProduct[]>;
+    markInventoryReportProductsAlerted(products: DigestProduct[]): Promise<number>;
+    createPendingInventoryReport(input: {
+        reportId: string;
+        reportDate: string;
+        recipientEmail: string;
+        lowStockCount: number;
+        outOfStockCount: number;
+    }): Promise<void>;
+    markInventoryReportAccepted(id: string, message: string): Promise<boolean>;
+    markInventoryReportFailed(id: string, reason: string): Promise<void>;
+    createPendingEmailDelivery(input: {
+        emailType: "inventory_daily_report";
+        recipientEmail: string;
+        senderEmail: string;
+        subject: string;
+        reportId: string;
+    }): Promise<{
+        id: string;
+    }>;
+    markEmailDeliveryAccepted(id: string, message: string): Promise<boolean>;
+    markEmailDeliveryFailed(id: string, reason: string): Promise<void>;
+    getInventoryDigestSubject(date: string): string;
+    sendInventoryDigestEmail(input: {
+        emailId: string;
+        reportId: string;
+        reportDate: string;
+        lowStockProducts: DigestProduct[];
+        outOfStockProducts: DigestProduct[];
+    }): Promise<string>;
+    warn(event: string, details: Record<string, unknown>): void;
+}
+function getVietnamReportDate(referenceDate = new Date()) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Ho_Chi_Minh",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+    }).formatToParts(referenceDate);
+    const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    return `${values.year}-${values.month}-${values.day}`;
+}
+function isBiDailyInventoryReportDate(reportDate: string) {
+    const [year, month, day] = reportDate.split("-").map(Number);
+    const currentReportDate = Date.UTC(year, month - 1, day);
+    const firstReportDate = Date.UTC(2026, 0, 1);
+    const elapsedDays = Math.floor((currentReportDate - firstReportDate) / 86400000);
+    return elapsedDays >= 0 && elapsedDays % 2 === 0;
+}
+export class SendInventoryReport {
+    constructor(private readonly ports: InventoryReportPorts, private readonly config: {
+        adminEmail?: string;
+        senderEmail?: string;
+    }) { }
+    async execute(referenceDate = new Date()) {
+        if (!this.config.adminEmail) {
+            throw new Error("Missing ADMIN_REPORT_EMAIL configuration.");
+        }
+        const reportDate = getVietnamReportDate(referenceDate);
+        if (!isBiDailyInventoryReportDate(reportDate)) {
+            return { sent: false, reason: "not_scheduled_report_date" as const, reportDate };
+        }
+        const products = await this.ports.listInventoryReportProducts();
+        if (products.length === 0) {
+            return { sent: false, reason: "no_low_or_out_of_stock_products" as const };
+        }
+        const reportId = `daily-inventory-${reportDate}`;
+        const lowStockProducts = products.filter((product) => product.status === "low_stock");
+        const outOfStockProducts = products.filter((product) => product.status === "out_of_stock");
+        try {
+            await this.ports.createPendingInventoryReport({
+                reportId,
+                reportDate,
+                recipientEmail: this.config.adminEmail,
+                lowStockCount: lowStockProducts.length,
+                outOfStockCount: outOfStockProducts.length
+            });
+        }
+        catch (error) {
+            if (error instanceof ApplicationError && error.code === "CONFLICT") {
+                return { sent: false, reason: "report_already_created" as const, reportId };
+            }
+            throw error;
+        }
+        const email = await this.ports.createPendingEmailDelivery({
+            emailType: "inventory_daily_report",
+            recipientEmail: this.config.adminEmail,
+            senderEmail: this.config.senderEmail ?? "",
+            subject: this.ports.getInventoryDigestSubject(reportDate),
+            reportId
+        });
+        let sesMessageId: string;
+        try {
+            sesMessageId = await this.ports.sendInventoryDigestEmail({
+                emailId: email.id,
+                reportId,
+                reportDate,
+                lowStockProducts,
+                outOfStockProducts
+            });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : "Unknown SES send failure";
+            await Promise.all([this.ports.markInventoryReportFailed(reportId, message), this.ports.markEmailDeliveryFailed(email.id, message)]);
+            // Daily inventory mail is intentionally not retried immediately; the next scheduled run re-evaluates stock.
+            return { sent: false, reason: "ses_send_failed" as const, reportId };
+        }
+        await Promise.all([
+            this.ports.markInventoryReportAccepted(reportId, sesMessageId),
+            this.ports.markEmailDeliveryAccepted(email.id, sesMessageId)
+        ]);
+        try {
+            const alertedProductCount = await this.ports.markInventoryReportProductsAlerted(products);
+            return { sent: true, reportId, sesMessageId, productCount: products.length, alertedProductCount };
+        }
+        catch (error) {
+            this.ports.warn("inventory-report.alert_state_update_failed", {
+                reportId,
+                error: error instanceof Error ? error.message : "Unknown alert state update failure"
+            });
+            return { sent: true, reportId, sesMessageId, productCount: products.length, alertedProductCount: 0 };
+        }
+    }
+}

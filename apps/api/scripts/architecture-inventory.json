@@ -1,0 +1,25 @@
+{
+  "modules": {
+    "admin-ops": { "kind": "business" },
+    "audit-log": { "kind": "business" },
+    "customers": { "kind": "business" },
+    "data-cleanup": { "kind": "business" },
+    "email-deliveries": { "kind": "business" },
+    "health": { "kind": "technical", "reason": "Liveness endpoint, no business workflow." },
+    "inventory-reports": { "kind": "business" },
+    "learning": { "kind": "technical", "reason": "Static exercise endpoints; no production business rules." },
+    "notifications": { "kind": "business" },
+    "sales": { "kind": "business" },
+    "shopping": { "kind": "business" },
+    "storefront": { "kind": "business" },
+    "uploads": { "kind": "business" },
+    "vnpay": { "kind": "business" }
+  },
+  "technicalEntrypoints": {
+    "entrypoints/lambda/workflow/image-workflow-step.ts": "S3 event decoding and object metadata projection only; no image transformation or business command.",
+    "entrypoints/lambda/cognito/triggers/custom-email-sender.ts": "Cognito encrypted-code decoding and provider email rendering/sending adapter.",
+    "entrypoints/lambda/cognito/triggers/custom-message.ts": "Provider-specific Cognito verification message rendering.",
+    "entrypoints/lambda/jobs/audit-event-worker.ts": "Diagnostic EventBridge audit-policy observer; does not execute a business command.",
+    "entrypoints/lambda/queue/audit-log-worker.ts": "DynamoDB stream/queue decoding, audit diff projection and conditional audit persistence; technical audit pipeline."
+  }
+}
