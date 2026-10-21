@@ -1,5 +1,10 @@
 # Hướng dẫn đọc Backend từ con số 0
 
+> Cập nhật Clean Architecture: xem [báo cáo migration toàn backend](clean-architecture-remaining-migration.md)
+> để biết application/domain/ports, composition và các technical exception hiện tại.
+> Các phần mô tả service/repository legacy bên dưới vẫn hữu ích để tìm adapter,
+> nhưng business orchestration đã được chuyển sang application use cases.
+
 Backend nằm ở `apps/api`. Đây là một NestJS application chạy với Fastify. Khi chạy local, nó mở HTTP server. Khi deploy AWS, cùng business code đó được đóng gói thành nhiều AWS Lambda: Lambda nhận HTTP request, SQS message, hoặc lịch chạy định kỳ.
 
 ## Bức tranh tổng thể
@@ -8,16 +13,21 @@ Backend nằm ở `apps/api`. Đây là một NestJS application chạy với Fa
 Client (web / VNPay / AWS event)
         |
         v
-entrypoints  ->  Controller  ->  Service  ->  Repository  -> DynamoDB
-                              ->  integrations -> SQS / SES / S3 / EventBridge
+entrypoints -> Controller/transport facade -> Application use case -> Domain policy
+                                               |
+                                               v
+                                           Output port
+                                               ^ implements
+                                               |
+                         Infrastructure adapter -> DynamoDB / SES / S3 / EventBridge
 ```
 
 - `Controller` nhận HTTP request, validate input và trả HTTP response. Không nên đặt business rule nặng ở đây.
-- `Service` là nơi chứa business rule, ví dụ kiểm tra tồn kho trước khi cập nhật hoặc tạo checkout.
+- `Application use case` điều phối một nhiệm vụ; `Domain` giữ business rule có thể dùng lại, ví dụ stock policy. Các `Service` cũ chủ yếu là facade để giữ caller tương thích.
 - `Repository` chỉ lo đọc/ghi DynamoDB. Nó không nên biết HTTP request hay `@Controller`.
 - `Integration` là adapter gọi dịch vụ AWS bên ngoài. Nhờ tách ra, code nghiệp vụ không bị dính chi tiết AWS SDK.
 
-Ví dụ request `GET /api/shopping-items` đi qua `ShoppingController.listShoppingItems` -> `ShoppingService.listShoppingItems` -> `shopping.repository.listShoppingItems` -> DynamoDB. Mỗi layer có một trách nhiệm, nên debug cũng theo đúng đường này.
+Ví dụ request `GET /api/shopping-items` đi qua `ShoppingController.listShoppingItems` -> `ShoppingService.listShoppingItems` -> `ManagedProducts.list` -> `ManagedProductReads.list`. ShoppingModule nối port này với adapter gọi query repository hiện có. Core không import repository cụ thể.
 
 ## Cấu trúc thư mục hiện tại: chia theo module/feature
 

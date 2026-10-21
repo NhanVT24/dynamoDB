@@ -1,3 +1,4 @@
+import { ReadPaymentReturn } from "./application/read-payment-return.js";
 import { CreatePayment } from "./application/create-payment.js";
 import { PaymentProcessing } from "./application/payment-processing.js";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
@@ -9,7 +10,6 @@ import {
 import { RuntimeConfigService } from "../../config/runtime-config.service.js";
 import { NotificationsService } from "../notifications/notifications.service.js";
 import {
-  getPaymentSessionByTxnRef,
   markPaymentEventEnqueued,
 } from "./vnpay.repository.js";
 import { verifyVnpaySignature } from "./vnpay-signature.js";
@@ -60,7 +60,8 @@ export class VnpayService {
     private readonly notificationsService: NotificationsService,
     private readonly runtimeConfigService: RuntimeConfigService,
     @Inject(PaymentProcessing) private readonly processing: PaymentProcessing,
-    @Inject(CreatePayment) private readonly createPayment: CreatePayment
+    @Inject(CreatePayment) private readonly createPayment: CreatePayment,
+    @Inject(ReadPaymentReturn) private readonly readReturn: ReadPaymentReturn
   ) {}
 
   getPaymentConfig() {
@@ -144,8 +145,8 @@ export class VnpayService {
     if (!this.isValidCallback(result)) {
       return { ...result, transactionStatus: "failed", message: "Invalid VNPay callback data." };
     }
-    const session = await getPaymentSessionByTxnRef(result.txnRef);
-    if (!session || session.amount * 100 !== Number(result.amountMinor)) {
+    const session = await this.readReturn.execute(result.txnRef, result.amountMinor);
+    if (!session) {
       return { ...result, transactionStatus: "failed", message: "Payment session or amount does not match." };
     }
 

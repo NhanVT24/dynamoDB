@@ -1,3 +1,4 @@
+import { ConfirmAccount } from "../../../../modules/customers/authorization/application/account-lifecycle.js";
 import crypto from "node:crypto";
 import { marshall } from "@aws-sdk/util-dynamodb";
 import { normalizeAddresses, type UserAddress } from "../../../../modules/customers/authorization/user-address.js";
@@ -123,11 +124,9 @@ async function publishWelcomeEmailRequested(input: { subject: string; email: str
   }
 }
 
-export async function TriggerPostConfirmation(dynamo: DynamoDBClient, event: CognitoTriggerEvent) {
-  if (event.triggerSource === "PostConfirmation_ConfirmForgotPassword") {
-    const subject = event.request.userAttributes?.sub;
-    if (!subject) throw new Error("Cannot audit password reset without a user subject.");
-    await dynamo.send(new UpdateItemCommand({
+export async function TriggerPostConfirmation(dynamo:DynamoDBClient,event:CognitoTriggerEvent){
+ const useCase=new ConfirmAccount({
+  reset:async subject=>{    await dynamo.send(new UpdateItemCommand({
       TableName: process.env.DYNAMODB_TABLE_NAME,
       Key: { PK: { S: `USER#${subject}` }, SK: { S: "PROFILE" } },
       UpdateExpression: "SET #entityType = if_not_exists(#entityType, :entityType), #subject = if_not_exists(#subject, :subject), passwordResetAt = :now",
@@ -136,20 +135,10 @@ export async function TriggerPostConfirmation(dynamo: DynamoDBClient, event: Cog
         ":now": { S: new Date().toISOString() }, ":entityType": { S: "USER_PROFILE" }, ":subject": { S: subject }
       }
     }));
-    return event;
-  }
-  if (event.triggerSource !== "PostConfirmation_ConfirmSignUp") {
-    return event;
-  }
-
-  await client.send(new AdminAddUserToGroupCommand({
-    UserPoolId: event.userPoolId,
-    Username: event.userName,
-    GroupName: "customer"
-  }));
-
-  const profile = await persistConfirmedUserProfile(dynamo, event);
-  await publishWelcomeEmailRequested(profile);
-
-  return event;
+},
+  assignCustomer:async()=>{await client.send(new AdminAddUserToGroupCommand({UserPoolId:event.userPoolId,Username:event.userName,GroupName:"customer"}));},
+  persistProfile:()=>persistConfirmedUserProfile(dynamo,event),welcome:publishWelcomeEmailRequested
+ });
+ await useCase.execute(event.triggerSource === "PostConfirmation_ConfirmForgotPassword" ? "password_reset" : event.triggerSource === "PostConfirmation_ConfirmSignUp" ? "sign_up" : "other",event.request.userAttributes?.sub);
+ return event;
 }

@@ -1,8 +1,8 @@
+import { AccountAccess } from "../../../../modules/customers/authorization/application/account-lifecycle.js";
 import { GetItemCommand, type DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import type { CognitoTriggerEvent } from "../types.js";
-import { normalizeEmail } from "../helper/attributes.js";
 
-const blockedStatuses = new Set(["SUSPENDED", "DISABLED", "BLOCKED"]);
+
 
 function resolveSubject(event: CognitoTriggerEvent) {
   return String(event.request.userAttributes?.sub || "").trim();
@@ -35,18 +35,7 @@ export async function TriggerPreAuthentication(dynamo: DynamoDBClient, event: Co
     return event;
   }
 
-  const status = await readAccountStatus(dynamo, subject);
-  if (blockedStatuses.has(status)) {
-    const email = normalizeEmail(event.request.userAttributes?.email);
-    console.warn(JSON.stringify({
-      flow: "cognito_pre_authentication",
-      stage: "login_blocked",
-      subject,
-      email,
-      status
-    }));
-    throw new Error("This account is not allowed to sign in. Please contact support.");
-  }
+  await new AccountAccess({ status: id => readAccountStatus(dynamo,id), permissions: async () => [] }).signIn(subject);
 
   return event;
 }

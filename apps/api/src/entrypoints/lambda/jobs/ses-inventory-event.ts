@@ -1,8 +1,7 @@
 import "reflect-metadata";
 import { z } from "zod";
 import { env } from "../../../config/env.js";
-import { listEmailRecipients, markEmailAccepted, updateEmailDeliveryStatus, updateEmailRecipientStatus } from "../../../modules/email-deliveries/email-delivery.repository.js";
-import { updateInventoryReportDeliveryStatus } from "../../../modules/inventory-reports/inventory-report.repository.js";
+import { recordEmailFeedback } from "../../../modules/email-deliveries/infrastructure/email-feedback-store.js";
 import type { FeedbackStatus } from "../../../modules/email-deliveries/email-feedback.js";
 
 const affectedRecipient = z.object({ emailAddress: z.string(), diagnosticCode: z.string().optional() });
@@ -75,37 +74,7 @@ export async function processSesMessage(message: string) {
     affectedRecipientCount: input.recipientEmails?.length ?? 0,
     correlation: recipientId ? "recipient_tag" : "affected_recipient_addresses"
   });
-  if (emailId) {
-    // A pre-migration DETAIL item has no META. Its child update below remains
-    // supported; current records persist the common SES message ID on META.
-    await markEmailAccepted(emailId, event.mail.messageId);
-    if (recipientId) {
-      await updateEmailRecipientStatus({ ...input, emailId, recipientId });
-    } else {
-      // A shared To/CC/BCC message has one emailId tag. Only affected addresses
-      // in the event may be updated; mail.destination includes ALL recipients.
-      const recipients = await listEmailRecipients(emailId);
-      if (recipients.length) {
-        if (!input.recipientEmails && recipients.length > 1) throw new Error("Cannot attribute SES event to recipients.");
-        for (const recipient of recipients) {
-          if (!input.recipientEmails || input.recipientEmails.some((address) => address.toLowerCase() === recipient.recipientEmail.toLowerCase())) {
-            await updateEmailRecipientStatus({ ...input, emailId, recipientId: recipient.recipientId });
-          }
-        }
-      } else {
-        await updateEmailDeliveryStatus({ ...input, id: emailId });
-      }
-    }
-  }
-  // Preserve the existing report projection. Both writes are independently
-  // idempotent so a retry after partial completion is safe.
-  if (reportId) await updateInventoryReportDeliveryStatus({
-    reportId,
-    sesMessageId: event.mail.messageId,
-    status: mapping.status,
-    providerEventAt: eventAt
-  });
-  return { emailId, recipientId, status: mapping.status };
+  return recordEmailFeedback.execute(input, { emailId, recipientId, reportId });
 }
 
 export const handler = async (event: SnsEvent) => {

@@ -1,4 +1,7 @@
 import { Module } from "@nestjs/common";
 import { SalesController } from "./sales.controller.js";
 import { SalesService } from "./sales.service.js";
-@Module({ controllers: [SalesController], providers: [SalesService], exports: [SalesService] }) export class SalesModule {}
+import { createSalesService } from "./sales.composition.js";
+@Module({ controllers: [SalesController], providers: [{ provide: SalesService,
+ useFactory: createSalesService }], exports: [SalesService] })
+export class SalesModule {}
