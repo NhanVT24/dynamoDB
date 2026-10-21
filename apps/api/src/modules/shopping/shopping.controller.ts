@@ -5,17 +5,15 @@ import {
   Get,
   HttpCode,
   HttpStatus,
-  Logger,
   NotFoundException,
   Param,
   Patch,
   Post,
   Query,
-  Req,
-  ForbiddenException
+  Req
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
-import { extractCognitoPrincipal, hasPermission } from "../../common/auth/cognito-principal.js";
+import { requireRequestPrincipal } from "../../common/auth/request-principal.js";
 import { ShoppingService } from "./shopping.service.js";
 import {
   createShoppingItemSchema,
@@ -32,8 +30,6 @@ import {
 
 @Controller("api/shopping-items")
 export class ShoppingController {
-  private readonly logger = new Logger(ShoppingController.name);
-
   constructor(private readonly shoppingService: ShoppingService) {}
 
   @Get("demo")
@@ -55,35 +51,35 @@ export class ShoppingController {
   }
 
   @Get()
-  listShoppingItems(@Query() rawQuery: Record<string, unknown>) {
+  async listShoppingItems(@Req() request: FastifyRequest, @Query() rawQuery: Record<string, unknown>) {
+    await this.requireAdminRead(request);
     const query = shoppingListQuerySchema.parse(rawQuery);
-    this.logger.log(`shopping list request ${JSON.stringify(query)}`);
     return this.shoppingService.listShoppingItems(query);
   }
 
   @Get("all")
-  listAllShoppingItems(@Query() rawQuery: Record<string, unknown>) {
+  async listAllShoppingItems(@Req() request: FastifyRequest, @Query() rawQuery: Record<string, unknown>) {
+    await this.requireAdminRead(request);
     const query = shoppingListAllQuerySchema.parse(rawQuery);
-    this.logger.log(`shopping all request ${JSON.stringify(query)}`);
     return this.shoppingService.listAllShoppingItems(query);
   }
 
   @Get("page-cursor")
-  getShoppingItemsPageCursor(@Query() rawQuery: Record<string, unknown>) {
+  async getShoppingItemsPageCursor(@Req() request: FastifyRequest, @Query() rawQuery: Record<string, unknown>) {
+    await this.requireAdminRead(request);
     const query = shoppingPageCursorQuerySchema.parse(rawQuery);
-    this.logger.log(`shopping page-cursor request ${JSON.stringify(query)}`);
     return this.shoppingService.getShoppingItemsPageCursor(query);
   }
 
   @Get("mine")
   async listMyShoppingItems(@Req() request: FastifyRequest) {
-    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal) throw new ForbiddenException("A signed-in account is required.");
+    const principal = await requireRequestPrincipal(request, { message: "A signed-in account is required." });
     return this.shoppingService.listOwnedShoppingItems(principal.subject);
   }
 
   @Get(":id")
-  async getShoppingItemById(@Param() params: Record<string, string>) {
+  async getShoppingItemById(@Req() request: FastifyRequest, @Param() params: Record<string, string>) {
+    await this.requireAdminRead(request);
     const { id } = shoppingParamsSchema.parse(params);
     const item = await this.shoppingService.getShoppingItemById(id);
     if (!item) throw new NotFoundException("Product not found");
@@ -93,10 +89,7 @@ export class ShoppingController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createShoppingItem(@Req() request: FastifyRequest, @Body() rawBody: Record<string, unknown>) {
-    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal || !hasPermission(principal, "products:create")) {
-      throw new ForbiddenException("Missing permission: products:create");
-    }
+    const principal = await requireRequestPrincipal(request, { permission: "products:create", message: "Missing permission: products:create" });
     const input = createShoppingItemSchema.parse(rawBody);
     // The preprocess schema requires category at runtime; make its presence
     // explicit for Zod's inferred type under the project's strict:false config.
@@ -105,10 +98,7 @@ export class ShoppingController {
 
   @Patch(":id")
   async updateShoppingItem(@Req() request: FastifyRequest, @Param() params: Record<string, string>, @Body() rawBody: Record<string, unknown>) {
-    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal || !hasPermission(principal, "products:update-own")) {
-      throw new ForbiddenException("Missing permission: products:update-own");
-    }
+    const principal = await requireRequestPrincipal(request, { permission: "products:update-own", message: "Missing permission: products:update-own" });
     const { id } = shoppingParamsSchema.parse(params);
     const body = updateShoppingItemSchema.merge(shoppingUpdateBodySchema).parse(rawBody);
     const { version, ...patch } = body;
@@ -117,10 +107,7 @@ export class ShoppingController {
 
   @Patch(":id/increment")
   async incrementShoppingItemField(@Req() request: FastifyRequest, @Param() params: Record<string, string>, @Body() rawBody: Record<string, unknown>) {
-    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal || !hasPermission(principal, "products:update-own")) {
-      throw new ForbiddenException("Missing permission: products:update-own");
-    }
+    const principal = await requireRequestPrincipal(request, { permission: "products:update-own", message: "Missing permission: products:update-own" });
     const { id } = shoppingParamsSchema.parse(params);
     const body = shoppingIncrementBodySchema.parse(rawBody);
     return this.shoppingService.incrementShoppingItemField(id, body.field, body.incrementBy, principal);
@@ -129,11 +116,12 @@ export class ShoppingController {
   @Delete(":id")
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteShoppingItem(@Req() request: FastifyRequest, @Param() params: Record<string, string>) {
-    const principal = await extractCognitoPrincipal(request.headers as Record<string, unknown>);
-    if (!principal || !hasPermission(principal, "products:delete-own")) {
-      throw new ForbiddenException("Missing permission: products:delete-own");
-    }
+    const principal = await requireRequestPrincipal(request, { permission: "products:delete-own", message: "Missing permission: products:delete-own" });
     const { id } = shoppingParamsSchema.parse(params);
     await this.shoppingService.deleteShoppingItem(id, principal);
+  }
+
+  private requireAdminRead(request: FastifyRequest) {
+    return requireRequestPrincipal(request, { roles: ["admin"], message: "Only admin accounts can read product management records." });
   }
 }

@@ -21,6 +21,7 @@ import { CreateProduct } from "./application/create-product/create-product.js";
 import { DeleteProduct } from "./application/delete-product/delete-product.js";
 import type { NewProductDetails } from "./domain/product.js";
 import type { ProductCounterField } from "./domain/counter-policy.js";
+import type { ShoppingListQuery, ShoppingListAllQuery, ShoppingPageCursorQuery } from "./shopping.query-schemas.js";
 
 @Injectable()
 export class ShoppingService {
@@ -47,7 +48,7 @@ export class ShoppingService {
     };
   }
 
-  listShoppingItems(query: Record<string, any>) {
+  listShoppingItems(query: ShoppingListQuery) {
     return listShoppingItems(query.limit, query.cursor, {
       category: normalizeCategory(query.category) as string | undefined,
       status: query.status,
@@ -59,7 +60,7 @@ export class ShoppingService {
     });
   }
 
-  listAllShoppingItems(query: Record<string, any>) {
+  listAllShoppingItems(query: ShoppingListAllQuery) {
     return listAllShoppingItems(query.pageLimit, query.maxPages, {
       category: normalizeCategory(query.category) as string | undefined,
       status: query.status,
@@ -71,7 +72,7 @@ export class ShoppingService {
     });
   }
 
-  getShoppingItemsPageCursor(query: Record<string, any>) {
+  getShoppingItemsPageCursor(query: ShoppingPageCursorQuery) {
     return getShoppingItemsPageCursor(query.page, query.limit, {
       category: normalizeCategory(query.category) as string | undefined,
       status: query.status,

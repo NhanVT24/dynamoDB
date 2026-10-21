@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
-import { shoppingParamsSchema } from "../shopping/shopping.query-schemas.js";
+import { shoppingListQuerySchema, shoppingParamsSchema } from "../shopping/shopping.query-schemas.js";
 import { StorefrontService } from "./storefront.service.js";
 
 @Controller("api/products")
@@ -8,7 +8,7 @@ export class ProductsPublicController {
 
   @Get()
   listProducts(@Query() rawQuery: Record<string, unknown>) {
-    return this.storefrontService.listProducts(rawQuery);
+    return this.storefrontService.listProducts(shoppingListQuerySchema.parse(rawQuery));
   }
 
   @Get(":id")
