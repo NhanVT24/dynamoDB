@@ -1,3 +1,4 @@
+import { CompleteNotifiedOrder } from "./application/complete-notified-order.js";
 import { PaymentReviewRequired } from "../storefront/application/ports/payment-review.js";
 import { ConfirmOrderPayment } from "../storefront/application/confirm-order-payment/confirm-order-payment.js";
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
@@ -10,7 +11,7 @@ import { publishEventBridgeEvent } from "../../integrations/eventbridge/publishe
 import { publishAdminAlert } from "../../integrations/sns/publisher.js";
 import { sendPaymentFailureEmail } from "../../integrations/ses/order-mailer.js";
 import { queueOrderConfirmationEmail } from "../email-deliveries/order-confirmation-email-route.js";
-import { getAwaitingPaymentOrder, getOrderById, markOrderAsDone } from "../storefront/storefront.repository.js";
+import { getAwaitingPaymentOrder, getOrderById } from "../storefront/storefront.repository.js";
 import {
   createNotification,
   deleteNotification,
@@ -33,7 +34,10 @@ function unwrapEventBridgeDetail<T extends Record<string, unknown>>(payload: T):
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(@Inject(ConfirmOrderPayment) private readonly confirmOrderPayment: ConfirmOrderPayment) {}
+  constructor(
+    @Inject(ConfirmOrderPayment) private readonly confirmOrderPayment: ConfirmOrderPayment,
+    @Inject(CompleteNotifiedOrder) private readonly completeNotifiedOrder: CompleteNotifiedOrder
+  ) {}
 
   private resolveQueueContext(queueName?: string, fallbackEventType?: string) {
     if (queueName) {
@@ -531,7 +535,7 @@ export class NotificationsService {
       };
     }
 
-    await this.completeOrderIfReady(orderId);
+    const completion = await this.completeNotifiedOrder.execute(orderId);
     logQueueBusinessEvent(this.logger, {
       queue: this.resolveQueueContext(queueName, "notification.pending"),
       eventType: "notification.pending",
@@ -543,7 +547,7 @@ export class NotificationsService {
       type: "notification.pending",
       notificationId: payload.notificationId,
       orderId,
-      orderCompleted: true
+      orderCompleted: completion.completed
     };
   }
 
@@ -868,25 +872,6 @@ export class NotificationsService {
       auditQueued: true,
       failureReason
     };
-  }
-
-  private async completeOrderIfReady(orderId: string) {
-    const order = await getOrderById(orderId);
-    if (!order || order.status === "done") {
-      return;
-    }
-
-    const notifications = await listNotificationsByCustomer(order.customerEmail);
-    const orderNotifications = notifications.filter((item) => String(item.metadata?.orderId ?? "") === orderId);
-    const systemSent = orderNotifications.some((item) => item.channel === "system" && item.status === "sent");
-
-    if (!systemSent) {
-      this.logger.log(`[dynamo-order] pending orderId=${orderId} systemSent=${systemSent}`);
-      return;
-    }
-
-    await markOrderAsDone(orderId);
-    this.logger.log(`[dynamo-order] done orderId=${orderId}`);
   }
 
   private async processInventoryStockAlert(payload: {
