@@ -9,5 +9,5 @@ export const handler = async (_event?: unknown, lambdaContext?: { awsRequestId?:
   // shared instance and return a closed container on the next invocation.
   return auditContext.run(serviceAuditContext({ actorId: "lambda:reconcile-pending-refunds",
     source: "REFUND_RECONCILIATION", reason: "scheduled_refund_reconciliation", requestId: lambdaContext?.awsRequestId }),
-  () => context.get(ReconcilePendingRefunds).execute());
+  () => context.get(ReconcilePendingRefunds).execute(3));
 };

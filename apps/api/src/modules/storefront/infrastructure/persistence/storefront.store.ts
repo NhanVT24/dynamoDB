@@ -55,6 +55,8 @@ export type StorefrontAwaitingPaymentOrderRecord = {
   createdAt: string;
   updatedAt: string;
   paymentUrl?: string;
+  checkoutBankCode?: string;
+  checkoutLocale?: "vn" | "en";
   paymentTxnRef?: string;
   paymentConfirmedAt?: string;
   refundRequestId?: string;
@@ -155,18 +157,6 @@ function orderIdFromPk(pk: string) {
 
 function buildOrderItemKey(orderId: string, productId: string) {
   return { PK: `ORDER#${orderId}`, SK: `ORDER_ITEM#${productId}` };
-}
-
-export async function listStorefrontProducts(query: Record<string, any>) {
-  return listShoppingItems(query.limit, query.cursor, {
-    category: query.category,
-    status: query.status,
-    updatedAtFrom: query.updatedAtFrom,
-    searchField: query.searchField,
-    search: query.search,
-    sortBy: query.sortBy,
-    sortDirection: query.sortDirection
-  });
 }
 
 export async function createStorefrontOrder(input: CreateOrderPayload): Promise<StorefrontOrderCreationResult> {
@@ -291,6 +281,8 @@ export async function createAwaitingPaymentOrder(input: {
   email: string;
   items: Array<{ productId: string; quantity: number }>;
   holdSeconds: number;
+  bankCode?: string;
+  locale?: "vn" | "en";
 }) {
   const normalizedItems = normalizeCheckoutItems(input.items);
   const now = new Date().toISOString();
@@ -338,6 +330,7 @@ export async function createAwaitingPaymentOrder(input: {
     totalAmount,
     itemCount: lines.length,
     lockedUntil,
+    checkoutBankCode: input.bankCode, checkoutLocale: input.locale,
     createdAt: now,
     updatedAt: now,
     ...serviceAuditMetadata({
@@ -464,39 +457,6 @@ export async function transitionAwaitingPaymentOrder(input: {
   }));
 
   return { order: { ...order, status: input.status, updatedAt: now, ...(isPaymentSuccess ? { paymentConfirmedAt } : {}) }, items, changed: true };
-}
-
-export async function markOrderAsDone(id: string) {
-  const now = new Date().toISOString();
-
-  await rawDb.send(new PutItemCommand({
-    TableName,
-    Item: toDynamoItem({
-      PK: `ORDER#${id}`,
-      SK: `DETAIL#STATUS_CHANGE#${now}`,
-      entityType: "ORDER_STATUS_AUDIT",
-      orderId: id,
-      status: "done",
-      createdAt: now
-    })
-  }));
-
-  await rawDb.send(new UpdateItemCommand({
-    TableName,
-    Key: toDynamoItem({
-      PK: `ORDER#${id}`,
-      SK: "DETAIL"
-    }),
-    UpdateExpression: "SET #status = :status, updatedAt = :updatedAt",
-    ConditionExpression: "attribute_exists(PK)",
-    ExpressionAttributeNames: {
-      "#status": "status"
-    },
-    ExpressionAttributeValues: toDynamoItem({
-      ":status": "done",
-      ":updatedAt": now
-    })
-  }));
 }
 
 export async function listOrdersByCustomer(email: string) {

@@ -1,3 +1,4 @@
+import { PaymentRecoveryModule } from "../../modules/vnpay/payment-recovery.module.js";
 import { APP_INTERCEPTOR } from "@nestjs/core";
 import { AuditMutationInterceptor } from "../../modules/audit-log/audit-mutation.interceptor.js";
 import { Module } from "@nestjs/common";
@@ -18,6 +19,6 @@ import { AuditLogModule } from "../../modules/audit-log/audit-log.module.js";
 
 @Module({
   providers: [{ provide: APP_INTERCEPTOR, useClass: AuditMutationInterceptor }],
-  imports: [ConfigModule, AdminOpsModule, HealthModule, ShoppingModule, SalesModule, StorefrontModule, LearningModule, NotificationsModule, UploadsModule, VnpayModule, CustomersModule, EmailDeliveriesModule, AuthorizationModule, AuditLogModule]
+  imports: [PaymentRecoveryModule, ConfigModule, AdminOpsModule, HealthModule, ShoppingModule, SalesModule, StorefrontModule, LearningModule, NotificationsModule, UploadsModule, VnpayModule, CustomersModule, EmailDeliveriesModule, AuthorizationModule, AuditLogModule]
 })
 export class AppModule {}

@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:audit": "tsx tests/audit-log.test.ts && tsx tests/audit-actor-context.test.ts",
     "test:shopping": "npm run build:ts && tsx --test tests/shopping-update-product.test.ts tests/shopping-product-mutations.test.ts",
-    "test:storefront": "npm run build:ts && tsx --test tests/storefront-order-lifecycle.test.ts tests/storefront-payment.test.ts",
+    "test:storefront": "npm run build:ts && tsx --test tests/storefront-order-lifecycle.test.ts tests/storefront-payment.test.ts tests/payment-recovery.test.ts tests/storefront-reads.test.ts",
     "package:lambda": "npm run build:ts && node scripts/package-lambda.js",
     "db:init": "tsx src/scripts/create-table.ts",
     "db:reset-table": "tsx src/scripts/reset-table.ts",

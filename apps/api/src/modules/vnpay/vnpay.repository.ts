@@ -1,4 +1,4 @@
-import { GetItemCommand, PutItemCommand, QueryCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
+import { GetItemCommand, PutItemCommand, TransactWriteItemsCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { env } from "../../config/env.js";
 import { rawDb } from "../../database/dynamodb/client.js";
@@ -28,6 +28,9 @@ export type PaymentSessionRecord = {
   finalizedAt?: string;
   paidAt?: string;
   paymentEventEnqueuedAt?: string;
+  paymentUrl?: string;
+  recoveryAttempts?: number;
+  recoveryNextAt?: string;
   responseCode?: string;
   gatewayTransactionStatus?: string;
   transactionNo?: string;
@@ -49,6 +52,7 @@ export async function createPaymentSession(input: {
   amount: number;
   expiresAt: string;
   transactionDate: string;
+  paymentUrl?: string;
 }) {
   const now = new Date().toISOString();
   const record: PaymentSessionRecord = {
@@ -56,6 +60,7 @@ export async function createPaymentSession(input: {
     SK: "DETAIL",
     entityType: "PAYMENT_SESSION",
     txnRef: input.txnRef,
+    paymentUrl: input.paymentUrl,
     orderId: input.orderId,
     email: input.email?.trim().toLowerCase() || undefined,
     orderInfo: input.orderInfo,
@@ -73,11 +78,19 @@ export async function createPaymentSession(input: {
     auditRequestId: input.orderId ?? input.txnRef
   };
 
-  await rawDb.send(new PutItemCommand({
-    TableName,
-    Item: toDynamoItem(record),
-    ConditionExpression: "attribute_not_exists(PK)"
-  }));
+  const put = { TableName, Item: toDynamoItem(record), ConditionExpression: "attribute_not_exists(PK)" };
+  if (input.orderId && input.paymentUrl) {
+    // The link is generated locally. Only this atomic commit makes it usable
+    // by checkout; no external charge/refund is initiated here.
+    await rawDb.send(new TransactWriteItemsCommand({ TransactItems: [ { Put: put }, { Update: {
+      TableName, Key: toDynamoItem({ PK: 'ORDER#' + input.orderId, SK: "ORDER" }),
+      ConditionExpression: "#status = :awaiting AND customerEmail = :email AND totalAmount = :amount AND lockedUntil > :now AND attribute_not_exists(paymentTxnRef)",
+      UpdateExpression: "SET paymentTxnRef = :ref, paymentUrl = :url",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: toDynamoItem({ ":awaiting": "awaiting_payment", ":email": record.email, ":amount": record.amount,
+        ":now": now, ":ref": record.txnRef, ":url": input.paymentUrl })
+    } } ] }));
+  } else await rawDb.send(new PutItemCommand(put));
 
   return record;
 }
@@ -93,27 +106,6 @@ export async function getPaymentSessionByTxnRef(txnRef: string) {
   }));
 
   return result.Item ? (unmarshall(result.Item) as PaymentSessionRecord) : null;
-}
-
-/** Payment outbox recovery: finalized sessions that have not completed their
- * EventBridge hand-off yet. */
-export async function listUnenqueuedFinalizedPaymentSessions(limit = 50) {
-  const sessions: PaymentSessionRecord[] = [];
-  for (const status of ["success", "failed"] as const) {
-    const result = await rawDb.send(new QueryCommand({
-      TableName,
-      IndexName: "StatusTimelineIndex",
-      KeyConditionExpression: "#status = :status",
-      FilterExpression: "entityType = :entityType AND attribute_not_exists(paymentEventEnqueuedAt)",
-      ExpressionAttributeNames: { "#status": "status" },
-      ExpressionAttributeValues: toDynamoItem({ ":status": status, ":entityType": "PAYMENT_SESSION" }),
-      ScanIndexForward: true,
-      Limit: Math.min(Math.max(Math.trunc(limit), 1), 100)
-    }));
-    sessions.push(...(result.Items ?? []).map((item) => unmarshall(item) as PaymentSessionRecord));
-    if (sessions.length >= limit) break;
-  }
-  return sessions.slice(0, limit);
 }
 
 export async function updatePaymentSessionStatus(input: {

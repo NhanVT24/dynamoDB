@@ -17,15 +17,15 @@ const toOrder = (order: Awaited<ReturnType<typeof getAwaitingPaymentOrder>>): He
 
 export class DynamoCheckoutOrders implements CheckoutOrders {
   async hold(input: Parameters<CheckoutOrders["hold"]>[0]) {
-    // Only completed attachment is replayable. An interrupted creation cannot
-    // safely create another session or compensate another request's hold.
+    // Session+link are now committed atomically. Unattached holds can be resumed
+    // safely; concurrent issuers compete on the order condition in that transaction.
     const replay = async () => {
       const existing = await getAwaitingPaymentOrder(input.orderId);
       if (!existing) return null;
       const lines = await listOrderItems(input.orderId);
       const same = existing.customerEmail === input.email && lines.length === input.items.length &&
         input.items.every(item => lines.some(line => line.productId === item.productId && line.quantity === item.quantity));
-      if (!same || existing.status !== "awaiting_payment" || !existing.paymentUrl || !existing.paymentTxnRef ||
+      if (!same || existing.status !== "awaiting_payment" || Boolean(existing.paymentUrl) !== Boolean(existing.paymentTxnRef) ||
         existing.lockedUntil <= new Date().toISOString()) {
         throw new OrderActionError("CONFLICT", "Checkout ID already exists, is being prepared, or has expired.");
       }
@@ -82,9 +82,9 @@ export class DynamoCheckoutOrders implements CheckoutOrders {
     let cursor: Record<string, AttributeValue> | undefined;
     do {
       const result = await rawDb.send(new QueryCommand({ TableName: env.DYNAMODB_TABLE_NAME,
-        IndexName: "StatusTimelineIndex", ExclusiveStartKey: cursor, Limit: 100,
-        KeyConditionExpression: "#status = :status",
-        FilterExpression: "entityType = :entity AND lockedUntil <= :now",
+        IndexName: "EntityUpdatedAtIndex", ExclusiveStartKey: cursor, Limit: 100,
+        KeyConditionExpression: "entityType = :entity",
+        FilterExpression: "#status = :status AND lockedUntil <= :now",
         ExpressionAttributeNames: { "#status": "status" },
         ExpressionAttributeValues: marshall({ ":status": "awaiting_payment", ":entity": "ORDER", ":now": now }) }));
       for (const item of result.Items ?? []) yield String(unmarshall(item).PK).replace(/^ORDER#/, "");

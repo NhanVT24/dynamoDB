@@ -90,6 +90,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
     // Delivery history and producer failure details contain recipient and
     // infrastructure metadata, so admin GETs must not use the public-read path.
     const isAdminEmailDeliveryRequest = url.startsWith("/api/admin/email-deliveries");
+    const isAdminPaymentReviewRequest = url.startsWith("/api/admin/ops/payment-reviews");
     const isNotificationsMeRead = isReadOnlyMethod && url.startsWith("/api/notifications/me");
     const isNotificationReadMutation = method === "PATCH" && /^\/api\/notifications\/[^/]+\/read(?:\?|$)/.test(url);
     const isNotificationDeleteMutation = method === "DELETE" && /^\/api\/notifications\/[^/]+(?:\?|$)/.test(url);
@@ -107,7 +108,7 @@ export async function createNestApp(): Promise<NestFastifyApplication> {
       url.startsWith("/api/payments/vnpay/") ||
       url.startsWith("/api/payments/vnpay?");
 
-    if ((!isSalesRequest && !isAdminCustomerRequest && !isAdminAuthorizationRequest && !isAdminEmailDeliveryRequest && isReadOnlyMethod) || isPublicStorefrontRead || isPublicProductsRead || isPublicVnpayRequest || isNotificationsMeRead) {
+    if ((!isSalesRequest && !isAdminCustomerRequest && !isAdminAuthorizationRequest && !isAdminEmailDeliveryRequest && !isAdminPaymentReviewRequest && isReadOnlyMethod) || isPublicStorefrontRead || isPublicProductsRead || isPublicVnpayRequest || isNotificationsMeRead) {
       return;
     }
 

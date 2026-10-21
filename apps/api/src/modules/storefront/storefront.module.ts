@@ -1,3 +1,7 @@
+import { GetProduct, ListProducts } from "./application/read-catalog/read-catalog.js";
+import { GetOrderDetails, ListMyOrders } from "./application/read-orders/read-orders.js";
+import { DynamoCatalogReader } from "./infrastructure/persistence/dynamo-catalog-reader.js";
+import { DynamoOrderReader } from "./infrastructure/persistence/dynamo-order-reader.js";
 import { WorkflowCheckout, ReadWorkflowPayment } from "./application/workflow-checkout/workflow-checkout.js";
 import { DynamoCheckoutPaymentReader } from "./infrastructure/persistence/dynamo-checkout-payment-reader.js";
 import { GetCheckoutStatus } from "./application/get-checkout-status/get-checkout-status.js";
@@ -33,6 +37,10 @@ import { NestOrderOperationLogger } from "./infrastructure/order-operation-logge
   imports: [NotificationsModule, VnpayModule],
   providers: [
     StorefrontService,
+    { provide: GetProduct, useFactory: () => new GetProduct(new DynamoCatalogReader()) },
+    { provide: ListProducts, useFactory: () => new ListProducts(new DynamoCatalogReader()) },
+    { provide: GetOrderDetails, useFactory: () => new GetOrderDetails(new DynamoOrderReader()) },
+    { provide: ListMyOrders, useFactory: () => new ListMyOrders(new DynamoOrderReader()) },
     { provide: WorkflowCheckout, inject: [CreateCheckout, NotificationsService],
       useFactory: (checkout: CreateCheckout, notifications: NotificationsService) => new WorkflowCheckout(checkout, new NotificationOrderFinalizationEffects(notifications)) },
     { provide: ReadWorkflowPayment, useFactory: () => new ReadWorkflowPayment(new DynamoCheckoutPaymentReader()) },
@@ -62,6 +70,6 @@ import { NestOrderOperationLogger } from "./infrastructure/order-operation-logge
       useFactory: (orders: DynamoRefundOrders, resolution: RefundResolution, log: NestOrderOperationLogger) =>
         new ReconcilePendingRefunds(orders, resolution, log) }
   ],
-  exports: [ReconcilePendingRefunds, ExpireOrders, WorkflowCheckout, ReadWorkflowPayment]
+  exports: [CreateCheckout, ReconcilePendingRefunds, ExpireOrders, WorkflowCheckout, ReadWorkflowPayment]
 })
 export class StorefrontModule {}
