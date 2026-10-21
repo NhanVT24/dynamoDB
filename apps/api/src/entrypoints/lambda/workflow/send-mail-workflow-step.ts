@@ -1,9 +1,10 @@
 import "reflect-metadata";
-import { sendWeeklyRevenueReportEmail } from "../../../integrations/ses/admin-report-mailer.js";
+import { weeklyRevenueDelivery } from "../../../modules/storefront/storefront.reporting.js";
+import type { WeeklyRevenueSummary } from "../../../modules/storefront/application/deliver-weekly-revenue.js";
 
 type MailWorkflowInput = {
   mailType?: string;
-  summary?: Parameters<typeof sendWeeklyRevenueReportEmail>[0];
+  summary?: WeeklyRevenueSummary;
 };
 
 export const handler = async (event: MailWorkflowInput) => {
@@ -11,7 +12,7 @@ export const handler = async (event: MailWorkflowInput) => {
     throw new Error(`Unsupported workflow mail type: ${event.mailType ?? "unknown"}`);
   }
 
-  await sendWeeklyRevenueReportEmail(event.summary);
+  await weeklyRevenueDelivery.execute(event.summary);
   return {
     sent: true,
     mailType: event.mailType

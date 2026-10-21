@@ -1,113 +1,19 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
+import { SendInventoryReport } from "./application/send-inventory-report.js";
+import { ApplicationError } from "../../common/application/application-error.js";
 import { env } from "../../config/env.js";
+import * as reports from "./inventory-report.repository.js";
+import * as deliveries from "../email-deliveries/email-delivery.repository.js";
+import { listInventoryReportProducts, markInventoryReportProductsAlerted } from "../shopping/shopping.repository.js";
 import { getInventoryDigestSubject, sendInventoryDigestEmail } from "../../integrations/ses/inventory-report-mailer.js";
-import {
-  createPendingEmailDelivery,
-  markEmailDeliveryAccepted,
-  markEmailDeliveryFailed
-} from "../email-deliveries/email-delivery.repository.js";
-import {
-  listInventoryReportProducts,
-  markInventoryReportProductsAlerted
-} from "../shopping/shopping.repository.js";
-import {
-  createPendingInventoryReport,
-  markInventoryReportAccepted,
-  markInventoryReportFailed
-} from "./inventory-report.repository.js";
-
-function getVietnamReportDate(referenceDate = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Ho_Chi_Minh",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(referenceDate);
-  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
-
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
-function isBiDailyInventoryReportDate(reportDate: string) {
-  const [year, month, day] = reportDate.split("-").map(Number);
-  const currentReportDate = Date.UTC(year, month - 1, day);
-  const firstReportDate = Date.UTC(2026, 0, 1);
-  const elapsedDays = Math.floor((currentReportDate - firstReportDate) / 86_400_000);
-
-  return elapsedDays >= 0 && elapsedDays % 2 === 0;
-}
-
-export async function sendDailyInventoryReport(referenceDate = new Date()) {
-  if (!env.ADMIN_REPORT_EMAIL) {
-    throw new Error("Missing ADMIN_REPORT_EMAIL configuration.");
-  }
-
-  const reportDate = getVietnamReportDate(referenceDate);
-  if (!isBiDailyInventoryReportDate(reportDate)) {
-    return { sent: false, reason: "not_scheduled_report_date" as const, reportDate };
-  }
-
-  const products = await listInventoryReportProducts();
-  if (products.length === 0) {
-    return { sent: false, reason: "no_low_or_out_of_stock_products" as const };
-  }
-
-  const reportId = `daily-inventory-${reportDate}`;
-  const lowStockProducts = products.filter((product) => product.status === "low_stock");
-  const outOfStockProducts = products.filter((product) => product.status === "out_of_stock");
-
-  try {
-    await createPendingInventoryReport({
-      reportId,
-      reportDate,
-      recipientEmail: env.ADMIN_REPORT_EMAIL,
-      lowStockCount: lowStockProducts.length,
-      outOfStockCount: outOfStockProducts.length
-    });
-  } catch (error) {
-    if (error instanceof ConditionalCheckFailedException || (error as { name?: string }).name === "ConditionalCheckFailedException") {
-      return { sent: false, reason: "report_already_created" as const, reportId };
-    }
-    throw error;
-  }
-
-  const email = await createPendingEmailDelivery({
-    emailType: "inventory_daily_report",
-    recipientEmail: env.ADMIN_REPORT_EMAIL,
-    senderEmail: env.SES_FROM_EMAIL ?? "",
-    subject: getInventoryDigestSubject(reportDate),
-    reportId
-  });
-
-  let sesMessageId: string;
-  try {
-    sesMessageId = await sendInventoryDigestEmail({
-      emailId: email.id,
-      reportId,
-      reportDate,
-      lowStockProducts,
-      outOfStockProducts
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown SES send failure";
-    await Promise.all([markInventoryReportFailed(reportId, message), markEmailDeliveryFailed(email.id, message)]);
-    // Daily inventory mail is intentionally not retried immediately; the next scheduled run re-evaluates stock.
-    return { sent: false, reason: "ses_send_failed" as const, reportId };
-  }
-
-  await Promise.all([
-    markInventoryReportAccepted(reportId, sesMessageId),
-    markEmailDeliveryAccepted(email.id, sesMessageId)
-  ]);
-
-  try {
-    const alertedProductCount = await markInventoryReportProductsAlerted(products);
-    return { sent: true, reportId, sesMessageId, productCount: products.length, alertedProductCount };
-  } catch (error) {
-    console.error("[inventory-report] alert_state_update_failed", {
-      reportId,
-      error: error instanceof Error ? error.message : "Unknown alert state update failure"
-    });
-    return { sent: true, reportId, sesMessageId, productCount: products.length, alertedProductCount: 0 };
-  }
-}
+const useCase = new SendInventoryReport({
+ listInventoryReportProducts: async () => (await listInventoryReportProducts()).map(row => ({ id: row.id ?? "", name: row.name ?? "", sku: row.sku,
+ stock: row.stock ?? 0, status: row.status ?? "active", updatedAt: row.updatedAt ?? "", inventoryAlertSent: Boolean(row.inventoryAlertSent) })),
+ markInventoryReportProductsAlerted,
+ createPendingInventoryReport: async input => { try { await reports.createPendingInventoryReport(input); } catch(error) {
+ if ((error as { name?: string }).name === "ConditionalCheckFailedException") throw new ApplicationError("CONFLICT", "Report already claimed"); throw error; } },
+ markInventoryReportAccepted: reports.markInventoryReportAccepted, markInventoryReportFailed: reports.markInventoryReportFailed,
+ createPendingEmailDelivery: deliveries.createPendingEmailDelivery, markEmailDeliveryAccepted: deliveries.markEmailDeliveryAccepted,
+ markEmailDeliveryFailed: deliveries.markEmailDeliveryFailed, getInventoryDigestSubject, sendInventoryDigestEmail,
+ warn: (event, details) => console.error(event, details)
+}, { adminEmail: env.ADMIN_REPORT_EMAIL, senderEmail: env.SES_FROM_EMAIL });
+export function sendDailyInventoryReport(referenceDate = new Date()) { return useCase.execute(referenceDate); }
