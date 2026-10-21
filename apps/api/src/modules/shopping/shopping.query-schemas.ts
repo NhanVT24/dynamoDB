@@ -49,3 +49,7 @@ export const shoppingIncrementBodySchema = z.object({
 export const shoppingUpdateBodySchema = z.object({
   version: z.number().int().positive()
 });
+
+export type ShoppingListQuery = z.infer<typeof shoppingListQuerySchema>;
+export type ShoppingListAllQuery = z.infer<typeof shoppingListAllQuerySchema>;
+export type ShoppingPageCursorQuery = z.infer<typeof shoppingPageCursorQuerySchema>;

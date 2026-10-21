@@ -8,7 +8,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   logQueueWarn
 } from "../../common/logging/queue-logger.js";
-import { shoppingListQuerySchema } from "../shopping/shopping.query-schemas.js";
+import type { CatalogQuery } from "./application/ports/catalog-reader.js";
 import type { StorefrontOrderQueuePayload } from "./storefront.repository.js";
 import type { CreateStorefrontOrderInput } from "./storefront.schema.js";
 import { GetProduct, ListProducts } from "./application/read-catalog/read-catalog.js";
@@ -61,8 +61,8 @@ export class StorefrontService {
     @Inject(ListMyOrders) private readonly myOrders: ListMyOrders
   ) {}
 
-  listProducts(rawQuery: Record<string, unknown>) {
-    return this.browseProducts.execute(shoppingListQuerySchema.parse(rawQuery));
+  listProducts(query: CatalogQuery) {
+    return this.browseProducts.execute(query);
   }
 
   getProductById(id: string) { return this.getProduct.execute(id); }

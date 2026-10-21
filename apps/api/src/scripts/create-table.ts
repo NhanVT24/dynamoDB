@@ -1,79 +1,13 @@
 import {
   CreateTableCommand,
   DescribeTableCommand,
-  waitUntilTableExists,
-  type CreateTableCommandInput
+  waitUntilTableExists
 } from "@aws-sdk/client-dynamodb";
+import { marketplaceTableDefinition } from "../database/dynamodb/table-definition.js";
 import { env } from "../config/env.js";
 import { rawDb } from "../database/dynamodb/client.js";
 
-const tableDefinition: CreateTableCommandInput = {
-  TableName: env.DYNAMODB_TABLE_NAME,
-  BillingMode: "PAY_PER_REQUEST" as const,
-  StreamSpecification: { StreamEnabled: true, StreamViewType: "NEW_AND_OLD_IMAGES" },
-  AttributeDefinitions: [
-    { AttributeName: "PK", AttributeType: "S" },
-    { AttributeName: "SK", AttributeType: "S" },
-    { AttributeName: "status", AttributeType: "S" },
-    { AttributeName: "searchName", AttributeType: "S" },
-    { AttributeName: "searchField", AttributeType: "S" },
-    { AttributeName: "entityType", AttributeType: "S" },
-    { AttributeName: "marketingAudience", AttributeType: "S" },
-    { AttributeName: "emailSearch", AttributeType: "S" },
-    { AttributeName: "campaignStatus", AttributeType: "S" },
-    { AttributeName: "startAt", AttributeType: "S" },
-    { AttributeName: "updatedAt", AttributeType: "S" }
-  ],
-  KeySchema: [
-    { AttributeName: "PK", KeyType: "HASH" },
-    { AttributeName: "SK", KeyType: "RANGE" }
-  ],
-  GlobalSecondaryIndexes: [
-    {
-      IndexName: "StatusTimelineIndex",
-      KeySchema: [
-        { AttributeName: "status", KeyType: "HASH" },
-        { AttributeName: "updatedAt", KeyType: "RANGE" },
-        { AttributeName: "searchName", KeyType: "RANGE" },
-        { AttributeName: "PK", KeyType: "RANGE" }
-      ],
-      Projection: { ProjectionType: "ALL" }
-    },
-    {
-      IndexName: "SearchNameIndex",
-      KeySchema: [
-        { AttributeName: "searchField", KeyType: "HASH" },
-        { AttributeName: "searchName", KeyType: "RANGE" },
-        { AttributeName: "PK", KeyType: "RANGE" }
-      ],
-      Projection: { ProjectionType: "ALL" }
-    },
-    {
-      IndexName: "EntityUpdatedAtIndex",
-      KeySchema: [
-        { AttributeName: "entityType", KeyType: "HASH" },
-        { AttributeName: "updatedAt", KeyType: "RANGE" }
-      ],
-      Projection: { ProjectionType: "ALL" }
-    },
-    {
-      IndexName: "CustomerMarketingIndex",
-      KeySchema: [
-        { AttributeName: "marketingAudience", KeyType: "HASH" },
-        { AttributeName: "emailSearch", KeyType: "RANGE" }
-      ],
-      Projection: { ProjectionType: "ALL" }
-    },
-    {
-      IndexName: "SaleCampaignTimelineIndex",
-      KeySchema: [
-        { AttributeName: "campaignStatus", KeyType: "HASH" },
-        { AttributeName: "startAt", KeyType: "RANGE" }
-      ],
-      Projection: { ProjectionType: "ALL" }
-    }
-  ]
-};
+const tableDefinition = marketplaceTableDefinition(env.DYNAMODB_TABLE_NAME);
 
 try {
   await rawDb.send(new DescribeTableCommand({ TableName: env.DYNAMODB_TABLE_NAME }));

@@ -299,8 +299,19 @@ distribution rejects non-`/public/*` paths at the edge.
 
 ### Clean Architecture Phase 6
 
-Storefront product/order reads g?i application use cases qua CatalogReader v?
-OrderReader; public product attributes d?ng allowlist. Notification completion
-?? t?ch th?nh CompleteNotifiedOrder v?i conditional atomic status/audit write.
-Xem [b?o c?o Phase 6 v? v? d? flow/import/wiring](clean-architecture-phase-6.md).
-Query admin v? m?t s? Scan c? c?n gi? nguy?n; b?o c?o ghi r? gi?i h?n v? Phase 7.
+Storefront product/order reads gọi application use cases qua CatalogReader và
+OrderReader; public product attributes dùng allowlist. Notification completion
+đã tách thành CompleteNotifiedOrder với conditional atomic status/audit write.
+Xem [báo cáo Phase 6 và ví dụ flow/import/wiring](clean-architecture-phase-6.md).
+Query admin và một số Scan cũ còn giữ nguyên; báo cáo ghi rõ giới hạn và Phase 7.
+
+### Clean Architecture Phase 7
+
+Controller auth được chuẩn hóa qua request-scoped principal helper; product query
+validation nằm tại HTTP boundary. `npm run verify -w @supermarket/api` kiểm tra
+architecture bằng TypeScript AST, source/test types và regression. Có workflow CI
+và integration suite chạy DynamoDB Local engine với schema dùng chung `db:init`.
+Xem [báo cáo Phase 7, bằng chứng local và runbook rollout/rollback](clean-architecture-phase-7.md).
+CI trên GitHub và staging/provider/deployment vẫn cần xác nhận riêng.
+Các raw management GET của `/api/shopping-items` nay yêu cầu admin; storefront
+public dùng `/api/products`, còn người dùng quản lý product của mình qua `/mine`.

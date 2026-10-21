@@ -7,6 +7,7 @@ import {
   Logger
 } from "@nestjs/common";
 import { ZodError } from "zod";
+import { requestFailureContext } from "../logging/request-failure-context.js";
 import { ProductMutationError } from "../../modules/shopping/application/product-mutation.error.js";
 import { OrderActionError } from "../../modules/storefront/application/order-action.error.js";
 
@@ -19,43 +20,11 @@ export class AppExceptionFilter implements ExceptionFilter {
     const request = ctx.getRequest();
     const response = ctx.getResponse();
     const correlationId = String((request as { correlationId?: string })?.correlationId ?? "");
-    const errorName =
-      exception instanceof Error
-        ? exception.name
-        : typeof exception === "object" && exception !== null
-          ? String((exception as { name?: string }).name ?? "UnknownError")
-          : "UnknownError";
-    const errorMessage =
-      exception instanceof Error
-        ? exception.message
-        : typeof exception === "object" && exception !== null
-          ? String((exception as { message?: string }).message ?? "Unknown error")
-          : String(exception);
-    const errorStack = exception instanceof Error ? exception.stack : undefined;
-
-    this.logger.error("api request failed", {
-      correlationId,
-      err: exception,
-      errorName,
-      errorMessage,
-      errorStack,
-      method: request?.method,
-      url: request?.url,
-      query: request?.query,
-      params: request?.params,
-      body: request?.body
-    });
-    console.error("[api-error] request_failed", {
-      correlationId,
-      errorName,
-      errorMessage,
-      errorStack,
-      method: request?.method,
-      url: request?.url,
-      query: request?.query,
-      params: request?.params,
-      body: request?.body
-    });
+    const context = requestFailureContext(exception, request);
+    const expected = exception instanceof HttpException || exception instanceof ZodError ||
+      exception instanceof OrderActionError || exception instanceof ProductMutationError;
+    if (expected) this.logger.warn("api request rejected", context);
+    else this.logger.error("api request failed", context);
 
     if (exception instanceof ZodError || Array.isArray((exception as { issues?: unknown[] })?.issues)) {
       return response.status(HttpStatus.BAD_REQUEST).send({
