@@ -211,7 +211,17 @@ function transport(client: DynamoDBClient) {
     else order = { ...order, status: values[":status"],
       ...(values[":gatewayStatus"] ? { refundStatus: values[":gatewayStatus"], refundTransactionNo: values[":transactionNo"] } : {}) };
   }
+  const recoveryCursors = new Map<string, Record<string, unknown>>();
   client.middlewareStack.add((_next, context) => async args => {
+    const candidate = args.input as any;
+    if (candidate.Key?.PK?.S?.startsWith("RECOVERY_CURSOR#")) {
+      const pk = candidate.Key.PK.S;
+      if (context.commandName === "GetItemCommand") return { response: {}, output: { $metadata: {},
+        Item: recoveryCursors.has(pk) ? marshall(recoveryCursors.get(pk)!) : undefined } };
+      const fields = unmarshall(candidate.ExpressionAttributeValues);
+      recoveryCursors.set(pk, { cursor: fields[":cursor"], revision: fields[":revision"] });
+      return { response: {}, output: { $metadata: {} } };
+    }
     if (context.commandName === "GetItemCommand") {
       const input = args.input as { Key: Record<string, import("@aws-sdk/client-dynamodb").AttributeValue>; ConsistentRead: boolean };
       assert.equal(input.ConsistentRead, true);
