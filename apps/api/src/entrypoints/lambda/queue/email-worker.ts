@@ -1,9 +1,7 @@
+import { createDeliverEmailJob } from "../../../modules/email-deliveries/email-background.composition.js";
+import type { EmailJob } from "../../../modules/email-deliveries/domain/email-jobs.js";
 import "reflect-metadata";
 import { z } from "zod";
-import { sendBulkSaleEmailBatch } from "../../../integrations/ses/bulk-mailer.js";
-import { sendOrderConfirmationEmail } from "../../../integrations/ses/order-mailer.js";
-import { sendWelcomeEmail } from "../../../integrations/ses/welcome-mailer.js";
-import { markEmailRouteProcessing } from "../../../modules/email-deliveries/email-route.repository.js";
 import { runIdempotent } from "../shared/sqs-idempotency.js";
 
 const saleCampaignEmailJobSchema = z.object({
@@ -99,6 +97,8 @@ function normalizePipeRecords(event: unknown): SqsRecord[] {
   );
 }
 
+const delivery=createDeliverEmailJob();
+
 export const handler = async (event: unknown, context?: { awsRequestId?: string }) => {
   const records = normalizePipeRecords(event);
   console.log(JSON.stringify({
@@ -121,120 +121,8 @@ export const handler = async (event: unknown, context?: { awsRequestId?: string 
         id: job.emailJobId,
         execute: async () => {
 
-      if (job.type === "email.account_welcome.requested") {
-        console.log(JSON.stringify({
-          flow: "account_welcome_email",
-          stage: "email_worker_started",
-          emailJobId: job.emailJobId,
-          userSub: job.userSub,
-          sqsMessageId: record.messageId ?? ""
-        }));
-
-        const result = await sendWelcomeEmail({
-          emailJobId: job.emailJobId,
-          userSub: job.userSub,
-          toEmail: job.toEmail,
-          displayName: job.displayName
-        });
-
-        console.log(JSON.stringify({
-          flow: "account_welcome_email",
-          stage: result.status === "already_processed"
-            ? "email_worker_deduplicated"
-            : result.status === "accepted"
-              ? "ses_accepted"
-              : result.status === "partial_sent"
-                ? "ses_partially_accepted"
-                : "ses_rejected",
-          emailJobId: result.emailId,
-          status: result.status
-        }));
-        return "completed";
-      }
-
-      if (job.type === "email.order_confirmation.requested") {
-        const routeAdvanced = await markEmailRouteProcessing(job.emailJobId);
-        const result = await sendOrderConfirmationEmail({
-          toEmail: job.toEmail,
-          orderId: job.orderId,
-          totalAmount: job.totalAmount,
-          createdAt: job.createdAt,
-          paymentConfirmedAt: job.paymentConfirmedAt,
-          items: job.items
-        });
-        console.log(JSON.stringify({
-          flow: "order_confirmation_email",
-          stage: "ses_accepted",
-          emailJobId: job.emailJobId,
-          orderId: job.orderId,
-          emailId: result.emailId,
-          routeTracked: routeAdvanced
-        }));
-        return "completed";
-      }
-
-      const routeAdvanced = await markEmailRouteProcessing(job.emailJobId);
-      console.log(JSON.stringify({
-        flow: "email_campaign",
-        stage: "email_worker_started",
-        campaignId: job.campaignId,
-        emailJobId: job.emailJobId,
-        batchIndex: job.batchIndex,
-        batchCount: job.batchCount,
-        recipientCount: job.recipients.length,
-        sqsMessageId: record.messageId ?? "",
-        routeTracked: routeAdvanced
-      }));
-
-      // This opt-in hook is disabled by default. Test mode "fail" drives a
-      // message to the DLQ; after an operator fixes the cause, mode "recover"
-      // lets the same redriven message succeed without calling SES.
-      if (testOnly && process.env.EMAIL_WORKER_TEST_MODE === "fail") {
-        throw new Error(`Injected failure for DLQ test at receive ${currentReceiveCount}.`);
-      }
-      if (testOnly?.skipSesOnSuccess && process.env.EMAIL_WORKER_TEST_MODE === "recover") {
-        console.log(JSON.stringify({
-          flow: "email_campaign",
-          stage: "email_worker_test_recovered",
-          campaignId: job.campaignId,
-          emailJobId: job.emailJobId,
-          receiveCount: currentReceiveCount,
-          sqsMessageId: record.messageId ?? ""
-        }));
-        return "completed";
-      }
-
-      const result = await sendBulkSaleEmailBatch({
-        emailId: job.emailJobId,
-        senderEmail: job.senderEmail,
-        recipients: job.recipients,
-        subject: job.subject,
-        html: job.html,
-        text: job.text,
-        relatedId: job.campaignId
-      });
-
-      console.log(JSON.stringify({
-        flow: "email_campaign",
-        // SES API acceptance and mailbox delivery are distinct states. Never
-        // label an API rejection/ambiguous result as a successful send.
-        stage: result.status === "already_processed"
-          ? "email_worker_deduplicated"
-          : result.status === "accepted"
-            ? "ses_accepted"
-            : result.status === "partial_sent"
-              ? "ses_partially_accepted"
-              : result.status === "failed"
-                ? "ses_rejected"
-                : "ses_outcome_unknown",
-        campaignId: job.campaignId,
-        emailJobId: job.emailJobId,
-        batchIndex: job.batchIndex,
-        recipientCount: job.recipients.length,
-        status: result.status,
-        failureReason: result.failureReason ?? ""
-      }));
-      return result.status === "unknown" ? "unknown" : "completed";
+      return delivery.execute(job as EmailJob,{messageId:record.messageId,receiveCount:currentReceiveCount,
+        testMode:process.env.EMAIL_WORKER_TEST_MODE,testOnly});
         }
       });
       if (idempotency === "busy") {

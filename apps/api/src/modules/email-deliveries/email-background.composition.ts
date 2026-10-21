@@ -1,0 +1,13 @@
+import { TrackEmailRouteMatch } from "./application/track-email-route.js";
+import { markEmailRouteRuleMatched } from "./email-route.repository.js";
+import { DeliverEmailJob } from "./application/deliver-email-job.js";
+import { emailDeliveryPorts } from "./infrastructure/email-delivery-ports.js";
+import { env } from "../../config/env.js";
+import { RecoverEmailPublishes } from "./application/email-publish-recovery.js";
+import { WatchEmailRouting } from "./application/email-routing-watchdog.js";
+import { emailRecoveryPorts } from "./infrastructure/email-recovery-ports.js";
+const log = { log: (message: string) => console.log(message), warn: (message: string) => console.warn(message), error: (message: string) => console.error(message) };
+export const createRecoverEmailPublishes = () => new RecoverEmailPublishes(emailRecoveryPorts, { maxAttempts: env.EMAIL_EVENT_PUBLISH_MAX_ATTEMPTS, leaseSeconds: env.EMAIL_EVENT_PUBLISH_LEASE_SECONDS }, log);
+export const createWatchEmailRouting = () => new WatchEmailRouting(emailRecoveryPorts, { ackTimeoutSeconds: env.EMAIL_ROUTING_ACK_TIMEOUT_SECONDS }, log);
+export const createDeliverEmailJob = () => new DeliverEmailJob(emailDeliveryPorts, log);
+export const createTrackEmailRouteMatch = () => new TrackEmailRouteMatch({ markMatched: markEmailRouteRuleMatched });

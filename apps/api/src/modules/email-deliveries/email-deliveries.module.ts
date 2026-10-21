@@ -1,5 +1,10 @@
-import { Module } from "@nestjs/common";
+import { Logger, Module } from "@nestjs/common";
+import crypto from "node:crypto";
+import { env } from "../../config/env.js";
 import { EmailDeliveriesController } from "./email-deliveries.controller.js";
-
-@Module({ controllers: [EmailDeliveriesController] })
+import { EmailAdministration } from "./application/email-administration.js";
+import { emailAdministrationPorts } from "./infrastructure/email-administration-ports.js";
+@Module({ controllers: [EmailDeliveriesController], providers: [{ provide: EmailAdministration, useFactory: () => new EmailAdministration(
+ emailAdministrationPorts, { senderEmail: env.SES_FROM_EMAIL, eventsEnabled: Boolean(env.EVENTBRIDGE_PLATFORM_BUS_NAME) },
+ crypto.randomUUID, value => crypto.createHash("sha256").update(value).digest("hex"), new Logger(EmailAdministration.name)) }] })
 export class EmailDeliveriesModule {}
