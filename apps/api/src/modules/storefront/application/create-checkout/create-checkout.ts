@@ -10,7 +10,7 @@ export class CreateCheckout {
   async execute(email: string, input: { requestId?: string; items: CheckoutItem[]; bankCode?: string; locale?: "vn" | "en" }) {
     const items = normalizeCheckoutItems(input.items);
     const orderId = input.requestId?.trim() || this.newId();
-    const created = await this.orders.hold({ orderId, email, items, holdSeconds: 300 });
+    const created = await this.orders.hold({ orderId, email, items, holdSeconds: 300, bankCode: input.bankCode, locale: input.locale });
     if (created.order.status !== "awaiting_payment") {
       throw new OrderActionError("CONFLICT", "Checkout already has a payment session or has ended.");
     }
@@ -24,8 +24,9 @@ export class CreateCheckout {
         orderId, orderDescription: `Payment for order ${orderId}`, bankCode: input.bankCode, locale: input.locale,
         skipStockValidation: true, expiresAt: created.order.lockedUntil, amount: created.order.totalAmount });
     } catch (error) {
-      try { await this.orders.transition({ orderId, expectedCustomerEmail: email, status: "payment_failed" }); }
-      catch (releaseError) { this.log.error("checkout.compensation_failed", { orderId, error: String(releaseError) }); }
+      // A concurrent request may have committed a usable session. Do not release
+      // its hold on an ambiguous failure; retry safely or let expiry handle it.
+      this.log.error("checkout.provisioning_interrupted", { orderId, error: String(error) });
       throw error;
     }
     await this.orders.attachPayment(orderId, payment.txnRef, email, payment.paymentUrl);
