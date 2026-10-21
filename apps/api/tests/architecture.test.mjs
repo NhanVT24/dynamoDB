@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { checkArchitecture } from "../scripts/check-architecture.js";
+import { checkCoverage } from "../scripts/check-architecture-coverage.js";
 
 function fixture(files, run) {
   const temporaryRoot = fs.realpathSync(os.tmpdir());
@@ -39,3 +40,30 @@ test("rejects erased imports, barrels, external types and domain -> application"
 test("rejects require, dynamic and computed imports without scanning string contents", () => fixture({
   "modules/product/application/read.ts": 'const text = "import(whatever)"; require("node:fs"); import("node:fs"); import(provider);'
 }, root => assert.equal(checkArchitecture(root).violations.length, 3)));
+
+test("checks common core and nested feature layers", () => fixture({
+  "common/domain/id.ts": 'import "node:crypto";',
+  "modules/customers/authorization/application/profile.ts": 'import "@nestjs/common";'
+}, root => assert.equal(checkArchitecture(root).violations.length, 2)));
+
+test("coverage rejects unclassified modules and controller persistence shortcuts", () => fixture({
+  "modules/new-feature/service.ts": "export {};",
+  "modules/product/application/read.ts": "export class Read {}",
+  "modules/product/infrastructure/db.ts": "export class Db {}",
+  "modules/product/product.controller.ts": 'import { Db } from "./infrastructure/db.js";'
+}, root => {
+  const result = checkCoverage(root, { modules: { product: { kind: "business" } }, technicalEntrypoints: {} });
+  assert.equal(result.violations.length, 3);
+}));
+
+test("coverage requires a runtime path to application, not just a type import", () => fixture({
+  "modules/product/application/read.ts": "export class Read {}",
+  "modules/product/product.controller.ts": 'import type { Read } from "./application/read.js";'
+}, root => {
+  const inventory = { modules: { product: { kind: "business" } }, technicalEntrypoints: {} };
+  assert.equal(checkCoverage(root, inventory).violations.length, 1);
+  fs.writeFileSync(path.join(root, "modules/product/product.controller.ts"), 'import { type Read } from "./application/read.js";');
+  assert.equal(checkCoverage(root, inventory).violations.length, 1);
+  fs.writeFileSync(path.join(root, "modules/product/product.controller.ts"), 'import { Read } from "./application/read.js";');
+  assert.equal(checkCoverage(root, inventory).violations.length, 0);
+}));

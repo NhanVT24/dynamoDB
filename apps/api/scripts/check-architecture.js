@@ -2,12 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { checkCoverage } from "./check-architecture-coverage.js";
 
-const layerOf = file => /[/\\]modules[/\\][^/\\]+[/\\](application|domain)[/\\]/.exec(file)?.[1];
+const layerOf = file => /[/\\](application|domain)[/\\]/.exec(file)?.[1];
 
 /** Check the actual TS syntax, including erased imports and re-exports.
  * Core may reference core only. This also prevents escaping through an outer barrel.
- * All other modules remain outside the incremental migration's enforcement scope.
+ * Entry points and feature coverage are checked separately by checkCoverage.
  */
 export function checkArchitecture(sourceRoot, compilerOptions = {}) {
   const files = [];
@@ -59,8 +60,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"));
   const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, apiRoot);
   const result = checkArchitecture(path.join(apiRoot, "src"), parsed.options);
+  const inventory = JSON.parse(fs.readFileSync(path.join(apiRoot, "scripts/architecture-inventory.json"), "utf8"));
+  const coverage = checkCoverage(path.join(apiRoot, "src"), inventory, parsed.options);
   if (!result.checkedFiles) throw new Error("No application/domain files found; refusing an empty architecture check.");
   console.log(`Architecture: ${result.checkedFiles} core files checked, ${result.violations.length} violations.`);
   for (const violation of result.violations) console.error(violation);
-  process.exitCode = result.violations.length ? 1 : 0;
+  console.log(`Coverage: ${coverage.modules} modules, ${coverage.entrypoints} entrypoints, ${coverage.violations.length} violations.`);
+  for (const violation of coverage.violations) console.error(violation);
+  process.exitCode = result.violations.length || coverage.violations.length ? 1 : 0;
 }

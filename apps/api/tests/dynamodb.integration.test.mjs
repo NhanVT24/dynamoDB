@@ -34,6 +34,7 @@ const { GetOrderDetails } = await import("../dist/src/modules/storefront/applica
 const { DynamoNotifiedOrders } = await import("../dist/src/modules/notifications/infrastructure/dynamo-notified-orders.js");
 const { CompleteNotifiedOrder } = await import("../dist/src/modules/notifications/application/complete-notified-order.js");
 const { DynamoPaymentRecovery } = await import("../dist/src/modules/vnpay/infrastructure/dynamo-payment-recovery.js");
+const { DynamoProfiles } = await import("../dist/src/modules/customers/authorization/infrastructure/profile-adapters.js");
 let created = false;
 const email = "integration@example.test", actor = { subject: "integration-owner", isAdmin: false };
 const read = async (PK, SK = "DETAIL") => {
@@ -65,6 +66,18 @@ before(async () => {
 after(async () => {
   try { if (created) await rawDb.send(new DeleteTableCommand({ TableName: table })); }
   finally { rawDb.destroy(); }
+});
+
+test("engine: profile updates cannot upsert a missing or unrelated record", async () => {
+  const profiles = new DynamoProfiles(), subject = randomUUID();
+  await assert.rejects(profiles.update(subject, { displayName: "User" }), { code: "INVALID_INPUT" });
+  assert.equal(await read(`USER#${subject}`, "PROFILE"), null);
+  await put({ PK: `USER#${subject}`, SK: "PROFILE", entityType: "OTHER", displayName: "Original" });
+  await assert.rejects(profiles.update(subject, { displayName: "Wrong" }), { code: "INVALID_INPUT" });
+  assert.equal((await read(`USER#${subject}`, "PROFILE")).displayName, "Original");
+  await put({ PK: `USER#${subject}`, SK: "PROFILE", entityType: "USER_PROFILE", displayName: "Original", avatarKey: "" });
+  await profiles.update(subject, { displayName: "Updated" });
+  assert.equal((await profiles.find(subject)).displayName, "Updated");
 });
 
 test("engine: optimistic product writes allow one version winner and enforce owner at the write boundary", async () => {
