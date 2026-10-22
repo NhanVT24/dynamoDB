@@ -28,8 +28,9 @@
     "test:boundaries": "npm run build:ts && tsx --test tests/http-boundaries.test.ts",
     "test:integration": "npm run build:ts && node --test tests/dynamodb.integration.test.mjs",
     "typecheck:tests": "npm run build:ts && tsc -p tsconfig.tests.json",
-    "verify": "npm run check:architecture && npm run test:architecture && npm run typecheck && npm run typecheck:tests && npm run test:shopping && npm run test:storefront && npm run test:audit && npm run test:boundaries && npm run test:remaining",
-    "test:remaining": "npm run build:ts && tsx --test tests/remaining-architecture.test.ts"
+    "verify": "npm run check:architecture && npm run test:architecture && npm run typecheck && npm run typecheck:tests && npm run test:shopping && npm run test:storefront && npm run test:audit && npm run test:boundaries && npm run test:remaining && npm run test:domain",
+    "test:remaining": "npm run build:ts && tsx --test tests/remaining-architecture.test.ts",
+    "test:domain": "npm run build:ts && tsx --test tests/rich-domain-entities.test.ts"
   },
   "dependencies": {
     "@aws-crypto/client-node": "^5.0.2",
