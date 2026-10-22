@@ -1,6 +1,7 @@
+import { UserAccount } from "../domain/user-account.js";
 import { ApplicationError } from "../../../../common/application/application-error.js";
 import type { ProductPermission } from "../../../../common/domain/product-permissions.js";
-import { normalizeUserAccountStatus, type UserAccountStatus } from "../domain/account-status.js";
+import { type UserAccountStatus } from "../domain/account-status.js";
 import type { UserAddress } from "../domain/user-address.js";
 export interface DirectoryUser {
     subject: string;
@@ -52,10 +53,7 @@ export class AuthorizationUseCases {
     }
     async updateAccountStatus(subject: string, status: UserAccountStatus, actorSubject: string) {
         await this.assertUserExists(subject);
-        const normalizedStatus = normalizeUserAccountStatus(status);
-        if (subject === actorSubject && normalizedStatus !== "ACTIVE") {
-            throw new ApplicationError("INVALID_INPUT", "You cannot block your own account.");
-        }
+        const normalizedStatus = new UserAccount({ subject, status }).statusChangedBy(actorSubject, status).status;
         return { subject, accountStatus: await this.store.updateUserAccountStatus(subject, normalizedStatus, actorSubject) };
     }
     async updateAddresses(subject: string, addresses: UserAddress[], actorSubject: string) {

@@ -1,4 +1,5 @@
-import { assertSignUpEmail, type SignUpPolicy } from "../domain/sign-up-policy.js";
+import type { SignUpPolicy } from "../domain/sign-up-policy.js";
+import { SignUpEmail } from "../domain/sign-up-email.js";
 export class PrepareSignUp {
     constructor(private readonly policy: SignUpPolicy, private readonly users: {
         unique(): Promise<void>;
@@ -8,7 +9,7 @@ export class PrepareSignUp {
         verifyNative: boolean;
     }) { }
     async execute(email: string, source: "external" | "native" | "other") {
-        assertSignUpEmail(email, this.policy);
+        new SignUpEmail(email, this.policy);
         if (source === "external") {
             await this.users.link();
             return { autoConfirmUser: true, autoVerifyEmail: true };

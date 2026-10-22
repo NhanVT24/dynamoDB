@@ -1,15 +1,7 @@
+import { UserProfile, ProfileChange, type UserProfileSnapshot, type UserProfilePatch } from "../domain/user-profile.js";
 import { ApplicationError } from "../../../../common/application/application-error.js";
-import type { UserAddress } from "../domain/user-address.js";
-export interface Profile {
-    displayName: string;
-    avatarKey: string;
-    addresses: UserAddress[];
-}
-export interface ProfilePatch {
-    displayName?: string;
-    avatarKey?: string;
-    addresses?: UserAddress[];
-}
+export type Profile = UserProfileSnapshot;
+export type ProfilePatch = UserProfilePatch;
 export interface ProfileRepository {
     find(subject: string): Promise<Profile>;
     /** Update an existing USER_PROFILE only; never upsert a missing/unrelated row. */
@@ -22,21 +14,19 @@ export interface ProfileAvatars {
 export class ProfileQueries {
     constructor(private readonly profiles: ProfileRepository, private readonly avatars: ProfileAvatars) { }
     async get(subject: string) {
-        const profile = await this.profiles.find(subject);
+        const profile = new UserProfile(subject, await this.profiles.find(subject)).toSnapshot();
         return { ...profile, avatarUrl: this.avatars.publicUrl(profile.avatarKey) };
     }
 }
 export class UpdateProfile {
     constructor(private readonly profiles: ProfileRepository, private readonly avatars: ProfileAvatars, private readonly queries: ProfileQueries) { }
     async execute(subject: string, patch: ProfilePatch) {
-        if (patch.avatarKey) {
-            if (!patch.avatarKey.startsWith(`public/avatars/${subject}/`) && !patch.avatarKey.startsWith("public/default-avatars/")) {
-                throw new ApplicationError("INVALID_INPUT", "Avatar key is not allowed.");
-            }
-            if (!await this.avatars.exists(patch.avatarKey))
+        const change = new ProfileChange(subject, patch);
+        if (change.avatarKey) {
+            if (!await this.avatars.exists(change.avatarKey))
                 throw new ApplicationError("INVALID_INPUT", "Avatar image does not exist.");
         }
-        await this.profiles.update(subject, patch);
+        await this.profiles.update(subject, change.toSnapshot());
         return this.queries.get(subject);
     }
 }

@@ -1,4 +1,4 @@
-import { canSignIn } from "../domain/account-status.js";
+import { UserAccount } from "../domain/user-account.js";
 export interface AccountAuthorizationReader {
     status(subject: string): Promise<string>;
     permissions(subject: string): Promise<string[]>;
@@ -7,8 +7,7 @@ export class AccountAccess {
     constructor(private readonly accounts: AccountAuthorizationReader) { }
     async signIn(subject: string) {
         const status = await this.accounts.status(subject);
-        if (!canSignIn(status))
-            throw new Error("This account is not allowed to sign in. Please contact support.");
+        new UserAccount({ subject, status }).assertCanSignIn();
         return status;
     }
     async claims(input: {
@@ -19,11 +18,10 @@ export class AccountAccess {
         provider: string;
     }) {
         const status = input.subject ? await this.accounts.status(input.subject) : "ACTIVE";
-        if (!canSignIn(status))
-            throw new Error("This account is not allowed to receive new tokens. Please contact support.");
+        const account = new UserAccount({ subject: input.subject, status });
+        account.assertCanReceiveTokens();
         const permissions = input.subject ? await this.accounts.permissions(input.subject) : [];
-        return { identity: { role: input.groups.includes("admin") ? "admin" : "customer", auth_provider: input.provider,
-                principal_email: input.email, display_name: input.displayName, account_status: status }, permissions,
+        return { identity: account.identityClaims(input), permissions,
             groups: input.groups.length ? input.groups : ["customer"] };
     }
 }
