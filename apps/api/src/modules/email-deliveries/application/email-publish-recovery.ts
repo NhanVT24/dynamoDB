@@ -1,3 +1,4 @@
+import { EmailRoute } from "../domain/email-route.js";
 import type { ApplicationLogger } from "../../../common/application/queue-events.js";
 import type { EmailRecoveryPorts, RecoverableEmailRoute } from "./recovery-ports.js";
 function errorMessage(error: unknown) {
@@ -67,7 +68,7 @@ export class RecoverEmailPublishes {
         let rescheduled = 0;
         let failed = 0;
         for (const candidate of candidates) {
-            if (candidate.publishAttempts >= this.config.maxAttempts) {
+            if (new EmailRoute(candidate).exhausted(this.config.maxAttempts)) {
                 if (await this.failPermanently(candidate, candidate.publishFailureReason ?? "Publish attempt lease expired"))
                     failed += 1;
                 continue;
@@ -83,7 +84,7 @@ export class RecoverEmailPublishes {
             if (!route)
                 continue;
             claimed += 1;
-            if (!route.eventSource || !route.eventDetailType || !route.eventDetail) {
+            if (!new EmailRoute(route).hasPublishPayload) {
                 if (await this.failPermanently(route, "EMAIL_ROUTE is missing the persisted EventBridge payload"))
                     failed += 1;
                 continue;
@@ -95,7 +96,7 @@ export class RecoverEmailPublishes {
             }
             catch (error) {
                 const reason = errorMessage(error);
-                if (route.publishAttempts >= this.config.maxAttempts) {
+                if (new EmailRoute(route).exhausted(this.config.maxAttempts)) {
                     if (await this.failPermanently(route, reason))
                         failed += 1;
                     continue;
