@@ -1,3 +1,4 @@
+import { Campaign } from "../domain/sale-campaign.js";
 import { ApplicationError } from "../../../common/application/application-error.js";
 import type { SaleCampaign, SaleCampaignStatus, NewSaleCampaign } from "../domain/campaign.js";
 export interface CampaignStore {
@@ -44,10 +45,7 @@ export class SalesUseCases<TProduct> {
         };
     }
     async create(input: NewSaleCampaign) {
-        const start = new Date(input.startAt);
-        const end = new Date(input.endAt);
-        if (start.getTime() <= this.now() + 60000 || end <= start)
-            throw new ApplicationError("INVALID_INPUT", "Sale must start at least one minute from now and end after it starts.");
+        Campaign.assertCreation(input, this.now());
         for (const productId of input.productIds)
             if (!await this.products.find(productId))
                 throw new ApplicationError("INVALID_INPUT", `Product ${productId} does not exist.`);
@@ -83,18 +81,14 @@ export class SalesUseCases<TProduct> {
             const campaign = await this.campaigns.getSaleCampaign(id);
             if (!campaign)
                 throw new ApplicationError("NOT_FOUND", "Sale campaign not found.");
-            if (campaign.campaignStatus !== "scheduled" && campaign.campaignStatus !== "active") {
-                throw new ApplicationError("INVALID_INPUT", "Only scheduled or active sale campaigns can be changed.");
-            }
-            if (!campaign.productIds.includes(productId)) {
-                return { campaign, closed: campaign.productIds.length === 0 };
-            }
-            const remainingProductIds = campaign.productIds.filter((id) => id !== productId);
+            const change = new Campaign(campaign).removeProduct(productId);
+            if (change.alreadyAbsent) return { campaign, closed: change.closed };
+            const remainingProductIds = change.productIds;
             try {
                 if (remainingProductIds.length === 0) {
                     const closedCampaign = await this.campaigns.closeSaleCampaignBecauseEmpty({
                         id: campaign.id,
-                        expectedStatus: campaign.campaignStatus,
+                        expectedStatus: change.expectedStatus,
                         expectedVersion: campaign.version
                     });
                     // The state is committed first; schedule deletion is cleanup and can safely be retried by AWS later.
@@ -103,7 +97,7 @@ export class SalesUseCases<TProduct> {
                 }
                 const updatedCampaign = await this.campaigns.updateSaleCampaignProducts({
                     id: campaign.id,
-                    expectedStatus: campaign.campaignStatus,
+                    expectedStatus: change.expectedStatus,
                     expectedVersion: campaign.version,
                     productIds: remainingProductIds
                 });
@@ -123,19 +117,10 @@ export class SalesUseCases<TProduct> {
         const campaign = await this.campaigns.getSaleCampaign(String(input.campaignId ?? ""));
         if (!campaign)
             return { ignored: "campaign_not_found" };
-        if (input.action === "start") {
-            if (this.now() >= Date.parse(campaign.endAt)) {
-                await this.campaigns.transitionSaleCampaign(campaign.id, "scheduled", "ended").catch(ignoreConflict);
-                return { ended: true };
-            }
-            await this.campaigns.transitionSaleCampaign(campaign.id, "scheduled", "active").catch(ignoreConflict);
-            return { active: true };
-        }
-        if (input.action === "end") {
-            await this.campaigns.transitionSaleCampaign(campaign.id, campaign.campaignStatus === "scheduled" ? "scheduled" : "active", "ended").catch(ignoreConflict);
-            return { ended: true };
-        }
-        return { ignored: "unknown_action" };
+        const transition = new Campaign(campaign).scheduledTransition(input.action, this.now());
+        if (!transition) return { ignored: "unknown_action" };
+        await this.campaigns.transitionSaleCampaign(campaign.id, transition.from, transition.to).catch(ignoreConflict);
+        return transition.to === "active" ? { active: true } : { ended: true };
     }
     async getActiveCampaigns() { return this.campaigns.listActiveSaleCampaigns(); }
 }
