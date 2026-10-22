@@ -1,5 +1,4 @@
 import type { ProductStatus, ProductCounters } from "../../domain/product.js";
-import { incrementCounter } from "../../domain/counter-policy.js";
 import type { ProductCounterRepository } from "../../application/ports/product-counter-repository.js";
 import { TransactWriteItemsCommand } from "@aws-sdk/client-dynamodb";
 import { env } from "../../../../config/env.js";
@@ -11,10 +10,8 @@ import { toProductRecord, toProduct } from "./product.mapper.js";
 import { readProductRecord, toDynamoItem, rethrowProductConflict, missingProductConflict } from "./product-record.store.js";
 const TableName = env.DYNAMODB_TABLE_NAME;
 
-const INCREMENTABLE_FIELDS = new Set(["stock", "soldCount"]);
-
 export async function incrementProductRecord(id: string, field: string, incrementBy = 1, expectedOwnerSub?: string, prepared?: { expectedVersion: number; nextValue: number; status: ProductStatus }) {
-  if (!INCREMENTABLE_FIELDS.has(field)) {
+  if (field !== "stock" && field !== "soldCount") {
     throw new Error(`Field "${field}" is not allowed for increment.`);
   }
 
@@ -26,7 +23,7 @@ export async function incrementProductRecord(id: string, field: string, incremen
   }
 
   if (prepared && current.version !== prepared.expectedVersion) throw missingProductConflict();
-  const nextValue = prepared?.nextValue ?? incrementCounter(Number(current[field] ?? 0), incrementBy);
+  const nextValue = prepared?.nextValue ?? toProduct(current).adjustCounter(field, incrementBy)[field];
   const nextRecord = toProductRecord(
     {
       [field]: nextValue,
@@ -105,7 +102,7 @@ export async function incrementProductRecord(id: string, field: string, incremen
 export class DynamoProductCounterRepository implements ProductCounterRepository<ProductRecord> {
   async findById(id: string): Promise<ProductCounters | null> {
     const record = await readProductRecord(id);
-    return record ? { ...toProduct(record), soldCount: Number(record.soldCount ?? 0) } : null;
+    return record ? toProduct(record) : null;
   }
   async increment(input: Parameters<ProductCounterRepository<ProductRecord>["increment"]>[0]) {
     try {

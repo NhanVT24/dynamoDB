@@ -1,5 +1,4 @@
-import type { ProductChanges } from "../../domain/product.js";
-import { deriveStockStatus } from "../../domain/stock-policy.js";
+import { Product, type ProductChanges } from "../../domain/product.js";
 import type { InventoryAlertPublisher } from "../ports/inventory-alert-publisher.js";
 import type { ProductWriteRepository } from "../ports/product-write-repository.js";
 import { ProductMutationError } from "../product-mutation.error.js";
@@ -22,32 +21,25 @@ export class UpdateProduct<TResult> {
   async execute(command: UpdateProductCommand): Promise<TResult> {
     const { productId, changes, expectedVersion, actor } = command;
     if (!productId.trim() || !actor.subject.trim() ||
-      !Number.isSafeInteger(expectedVersion) || expectedVersion < 1 ||
-      (changes.stock !== undefined &&
-        (!Number.isSafeInteger(changes.stock) || changes.stock < 0 || changes.stock > 999999))) {
+      !Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
       throw new ProductMutationError("INVALID_INPUT", "Invalid product update");
     }
+    if (changes.stock !== undefined) Product.assertEditableStock(changes.stock);
 
     const current = await this.products.findById(productId);
     assertCanManageProduct(current, actor);
-    if (current.version !== expectedVersion) {
-      throw new ProductMutationError("CONFLICT", "Record changed, missing, or condition failed");
-    }
-
-    const status = deriveStockStatus(changes.stock ?? current.stock);
+    current.assertVersion(expectedVersion);
+    const next = current.update(changes);
     const saved = await this.products.update({
-      id: productId, changes, status, expectedVersion,
+      id: productId, changes, status: next.stockStatus, expectedVersion,
       expectedOwnerId: actor.isAdmin ? undefined : actor.subject
     });
-    const updated = saved.product;
-
-    if ((status === "low_stock" || status === "out_of_stock") && current.status !== status) {
+    const alert = saved.product.stockAlertSince(current);
+    if (alert) {
       // Preserve existing behavior: publish is awaited AFTER commit. A publish
       // failure propagates; this does not provide atomic delivery or safe retries.
       await this.alerts.publish({
-        productId: updated.id, productName: updated.name, sku: updated.sku,
-        stock: updated.stock, previousStock: current.stock,
-        status, previousStatus: current.status, source: "admin.update"
+        ...alert, source: "admin.update"
       });
     }
     return saved.representation;
