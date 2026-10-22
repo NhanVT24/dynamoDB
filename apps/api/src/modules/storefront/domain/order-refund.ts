@@ -1,3 +1,4 @@
+import { Order } from "./order.js";
 export type OrderLifecycleStatus = "awaiting_payment" | "paid" | "cancelled" | "expired" | "payment_failed"
   | "refund_pending" | "refund_sent" | "refund_rejected";
 export type RefundStatus = Extract<OrderLifecycleStatus, "refund_pending" | "refund_sent" | "refund_rejected">;
@@ -21,18 +22,16 @@ export interface RefundPayment {
   orderId?: string;
 }
 
-export const REFUND_WINDOW_MS = 5 * 60 * 1000;
+export { REFUND_WINDOW_MS } from "./order.js";
 
 export function isRefundEligible(order: RefundOrder, now: number): boolean {
-  const paidAt = order.paymentConfirmedAt ? Date.parse(order.paymentConfirmedAt) : NaN;
-  return order.status === "paid" && Boolean(order.paymentTxnRef) && Number.isFinite(paidAt)
-    && now < paidAt + REFUND_WINDOW_MS;
+  return new Order(order).isRefundEligibleAt(now);
 }
 
 export function isTerminalRefund(status: OrderLifecycleStatus): status is "refund_sent" | "refund_rejected" {
-  return status === "refund_sent" || status === "refund_rejected";
+  return Order.isTerminalRefundStatus(status);
 }
 
 export function refundResponse(order: RefundOrder) {
-  return { orderId: order.id, status: order.status, refundStatus: order.refundStatus };
+  return new Order(order).refundResponse();
 }

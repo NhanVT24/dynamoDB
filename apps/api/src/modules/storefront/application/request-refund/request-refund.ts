@@ -1,3 +1,4 @@
+import { Order } from "../../domain/order.js";
 import { isRefundEligible, refundResponse } from "../../domain/order-refund.js";
 import type { RefundOrder } from "../../domain/order-refund.js";
 import type { RefundGateway, RefundOrderRepository, OrderOperationLogger, RefundOutcome } from "../ports/order-lifecycle-ports.js";
@@ -23,21 +24,21 @@ export class RequestRefund {
       throw new OrderActionError("CONFLICT", "Refund is available for 5 minutes after confirmed payment.");
     }
     const payment = await this.gateway.findPayment(order.paymentTxnRef!);
-    if (!payment || payment.status !== "success" || payment.amount !== order.totalAmount ||
-      (payment.orderId && payment.orderId !== orderId)) {
+    if (!new Order(order).matchesRefundPayment(payment)) {
       throw new OrderActionError("CONFLICT", "Payment details are not ready for refund.");
     }
     this.gateway.assertReady();
     const requestId = this.newRequestId();
+    const claimTime = this.now();
+    const claimed = new Order(order).claimRefund(requestId, claimTime).toSnapshot();
     try {
-      await this.orders.claim({ orderId, customerEmail: email, paymentConfirmedAt: order.paymentConfirmedAt!, requestId, now: this.now() });
+      await this.orders.claim({ orderId, customerEmail: email, paymentConfirmedAt: order.paymentConfirmedAt!, requestId, now: claimTime });
     } catch (error) {
       if (error instanceof OrderActionError && error.code === "CONFLICT") {
         throw new OrderActionError("CONFLICT", "Refund already requested or order changed.");
       }
       throw error;
     }
-    const claimed: RefundOrder = { ...order, status: "refund_pending", refundStatus: "pending", refundRequestId: requestId };
     let outcome: RefundOutcome;
     try {
       // One attempt only. A timeout may mean the provider already accepted it.
