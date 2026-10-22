@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { ProductStatus } from "../../domain/product.js";
+import { Product, type ProductStatus } from "../../domain/product.js";
 import type { ProductCreator } from "../../application/ports/product-creator.js";
 import { TransactWriteItemsCommand } from "@aws-sdk/client-dynamodb";
 import { env } from "../../../../config/env.js";
@@ -56,7 +56,9 @@ export async function createProductRecord(input: ProductRecord, ownerSub: string
 
 export class DynamoProductCreator implements ProductCreator<ProductRecord> {
   async create(input: Parameters<ProductCreator<ProductRecord>["create"]>[0]) {
-    try { return await createProductRecord({ ...input.details }, input.ownerId, input); }
+    const { id, ownerId, version: _version, status: _status, ...details } = input.product.toSnapshot();
+    try { return await createProductRecord(details, ownerId, { id, status: Product.stockStatus(input.product.stock),
+      createdAt: input.createdAt, updatedAt: input.updatedAt }); }
     catch (error) { rethrowProductConflict(error, [0, 1]); }
   }
 }

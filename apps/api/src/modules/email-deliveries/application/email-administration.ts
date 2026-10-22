@@ -1,3 +1,5 @@
+import { EmailCampaign } from "../domain/email-campaign.js";
+import { EmailDelivery } from "../domain/email-delivery.js";
 import { ApplicationError } from "../../../common/application/application-error.js";
 import type { ApplicationLogger } from "../../../common/application/queue-events.js";
 import type { DeliveryMeta, EmailAdministrationPorts } from "./ports.js";
@@ -10,22 +12,12 @@ export interface SaleMailInput {
 export interface RetryMailInput {
     idempotencyKey?: string;
 }
-const safeRetryStatuses = new Set(["failed", "not_sent", "rejected"]);
 function publicMeta(meta: DeliveryMeta) {
     const { html: _html, text: _text, ...safe } = meta as typeof meta & {
         html?: string;
         text?: string;
     };
     return safe;
-}
-function plainTextAsHtml(value: string) {
-    return value
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;")
-        .replace(/\r?\n/g, "<br />");
 }
 export class EmailAdministration {
     constructor(private readonly ports: EmailAdministrationPorts, private readonly config: {
@@ -157,12 +149,7 @@ export class EmailAdministration {
         const source = await this.ports.getEmailDelivery(emailId.trim());
         if (!source)
             throw new ApplicationError("NOT_FOUND", "Email delivery not found.");
-        if (!source.meta.html || !source.meta.text) {
-            throw new ApplicationError("INVALID_INPUT", "This legacy delivery does not retain its content and cannot be retried safely.");
-        }
-        const recipients = source.recipients.filter((recipient) => safeRetryStatuses.has(recipient.status)).map((recipient) => recipient.recipientEmail);
-        if (!recipients.length)
-            throw new ApplicationError("INVALID_INPUT", "No recipient has a safely retryable delivery status.");
+        const recipients = new EmailDelivery(source.meta, source.recipients).retryRecipients();
         const retryKey = input.idempotencyKey ?? this.newId();
         const retryEmailJobId = this.hash(`${source.meta.id}:retry:${retryKey}`);
         const event = await this.publishTrackedSaleEvent({
@@ -185,7 +172,8 @@ export class EmailAdministration {
         if (!this.config.eventsEnabled)
             throw new ApplicationError("INVALID_INPUT", "EventBridge platform bus is not configured.");
         const campaignId = input.idempotencyKey ?? this.newId();
-        const recipientBatches = Array.from({ length: Math.ceil(input.recipients.length / 50) }, (_, index) => input.recipients.slice(index * 50, (index + 1) * 50));
+        const campaign = new EmailCampaign(campaignId, input.subject, input.body, input.recipients);
+        const recipientBatches = campaign.batches();
         const published = await Promise.all(recipientBatches.map(async (recipients, batchIndex) => {
             const emailJobId = this.hash(`${campaignId}:${batchIndex}`);
             const event = await this.publishTrackedSaleEvent({
@@ -198,7 +186,7 @@ export class EmailAdministration {
                 subject: input.subject,
                 // The composer is plain text. Escaping prevents admin draft text
                 // from becoming arbitrary HTML in the recipient inbox.
-                html: plainTextAsHtml(input.body),
+                html: campaign.html,
                 text: input.body
             });
             this.logger.log(JSON.stringify({

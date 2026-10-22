@@ -1,8 +1,3 @@
-export type ProductMutationErrorCode = "NOT_FOUND" | "FORBIDDEN" | "CONFLICT" | "INVALID_INPUT";
-
-export class ProductMutationError extends Error {
-  constructor(readonly code: ProductMutationErrorCode, message: string) {
-    super(message);
-    this.name = "ProductMutationError";
-  }
-}
+// Compatibility import for existing callers and HTTP error mapping.
+export { ProductMutationError } from "../domain/product.error.js";
+export type { ProductMutationErrorCode } from "../domain/product.error.js";

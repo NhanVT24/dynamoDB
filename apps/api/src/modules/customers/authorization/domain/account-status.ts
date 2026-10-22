@@ -1,6 +1,6 @@
+import { UserAccount } from "./user-account.js";
 export type UserAccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED" | "BLOCKED";
 export function normalizeUserAccountStatus(status: unknown): UserAccountStatus {
-    const value = String(status || "").trim().toUpperCase();
-    return value === "SUSPENDED" || value === "DISABLED" || value === "BLOCKED" ? value : "ACTIVE";
+    return UserAccount.normalizeStatus(status);
 }
-export function canSignIn(status: unknown) { return normalizeUserAccountStatus(status) === "ACTIVE"; }
+export function canSignIn(status: unknown) { return new UserAccount({ subject: "", status }).canSignIn; }

@@ -1,3 +1,4 @@
+import { InventoryReport } from "../domain/inventory-report.js";
 import { ApplicationError } from "../../../common/application/application-error.js";
 import type { ProductStatus } from "../../shopping/domain/product.js";
 export interface DigestProduct {
@@ -42,23 +43,6 @@ export interface InventoryReportPorts {
     }): Promise<string>;
     warn(event: string, details: Record<string, unknown>): void;
 }
-function getVietnamReportDate(referenceDate = new Date()) {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Asia/Ho_Chi_Minh",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit"
-    }).formatToParts(referenceDate);
-    const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
-    return `${values.year}-${values.month}-${values.day}`;
-}
-function isBiDailyInventoryReportDate(reportDate: string) {
-    const [year, month, day] = reportDate.split("-").map(Number);
-    const currentReportDate = Date.UTC(year, month - 1, day);
-    const firstReportDate = Date.UTC(2026, 0, 1);
-    const elapsedDays = Math.floor((currentReportDate - firstReportDate) / 86400000);
-    return elapsedDays >= 0 && elapsedDays % 2 === 0;
-}
 export class SendInventoryReport {
     constructor(private readonly ports: InventoryReportPorts, private readonly config: {
         adminEmail?: string;
@@ -68,17 +52,17 @@ export class SendInventoryReport {
         if (!this.config.adminEmail) {
             throw new Error("Missing ADMIN_REPORT_EMAIL configuration.");
         }
-        const reportDate = getVietnamReportDate(referenceDate);
-        if (!isBiDailyInventoryReportDate(reportDate)) {
+        const report = new InventoryReport(referenceDate);
+        const reportDate = report.reportDate;
+        if (!report.isScheduled) {
             return { sent: false, reason: "not_scheduled_report_date" as const, reportDate };
         }
         const products = await this.ports.listInventoryReportProducts();
         if (products.length === 0) {
             return { sent: false, reason: "no_low_or_out_of_stock_products" as const };
         }
-        const reportId = `daily-inventory-${reportDate}`;
-        const lowStockProducts = products.filter((product) => product.status === "low_stock");
-        const outOfStockProducts = products.filter((product) => product.status === "out_of_stock");
+        const reportId = report.id;
+        const { lowStockProducts, outOfStockProducts } = report.classify(products);
         try {
             await this.ports.createPendingInventoryReport({
                 reportId,

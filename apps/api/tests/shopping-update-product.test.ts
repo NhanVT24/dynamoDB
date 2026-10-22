@@ -8,26 +8,26 @@ import { ProductMutationError } from "../src/modules/shopping/application/produc
 import type { ProductWriteRepository } from "../src/modules/shopping/application/ports/product-write-repository.js";
 import type { InventoryStockAlert } from "../src/modules/shopping/application/ports/inventory-alert-publisher.js";
 import { deriveStockStatus } from "../src/modules/shopping/domain/stock-policy.js";
-import type { Product } from "../src/modules/shopping/domain/product.js";
+import { Product, type ProductSnapshot } from "../src/modules/shopping/domain/product.js";
 import { DynamoProductWriteRepository } from "../src/modules/shopping/infrastructure/persistence/dynamo-product-write-repository.js";
 import { rawDb } from "../src/database/dynamodb/client.js";
 import { env } from "../src/config/env.js";
 import { auditContext } from "../src/modules/audit-log/audit-context.js";
 
 const id = "10000000-0000-4000-8000-000000000001";
-const product: Product = { id, ownerId: "owner", name: "Product", sku: "SKU-1", stock: 20, status: "active", version: 1 };
+const product: ProductSnapshot = { id, ownerId: "owner", name: "Product", sku: "SKU-1", stock: 20, status: "active", version: 1 };
 const command = { productId: id, changes: { stock: 5 }, expectedVersion: 1, actor: { subject: "owner", isAdmin: false } };
 const hasCode = (code: string) => (error: unknown) => error instanceof ProductMutationError && error.code === code;
 
-function fixture(current: Product | null = product) {
+function fixture(current: ProductSnapshot | null = product) {
   const alerts: InventoryStockAlert[] = [];
   const writes: Array<Parameters<ProductWriteRepository<{ marker: string }>["update"]>[0]> = [];
   const representation = { marker: "legacy-response" };
   const repository: ProductWriteRepository<typeof representation> = {
-    async findById() { return current; },
+    async findById() { return current ? new Product(current) : null; },
     async update(input) {
       writes.push(input);
-      return { product: { ...product, ...input.changes, status: input.status, version: 2 }, representation };
+      return { product: new Product({ ...product, ...input.changes, status: input.status, version: 2 }), representation };
     }
   };
   const publisher = { async publish(alert: InventoryStockAlert) { alerts.push(alert); } };
@@ -165,7 +165,9 @@ test("Dynamo adapter preserves transaction, category index, legacy response and 
   try {
     const adapter = new DynamoProductWriteRepository();
     const snapshot = await adapter.findById(id);
-    assert.deepEqual(snapshot, product);
+    assert.ok(snapshot instanceof Product);
+    assert.equal(typeof snapshot.decreaseStock, "function");
+    assert.deepEqual(snapshot.toSnapshot(), { ...product, soldCount: 0 });
     assert.equal("PK" in snapshot!, false);
     const result = await auditContext.run({ auditActorType: "USER", auditActorId: "owner", auditActorRole: "customer",
       auditSource: "PATCH /api/shopping-items/:id", auditReason: "authenticated_mutation", auditRequestId: "request-1" },

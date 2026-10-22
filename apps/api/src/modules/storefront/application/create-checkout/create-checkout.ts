@@ -1,3 +1,4 @@
+import { Order } from "../../domain/order.js";
 import { normalizeCheckoutItems } from "../checkout-items.js";
 import type { CheckoutItem } from "../../domain/checkout.js";
 import type { CheckoutOrders, CheckoutPayments, CheckoutLog } from "../ports/checkout-ports.js";
@@ -11,9 +12,7 @@ export class CreateCheckout {
     const items = normalizeCheckoutItems(input.items);
     const orderId = input.requestId?.trim() || this.newId();
     const created = await this.orders.hold({ orderId, email, items, holdSeconds: 300, bankCode: input.bankCode, locale: input.locale });
-    if (created.order.status !== "awaiting_payment") {
-      throw new OrderActionError("CONFLICT", "Checkout already has a payment session or has ended.");
-    }
+    new Order(created.order).assertAwaitingPayment();
     const response = (paymentUrl: string) => ({ success: true, orderId, status: created.order.status,
       lockedUntil: created.order.lockedUntil, totalAmount: created.order.totalAmount, items: created.items, paymentUrl });
     if (created.order.paymentTxnRef && created.order.paymentUrl) return response(created.order.paymentUrl);

@@ -1,3 +1,4 @@
+import { Order } from "../../domain/order.js";
 import type { CheckoutOrders, SettledPayments } from "../ports/checkout-ports.js";
 import { PaymentReviewRequired, type PaymentReviewWriter } from "../ports/payment-review.js";
 
@@ -11,14 +12,13 @@ export class ConfirmOrderPayment {
       throw new Error("Payment success is not durable; reconciliation required");
     }
     const order = await this.orders.findById(input.orderId);
-    if (!order || order.customerEmail !== input.email || order.totalAmount !== input.amount ||
-      order.paymentTxnRef !== input.txnRef) {
+    if (!order || !new Order(order).matchesPayment(input)) {
       await this.reviews.open({ txnRef: input.txnRef, orderId: input.orderId, amount: input.amount, reason: "CORRELATION_MISMATCH" });
       throw new PaymentReviewRequired(input.txnRef);
     }
     const recordIfReleased = async () => {
       const current = await this.orders.findById(input.orderId);
-      if (current && ["expired", "cancelled", "payment_failed"].includes(current.status)) {
+      if (current && new Order(current).isReleased) {
         await this.reviews.open({ txnRef: input.txnRef, orderId: input.orderId, amount: input.amount, reason: "PAID_AFTER_RELEASE" });
         throw new PaymentReviewRequired(input.txnRef);
       }

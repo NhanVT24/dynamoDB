@@ -1,3 +1,4 @@
+import { Order } from "../domain/order.js";
 import type { RefundOrder, RefundStatus } from "../domain/order-refund.js";
 import { isTerminalRefund } from "../domain/order-refund.js";
 import { OrderActionError } from "./order-action.error.js";
@@ -39,8 +40,7 @@ export class RefundResolution {
       throw new OrderActionError("CONFLICT", "No refund request for this order.");
     }
     const payment = await this.gateway.findPayment(order.paymentTxnRef);
-    if (!payment || payment.status !== "success" || payment.amount !== order.totalAmount ||
-      (payment.orderId && payment.orderId !== order.id)) {
+    if (!new Order(order).matchesRefundPayment(payment)) {
       throw new OrderActionError("CONFLICT", "Payment session not found.");
     }
     let outcome: RefundOutcome | null;
