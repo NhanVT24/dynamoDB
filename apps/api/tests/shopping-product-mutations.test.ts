@@ -11,7 +11,7 @@ import type { ProductCounterRepository } from "../src/modules/shopping/applicati
 import type { ProductCreator } from "../src/modules/shopping/application/ports/product-creator.js";
 import type { ProductDeleter } from "../src/modules/shopping/application/ports/product-deleter.js";
 import type { InventoryStockAlert } from "../src/modules/shopping/application/ports/inventory-alert-publisher.js";
-import type { NewProductDetails, ProductCounters } from "../src/modules/shopping/domain/product.js";
+import { Product, type NewProductDetails, type ProductSnapshot } from "../src/modules/shopping/domain/product.js";
 import { incrementCounter } from "../src/modules/shopping/domain/counter-policy.js";
 import { DynamoProductCounterRepository } from "../src/modules/shopping/infrastructure/persistence/dynamo-product-counter-repository.js";
 import { DynamoProductCreator } from "../src/modules/shopping/infrastructure/persistence/dynamo-product-creator.js";
@@ -23,20 +23,20 @@ import { auditContext } from "../src/modules/audit-log/audit-context.js";
 const id = "10000000-0000-4000-8000-000000000001";
 const owner = { subject: "owner", isAdmin: false };
 const admin = { subject: "admin", isAdmin: true };
-const snapshot: ProductCounters = { id, ownerId: "owner", name: "Product", sku: "SKU-1",
+const snapshot: ProductSnapshot = { id, ownerId: "owner", name: "Product", sku: "SKU-1",
   stock: 20, soldCount: 3, status: "active", version: 1 };
 const details: NewProductDetails = { name: "Product", category: "Gia dung", brand: "Brand", sku: "SKU-1",
   stock: 20, price: 2000, imageUrl: "https://example.test/p.png", location: "HCM", description: "Product description" };
 const hasCode = (code: string) => (error: unknown) => error instanceof ProductMutationError && error.code === code;
 
-function incrementFixture(current: ProductCounters | null = snapshot) {
+function incrementFixture(current: ProductSnapshot | null = snapshot) {
   const writes: Array<Parameters<ProductCounterRepository<string>["increment"]>[0]> = [];
   const alerts: InventoryStockAlert[] = [];
   const repository: ProductCounterRepository<string> = {
-    async findById() { return current; },
+    async findById() { return current ? new Product(current) : null; },
     async increment(input) {
       writes.push(input);
-      return { product: { ...snapshot, [input.field]: input.nextValue, status: input.status, version: 2 }, representation: "saved" };
+      return { product: new Product({ ...snapshot, [input.field]: input.nextValue, status: input.status, version: 2 }), representation: "saved" };
     }
   };
   const publisher = { async publish(alert: InventoryStockAlert) { alerts.push(alert); } };
@@ -107,13 +107,13 @@ test("create uses trusted actor, deterministic ID/time, defaults/status and prop
   const repository: ProductCreator<string> = { async create(input) { writes.push(input); return "created"; } };
   const useCase = new CreateProduct(repository, () => id, () => new Date("2026-01-01T00:00:00.000Z"));
   assert.equal(await useCase.execute({ details: { ...details, stock: 0 }, actor: owner }), "created");
-  assert.equal(writes[0].ownerId, "owner");
-  assert.equal(writes[0].id, id);
+  assert.equal(writes[0].product.ownerId, "owner");
+  assert.equal(writes[0].product.id, id);
   assert.equal(writes[0].createdAt, writes[0].updatedAt);
-  assert.equal(writes[0].status, "out_of_stock");
-  assert.equal(writes[0].details.rating, 4.8);
-  assert.equal(writes[0].details.soldCount, 0);
-  assert.equal(writes[0].details.featured, false);
+  assert.equal(writes[0].product.status, "out_of_stock");
+  assert.equal(writes[0].product.toSnapshot().rating, 4.8);
+  assert.equal(writes[0].product.soldCount, 0);
+  assert.equal(writes[0].product.toSnapshot().featured, false);
   await assert.rejects(useCase.execute({ details: { ...details, stock: -1 }, actor: owner }), hasCode("INVALID_INPUT"));
   await assert.rejects(useCase.execute({ details, actor: { subject: "", isAdmin: true } }), hasCode("INVALID_INPUT"));
   const failure = new Error("create unavailable");
@@ -122,9 +122,9 @@ test("create uses trusted actor, deterministic ID/time, defaults/status and prop
 });
 
 test("delete verifies access and carries the authorized snapshot into the conditional delete", async () => {
-  let current: ProductCounters | null = snapshot;
+  let current: ProductSnapshot | null = snapshot;
   const writes: Array<Parameters<ProductDeleter["delete"]>[0]> = [];
-  const repository: ProductDeleter = { async findById() { return current; }, async delete(input) { writes.push(input); } };
+  const repository: ProductDeleter = { async findById() { return current ? new Product(current) : null; }, async delete(input) { writes.push(input); } };
   const useCase = new DeleteProduct(repository);
   await useCase.execute({ productId: id, actor: owner });
   assert.deepEqual(writes[0], { id, expectedVersion: 1, expectedOwnerId: "owner" });
@@ -269,7 +269,7 @@ test("create adapter preserves response shape, atomic product/index payload and 
   db.setCurrent(null);
   try {
     const creator = new DynamoProductCreator();
-    const saved = await creator.create({ id, ownerId: "owner", details, status: "active",
+    const saved = await creator.create({ product: Product.create(id, "owner", details),
       createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" });
     assert.equal(saved.id, id);
     assert.equal(saved.ownerSub, "owner");
@@ -278,14 +278,14 @@ test("create adapter preserves response shape, atomic product/index payload and 
     assert.equal(saved.inventoryAlertSent, false);
     assert.equal("PK" in saved, false);
     assert.equal(db.current()?.PK, `PRODUCT#${id}`);
-    await assert.rejects(creator.create({ id, ownerId: "owner", details, status: "active", createdAt: "now", updatedAt: "now" }), hasCode("CONFLICT"));
+    await assert.rejects(creator.create({ product: Product.create(id, "owner", details), createdAt: "now", updatedAt: "now" }), hasCode("CONFLICT"));
     db.setCurrent(null);
     db.failNext("TransactWriteItemsCommand", cancellation(1));
-    await assert.rejects(creator.create({ id, ownerId: "owner", details, status: "active", createdAt: "now", updatedAt: "now" }), hasCode("CONFLICT"));
+    await assert.rejects(creator.create({ product: Product.create(id, "owner", details), createdAt: "now", updatedAt: "now" }), hasCode("CONFLICT"));
     assert.equal(db.current(), null);
     const unavailable = new Error("create storage unavailable");
     db.failNext("TransactWriteItemsCommand", unavailable);
-    await assert.rejects(creator.create({ id, ownerId: "owner", details, status: "active", createdAt: "now", updatedAt: "now" }), error => error === unavailable);
+    await assert.rejects(creator.create({ product: Product.create(id, "owner", details), createdAt: "now", updatedAt: "now" }), error => error === unavailable);
     assert.equal(db.current(), null);
   } finally { db.close(); }
 });

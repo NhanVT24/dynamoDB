@@ -1,5 +1,9 @@
 # Hoàn tất các phần còn lại sau audit backend
 
+> Cập nhật 2026-10-22: business behavior tiếp tục được chuyển sang rich entities
+> và value objects. Xem [rich domain model](rich-domain-entities.md). Các số liệu
+> verification bên dưới là snapshot của đợt migration ngày 2026-10-21.
+
 Ngày: 2026-10-21. Phạm vi: source backend trong workspace; chưa deploy AWS.
 
 ## Kết quả và cách đọc cấu trúc

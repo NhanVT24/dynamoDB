@@ -10,8 +10,11 @@ export class CompleteNotifiedOrder {
   constructor(private readonly orders: NotifiedOrders) {}
   async execute(id: string) {
     const order = await this.orders.findById(id);
-    if (!order || order.status !== "pending") return { changed: false, completed: order?.status === "done" };
-    if (!await this.orders.hasSentSystemNotification(id, order.customerEmail)) return { changed: false, completed: false };
+    if (!order) return { changed: false, completed: false };
+    const entity = new Order({ id, ...order });
+    if (!entity.isAwaitingLegacyCompletion) return { changed: false, completed: entity.isLegacyCompleted };
+    if (!entity.canCompleteLegacyNotification(await this.orders.hasSentSystemNotification(id, order.customerEmail))) return { changed: false, completed: false };
     return { changed: await this.orders.completePending(id), completed: true };
   }
 }
+import { Order } from "../../storefront/domain/order.js";

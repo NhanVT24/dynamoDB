@@ -1,5 +1,8 @@
 # Hướng dẫn đọc Backend từ con số 0
 
+> Entity hiện giữ cả state và business behavior. Xem [rich domain model và flow Product](rich-domain-entities.md)
+> để biết cách dùng constructor, immutable methods và snapshot khi đọc/lưu dữ liệu.
+
 > Cập nhật Clean Architecture: xem [báo cáo migration toàn backend](clean-architecture-remaining-migration.md)
 > để biết application/domain/ports, composition và các technical exception hiện tại.
 > Các phần mô tả service/repository legacy bên dưới vẫn hữu ích để tìm adapter,

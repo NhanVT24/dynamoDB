@@ -1,3 +1,4 @@
+import { EmailRecipient } from "../domain/email-recipient.js";
 import type { FeedbackStatus } from "../domain/email-feedback.js";
 export interface DeliveryFeedback {
     status: FeedbackStatus;
@@ -50,7 +51,7 @@ export class RecordEmailFeedback {
                     if (!input.recipientEmails && recipients.length > 1)
                         throw new Error("Cannot attribute SES event to recipients.");
                     for (const recipient of recipients) {
-                        if (!input.recipientEmails || input.recipientEmails.some((address) => address.toLowerCase() === recipient.recipientEmail.toLowerCase())) {
+                        if (new EmailRecipient(recipient.recipientEmail).isAffected(input.recipientEmails)) {
                             await updateEmailRecipientStatus({ ...input, emailId, recipientId: recipient.recipientId });
                         }
                     }

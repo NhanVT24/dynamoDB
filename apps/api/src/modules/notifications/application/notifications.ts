@@ -1,3 +1,4 @@
+import { Notification } from "../domain/notification.js";
 import { ConfirmOrderPayment } from "../../storefront/application/confirm-order-payment/confirm-order-payment.js";
 import { PaymentReviewRequired } from "../../storefront/application/ports/payment-review.js";
 import { CompleteNotifiedOrder } from "./complete-notified-order.js";
@@ -128,9 +129,7 @@ export class NotificationUseCases {
         channel: "email" | "system";
         metadata?: Record<string, unknown>;
     }) {
-        if (input.channel === "email") {
-            throw new Error("Email delivery must be queued through the email route, not createPendingNotification.");
-        }
+        Notification.assertSystemChannel(input.channel);
         const notification = await this.effects.store.createNotification({
             ...input,
             status: "pending"
@@ -289,7 +288,7 @@ export class NotificationUseCases {
         const items = await this.effects.store.listNotificationsByCustomer(email);
         return {
             items,
-            pendingCount: items.filter((item) => !item.isRead).length
+            pendingCount: items.filter((item) => new Notification(item).isUnread).length
         };
     }
     async listForPrincipal(input: {
@@ -300,14 +299,10 @@ export class NotificationUseCases {
             return this.listForCustomer(input.email);
         }
         const items = await this.effects.store.listAllNotifications();
-        const adminEmails = new Set([input.email, String(this.config.adminEmail ?? "").trim().toLowerCase()].filter(Boolean));
-        const adminItems = items.filter((item) => {
-            const audience = String(item.metadata?.audience ?? "").trim().toLowerCase();
-            return audience === "admin" || adminEmails.has(String(item.customerEmail ?? "").trim().toLowerCase());
-        });
+        const adminItems = items.filter(item => new Notification(item).isVisibleToAdmin(input.email, this.config.adminEmail));
         return {
             items: adminItems,
-            pendingCount: adminItems.filter((item) => !item.isRead).length
+            pendingCount: adminItems.filter((item) => new Notification(item).isUnread).length
         };
     }
     async markAsRead(email: string, id: string) {
